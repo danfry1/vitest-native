@@ -1834,7 +1834,7 @@ export class OwnershipSummaryReporter {
     meta(): Record<string, unknown>;
     errors?(): readonly { message?: string }[];
   }): void {
-    const test = path.relative(process.cwd(), testModule.moduleId);
+    const test = path.relative(process.cwd(), testModule.moduleId).split(path.sep).join("/");
     const data = testModule.meta()?.[OWNERSHIP_META_KEY] as
       | {
           mode: string;
@@ -1875,7 +1875,9 @@ export class OwnershipSummaryReporter {
     const lines: string[] = [];
     if (this.found.size > 0) {
       const files = new Set([...this.found.values()].flatMap((cause) => [...cause.files]));
-      const rel = (file: string) => path.relative(process.cwd(), file) || file;
+      // Forward slashes on every platform, as the guard's other messages print paths.
+      const rel = (file: string) =>
+        (path.relative(process.cwd(), file) || file).split(path.sep).join("/");
       const some = (items: Set<string>) =>
         [...items].slice(0, 3).join(", ") + (items.size > 3 ? `, +${items.size - 3} more` : "");
       lines.push(
