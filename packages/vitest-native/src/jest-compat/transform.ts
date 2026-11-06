@@ -1,6 +1,7 @@
 import type { Plugin } from "vite";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { MagicString } from "magic-string";
 import { findNodeModuleMocks, type ManualMocks } from "./root-mocks.js";
 
@@ -302,13 +303,31 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
       const owner = rootMockModules.has(file)
         ? (projectsByRoot.get(rootMockModules.get(file)!.root) ?? project)
         : project;
+      // The manual mocks of the project this file belongs to (the longest root containing
+      // it), for a factory-less jest.mock(name) in it: Jest gives that call the manual mock.
+      let module: RootMockModule | undefined;
+      for (const candidate of rootMockModules.values()) {
+        if (
+          (file === candidate.root ||
+            file.startsWith(candidate.root + path.sep) ||
+            file.startsWith(candidate.root + "/")) &&
+          (!module || candidate.root.length > module.root.length)
+        ) {
+          module = candidate;
+        }
+      }
+      const moduleOwner = module ? (projectsByRoot.get(module.root) ?? project) : project;
+      const manualMockFor = (spec: string): string | null => {
+        const mock = module?.mocks.find((m) => m.spec === spec);
+        return mock && !moduleOwner.coveredBy(spec) ? mock.file : null;
+      };
       const finish = (adapted: Adapted | null) => {
         if (!adapted?.changed) return null;
         if (adapted.usesSetup) adapted.s.prepend(SETUP_ACCESSOR);
         return { code: adapted.s.toString(), map: adapted.s.generateMap({ hires: true }) };
       };
       // Synchronous unless a factory's jest.requireActual has to be resolved.
-      const adapted = adapt(this, code, id, owner);
+      const adapted = adapt(this, code, id, owner, manualMockFor);
       return adapted instanceof Promise ? adapted.then(finish) : finish(adapted);
     },
   } as Plugin;
@@ -349,11 +368,9 @@ function warnOnce(message: string): void {
 }
 
 /**
- * The generated setup module: one `jest.mock()` per manual mock, which the transform
- * then adapts like any other. A mock in the Vite root's own `__mocks__` is factory-less,
- * which Vitest resolves to that file itself; any other (deeper, another root, or Jest's
- * `name/index` fallback) gets a factory loading the file, since Vitest looks only there.
- * A package reactNative() already stands in for is left to it, with a warning.
+ * The generated setup module: one `jest.mock()` per manual mock, with a factory loading
+ * its file, which the transform then adapts like any other. A package reactNative()
+ * already stands in for is left to it, with a warning.
  */
 export function rootMocksSource(
   module: RootMockModule,
@@ -370,7 +387,6 @@ export function rootMocksSource(
       ].join("\n"),
     );
   }
-  const topLevel = path.join(module.root, "__mocks__");
   const calls: string[] = [];
   for (const mock of module.mocks) {
     const covered = coveredBy(mock.spec);
@@ -382,15 +398,44 @@ export function rootMocksSource(
       );
       continue;
     }
-    const factoryLess =
-      !mock.viaIndex && path.dirname(path.join(topLevel, mock.spec)) === path.dirname(mock.file);
-    calls.push(
-      factoryLess
-        ? `jest.mock(${JSON.stringify(mock.spec)});`
-        : `jest.mock(${JSON.stringify(mock.spec)}, () => jest.requireActual(${JSON.stringify(mock.file)}));`,
-    );
+    // A factory loading the file, for every manual mock: the transform registers a factory
+    // with Node's registry too, so a require() of the package gets the mock, as an import
+    // does. (A factory-less jest.mock reached only Vite's graph, and Vitest's own lookup
+    // finds a file only in the root's top-level __mocks__.)
+    calls.push(`jest.mock(${JSON.stringify(mock.spec)}, ${manualMockFactory(mock.file)});`);
   }
-  return `${calls.join("\n")}\nexport {};\n`;
+  // The jest-compat setup first, wherever the project loads it (test.setupFiles, or an
+  // import in its own setup file): an ES module runs once, so this only orders it ahead of
+  // the registrations, which need its Node-side registry. Inside vi.hoisted, because Vitest
+  // hoists the registrations above a module's static imports; hoisted calls keep their
+  // order, so this one runs first.
+  return (
+    `import { vi } from "vitest";\n` +
+    `await vi.hoisted(async () => {\n  await import(${JSON.stringify(jestCompatSetupFile())});\n});\n` +
+    `${calls.join("\n")}\nexport {};\n`
+  );
+}
+
+/**
+ * The jest-compat setup file this plugin ships, by path: the file `jestCompatSetup`
+ * resolves to from the project, so importing it is the same module, evaluated once.
+ * Resolved here, inside the package, because the generated module's own directory may not
+ * resolve the package by name (a project outside its install, as this repository's
+ * fixtures are).
+ */
+let setupFile: string | undefined;
+function jestCompatSetupFile(): string {
+  setupFile ??= fileURLToPath(import.meta.resolve("vitest-native/jest-compat/setup"));
+  return setupFile;
+}
+
+/**
+ * The factory that loads a manual mock's file. Named, so jest-compat's registry knows it
+ * for a manual mock (MANUAL_MOCK_FACTORY in node-registry.mjs): while it runs, the module
+ * it mocks is the real one, as under Jest.
+ */
+function manualMockFactory(file: string): string {
+  return `function __vnManualMock() { return jest.requireActual(${JSON.stringify(file)}); }`;
 }
 
 /** A file's jest.* calls, adapted (see rewrite). */
@@ -405,6 +450,7 @@ function adapt(
   code: string,
   id: string,
   project: Project,
+  manualMockFor: (spec: string) => string | null = () => null,
 ): Adapted | null | Promise<Adapted | null> {
   let ast: any;
   try {
@@ -421,7 +467,7 @@ function adapt(
     const calls = ownRequireActualCalls(factory);
     if (calls.length > 0) candidates.set(factory, calls);
   });
-  if (candidates.size === 0) return rewrite(code, ast, new Map());
+  if (candidates.size === 0) return rewrite(code, ast, new Map(), manualMockFor);
 
   const specs = new Set([...candidates.values()].flat().map((call) => call.spec));
   return Promise.all(
@@ -439,7 +485,7 @@ function adapt(
       const moved = calls.filter((call) => owned.has(call.spec)).map((call) => call.node);
       if (moved.length > 0) toAsync.set(factory, moved);
     }
-    return rewrite(code, ast, toAsync);
+    return rewrite(code, ast, toAsync, manualMockFor);
   });
 }
 
@@ -462,7 +508,12 @@ function mockFactoryOf(node: any): any {
  * The transform itself. `toAsync` maps a factory to the `jest.requireActual` calls that
  * load through Vite instead (see "`jest.requireActual` of project source" above).
  */
-function rewrite(code: string, ast: any, toAsync: Map<any, any[]>): Adapted {
+function rewrite(
+  code: string,
+  ast: any,
+  toAsync: Map<any, any[]>,
+  manualMockFor: (spec: string) => string | null = () => null,
+): Adapted {
   const s = new MagicString(code);
   let changed = false;
   // Statements at the top level, where a registration can be hoisted beside them.
@@ -514,6 +565,31 @@ function rewrite(code: string, ast: any, toAsync: Map<any, any[]>): Adapted {
         specNode.type === "Identifier")
         ? code.slice(specNode.start, specNode.end)
         : null;
+
+    // A factory-less jest.mock(name) of a package with a manual mock under the project's
+    // roots: Jest gives it that manual mock. Vitest would look only in the root's
+    // top-level __mocks__ and otherwise automock, replacing the setup's registration of
+    // the manual mock (rootMocksSource), so it is registered as that factory instead:
+    // synchronous for Node's require, and through Vite for the file's imports.
+    const literal =
+      specNode && specNode.type === "Literal" && typeof specNode.value === "string"
+        ? specNode.value
+        : null;
+    const manualMock =
+      prop.name === "mock" && node.arguments.length === 1 && literal !== null
+        ? manualMockFor(literal)
+        : null;
+    const mockStatement = topLevel.get(node);
+    if (manualMock !== null && mockStatement) {
+      usesSetup = true;
+      const file = JSON.stringify(manualMock);
+      const original = manualMockFactory(manualMock);
+      const viaVite = `async () => (${SETUP}("__vnActualExports")(await vi.importActual(${file})))`;
+      const register = `globalThis.__vnJestMock?.(import.meta.url, ${spec}, ${original}, ${viaVite})`;
+      s.prependLeft(mockStatement.start, `vi.hoisted(() => ${register});\n`);
+      s.appendLeft(specNode.end, `, () => ${SETUP}("__vnJestMocked")(import.meta.url, ${spec})`);
+      return;
+    }
 
     if (WITH_FACTORY.has(prop.name) && node.arguments.length >= 2) {
       const factory = node.arguments[1];

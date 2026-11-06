@@ -41,8 +41,24 @@ export interface DuplicateMock {
 /** Jest's default moduleFileExtensions, less `node` (a binary addon is no mock source). */
 const MOCK_FILE = /\.(?:[cm]?js|jsx|ts|tsx|json)$/;
 const MOCKS_SEGMENT = `${path.sep}__mocks__${path.sep}`;
-/** Never crawled: Jest skips node_modules, and git's own data holds no source. */
-const SKIPPED = new Set(["node_modules", ".git"]);
+/**
+ * Never crawled: node_modules and git's own data, as Jest skips them, and the build and
+ * native folders an app tree holds, where a manual mock never lives and which are large
+ * (CocoaPods alone made one app's crawl 167 ms). Jest crawls the latter unless
+ * `modulePathIgnorePatterns` names them; skipping them by default changes which mocks
+ * apply only for a mock kept inside a build output, which no project does on purpose.
+ */
+const SKIPPED = new Set([
+  "node_modules",
+  ".git",
+  "ios",
+  "android",
+  "Pods",
+  "build",
+  ".expo",
+  ".tmp",
+  "dist",
+]);
 
 /** The package a request names: `@scope/pkg` for `@scope/pkg/sub`, `pkg` for `pkg/sub`. */
 export function packageOfRequest(spec: string): string {
@@ -104,10 +120,25 @@ export interface ManualMocks {
  * and its package is installed. `ignore` is Jest's `modulePathIgnorePatterns`, tested
  * against absolute paths as Jest tests them.
  */
+// One crawl per set of roots, project and ignore patterns in this process: test.projects
+// and every config resolution of a run share it.
+const crawls = new Map<string, ManualMocks>();
+
 export function findNodeModuleMocks(
   roots: readonly string[],
   projectRoot: string,
   ignore: readonly RegExp[] = [],
+): ManualMocks {
+  const key = JSON.stringify([roots, projectRoot, ignore.map(String)]);
+  let found = crawls.get(key);
+  if (!found) crawls.set(key, (found = findUncached(roots, projectRoot, ignore)));
+  return found;
+}
+
+function findUncached(
+  roots: readonly string[],
+  projectRoot: string,
+  ignore: readonly RegExp[],
 ): ManualMocks {
   const files: string[] = [];
   const seen = new Set<string>();

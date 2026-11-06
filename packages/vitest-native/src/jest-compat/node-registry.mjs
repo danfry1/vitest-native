@@ -56,6 +56,9 @@ const resolverAliases =
     : null;
 const requireAliases = context?.requireAliases ?? [];
 
+/** The name of the factory that loads a manual mock (see `manual` in state.register). */
+export const MANUAL_MOCK_FACTORY = "__vnManualMock";
+
 export const config = {
   projectRoot: context?.projectRoot ?? process.cwd(),
   platform: context?.platform === "android" ? "android" : "ios",
@@ -329,6 +332,10 @@ function createState() {
       spec,
       factory,
       asyncFactory,
+      // A manual mock (a __mocks__ file, jest-compat/root-mocks.ts): while it executes, a
+      // request for the module it mocks is the real module, as jest-runtime's
+      // `_isCurrentlyExecutingManualMock` has it, not a cycle.
+      manual: factory?.name === MANUAL_MOCK_FACTORY,
       has: false,
       value: undefined,
       pending: null,
@@ -1151,7 +1158,13 @@ function installLoadHook(state) {
         const entry = state.lookup(filename, request);
         // R8: requireActual's load is the real module, past a vi.mock too; it may still
         // share Vite's instance of a project file below, as before.
-        const bypassed = entry === BYPASSED;
+        const executingManualMock =
+          entry !== undefined &&
+          entry !== BYPASSED &&
+          entry.manual &&
+          !entry.has &&
+          (entry.evaluating || entry.pending !== null);
+        const bypassed = entry === BYPASSED || executingManualMock;
         // A package reaching its own entry relatively, mocked for the whole package, is
         // the real module, as under Jest (isPackageOwnRelativeLoad): no mock serves it.
         const ownRelative =

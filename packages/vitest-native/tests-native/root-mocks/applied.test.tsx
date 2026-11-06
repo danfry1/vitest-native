@@ -18,8 +18,19 @@ test("an app module's import of a React Native package gets the root mock", asyn
   expect(screen.getByTestId("banner")).toHaveTextContent("mocked Ada");
 });
 
-test("a plain package gets the root mock", () => {
+test("a plain package gets the root mock, through import and through require()", () => {
   expect(count()).toBe(-1);
+  expect(require("resident-singleton").count()).toBe(-1);
+});
+
+test("a root mock of a package only ever required reaches require()", () => {
+  expect(require("rn-condition-cjs-lib").source).toBe("the manual mock, through require");
+});
+
+test("a manual mock that requires its own package gets the real module", async () => {
+  const lib = await import("dispatch-target-lib");
+  expect(lib.source).toBe("the mock over the real module");
+  expect(lib.kind).toBe("top");
 });
 
 test("the setup file got the mock too", () => {
