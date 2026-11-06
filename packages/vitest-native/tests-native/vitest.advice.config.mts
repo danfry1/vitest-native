@@ -7,7 +7,7 @@ import { reactNative } from "../dist/index.mjs";
 // error. One config proves the diagnosis, this one proves the cure.
 export default defineConfig({
   plugins: [
-    reactNative({ engine: "native", hotRuntime: false, transform: ["untranspiled-jsx-lib"] }),
+    reactNative({ ownership: "error", engine: "native", hotRuntime: false, transform: ["untranspiled-jsx-lib"] }),
   ],
   test: {
     globals: true,

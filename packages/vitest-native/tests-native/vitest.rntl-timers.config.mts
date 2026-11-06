@@ -26,7 +26,7 @@ export default defineConfig(({ mode }) => {
   const dir = mode.startsWith("setup-") ? "rntl-timers-setup" : "rntl-timers";
   return {
     plugins: [
-      reactNative({
+      reactNative({ ownership: "error",
         engine: "native",
         hotRuntime: hot ? { allowUnboundedMemory: true } : false,
       }),

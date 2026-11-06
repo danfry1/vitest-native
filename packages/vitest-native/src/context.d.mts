@@ -20,6 +20,7 @@ export interface ProjectContextFields {
   /** The library registry layered on `registry` (registry.mjs, buildLibraryRegistry). */
   libraryRegistry?: string;
   ownership?: Record<string, unknown>;
+  ownershipGuard?: { mode: "warn" | "error"; allow: { path: string; reason: string }[] };
   projectDirs?: string[];
   requireAliases?: [string, string][];
   requireAliasesSkipped?: string[];

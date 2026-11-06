@@ -55,6 +55,7 @@ export default defineConfig({
       diagnostics: true,
       engine: "native",
       hotRuntime: ${JSON.stringify(hotRuntime)},
+      ownership: "error",
     }),
   ],
   test: {

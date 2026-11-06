@@ -15,6 +15,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig(({ mode }) => ({
   plugins: [
     reactNative({
+      ownership: "error",
       engine: "native",
       hotRuntime: false,
       ...(mode === "ownership" ? { experimental: { ownershipModel: "resolver" as const } } : {}),

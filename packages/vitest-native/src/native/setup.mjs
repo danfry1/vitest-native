@@ -21,6 +21,7 @@ import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
 import { beginTestFile, installLibraryJest } from "./library-jest.mjs";
 import { cacheRootFor } from "./transform.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
+import { OWNERSHIP_META_KEY, installOwnershipLedger } from "./ownership-ledger.mjs";
 import { installRntlAutoCleanup } from "../rntl-support.mjs";
 import { registerVirtualTextHost } from "./rntl-text-host.mjs";
 import { shareProjectModules } from "../jest-compat/node-registry.mjs";
@@ -164,6 +165,44 @@ const nodeTransformPkgs = [...new Set([...transformPkgs, ...Object.keys(presetEx
 // imports react-native, after this setup runs) so its bytecode is cached to disk
 // and reused on the next file/worker/run. Covers the stock (non-hot) path.
 enableV8CompileCache(projectRoot);
+// Before anything else loads through Node: the guard records every evaluation from here
+// on, on both sides (docs/ownership-guard.md). Once per worker; the hot worker installs
+// it at boot instead.
+const ownershipLedger = installOwnershipLedger({ projectRoot });
+// Every dual evaluation this file caused, once its tests are done: one a library
+// swallowed (`try { require(x) } catch {}` turns the error into "x is missing") still
+// fails the file in error mode, and the reporter prints them all at the end of the run
+// whatever the reporter or `silent` setting (ownership-reporter in plugin.ts).
+const ownershipStart = ownershipLedger.conflicts.length;
+// No declared parameters: Vitest 5 parses a hook's first parameter as a fixture
+// pattern and passes the file suite second, Vitest 4 passes it first.
+afterAll(function () {
+  // oxlint-disable-next-line prefer-rest-params -- a rest parameter is parsed as a fixture too
+  const file = [...arguments].find((arg) => arg && typeof arg === "object" && "tasks" in arg);
+  const found = ownershipLedger.conflicts.slice(ownershipStart);
+  if (file && typeof file === "object") {
+    file.meta ??= {};
+    file.meta[OWNERSHIP_META_KEY] = {
+      mode: ownershipLedger.mode,
+      conflicts: found.map(({ file: f, first, second, route, via }) => ({
+        file: f,
+        first,
+        second,
+        route,
+        via,
+      })),
+      allowUsed: [...ownershipLedger.allowUsed],
+    };
+  }
+  if (ownershipLedger.mode === "error" && found.length > 0) {
+    throw new VitestNativeError(
+      "SOURCE_EVALUATED_TWICE",
+      `${found.length} file(s) were evaluated by both Node and Vite during this test file ` +
+        `(ownership: 'error'), including any whose error a try/catch swallowed:\n` +
+        found.map((c) => c.message).join("\n\n"),
+    );
+  }
+});
 installGlobals({ projectRoot, platform });
 // Before React Native loads: its lookups ask the boundary which modules exist.
 installKnownNativeModules(projectRoot);

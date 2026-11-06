@@ -39,6 +39,7 @@ const SCHEMA = {
   registry: { valid: absolute },
   libraryRegistry: { valid: absolute },
   ownership: { valid: object },
+  ownershipGuard: { valid: object },
   projectDirs: { valid: strings },
   requireAliases: {
     valid: (v) =>

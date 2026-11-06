@@ -98,6 +98,10 @@ A library asked Nitro for a native HybridObject, which has no implementation in 
 
 vitest-native's module loader was given a step it does not know. Usually two copies of vitest-native, of different versions, are loaded into the same process; no configuration causes it otherwise. Install one vitest-native version (dedupe it in the workspace), and report it with your config if it persists.
 
+### `SOURCE_EVALUATED_TWICE` {#SOURCE_EVALUATED_TWICE}
+
+One file was evaluated by both Node and Vite in the same worker, so it exists twice, and module state written through one copy is not seen by the other. The message names the file, the module system that owns it, which side evaluated it first and second, the route that reached it, and the fix for that route. With [`ownership`](/guide/plugin-options#ownership) at its default, `'warn'`, it is reported once per worker; with `'error'` it fails the test file. A deliberate case can be exempted with `ownership.allow: [{ path, reason }]`.
+
 ### `LIBRARY_REGISTRY_FAILED` {#LIBRARY_REGISTRY_FAILED}
 
 vitest-native could not precompile the modules of libraries such as Reanimated and Worklets into one file, which makes them load faster. You see it as a warning, `could not precompile the library registry (…); those libraries load file by file, which is slower`, and results are unaffected; the code itself is raised only inside the process that builds the file. The build is retried once any file it read changes. To retry sooner, delete the `registry` folder in vitest-native's cache ([where it lives](/guide/troubleshooting#when-react-native-s-precompiled-modules-are-reused-or-rebuilt)). If the warning keeps coming back, report the reason it names.
