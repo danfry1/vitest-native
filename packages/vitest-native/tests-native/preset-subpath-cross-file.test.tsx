@@ -9,14 +9,14 @@ import { describe, it, expect } from "vitest";
 
 describe("preset subpath identity across hot-worker files", () => {
   it("CJS subpath leaf is the current file's root mock export", () => {
-    const viaSubpath = require("react-native-gesture-handler/Swipeable");
-    const root = require("react-native-gesture-handler");
-    expect(viaSubpath.default).toBe(root.Swipeable);
+    const viaSubpath = require("react-native-safe-area-context/lib/commonjs/SafeAreaView");
+    const root = require("react-native-safe-area-context");
+    expect(viaSubpath.default).toBe(root.SafeAreaView);
   });
 
   it("repeated requires stay identity-stable within the file", () => {
-    const a = require("react-native-gesture-handler/Swipeable");
-    const b = require("react-native-gesture-handler/Swipeable");
+    const a = require("react-native-safe-area-context/lib/commonjs/SafeAreaView");
+    const b = require("react-native-safe-area-context/lib/commonjs/SafeAreaView");
     expect(a).toBe(b);
   });
 });

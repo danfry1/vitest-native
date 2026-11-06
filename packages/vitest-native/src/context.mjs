@@ -37,6 +37,7 @@ const SCHEMA = {
   sourceMaps: { valid: (v) => typeof v === "boolean" },
   hotReleaseGenerations: { valid: (v) => typeof v === "boolean" },
   registry: { valid: absolute },
+  libraryRegistry: { valid: absolute },
   ownership: { valid: object },
   projectDirs: { valid: strings },
   requireAliases: {
@@ -50,6 +51,7 @@ const SCHEMA = {
   presetExports: { valid: object },
   presetModules: { valid: strings },
   presetDisabled: { valid: strings },
+  librarySetupFiles: { valid: strings },
   mocks: { valid: (v) => v !== undefined },
   knownNativeModules: { valid: strings },
   nativeModuleSpecs: { valid: object },

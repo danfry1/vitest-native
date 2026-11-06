@@ -17,6 +17,8 @@ export interface ProjectContextFields {
   sourceMaps?: boolean;
   hotReleaseGenerations?: boolean;
   registry?: string;
+  /** The library registry layered on `registry` (registry.mjs, buildLibraryRegistry). */
+  libraryRegistry?: string;
   ownership?: Record<string, unknown>;
   projectDirs?: string[];
   requireAliases?: [string, string][];
@@ -28,6 +30,7 @@ export interface ProjectContextFields {
   presetExports?: Record<string, string[] | null>;
   presetModules?: string[];
   presetDisabled?: string[];
+  librarySetupFiles?: string[];
   mocks?: unknown;
   knownNativeModules?: string[];
   nativeModuleSpecs?: Record<string, string[]>;

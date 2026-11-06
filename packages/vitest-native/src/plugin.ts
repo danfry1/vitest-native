@@ -112,6 +112,9 @@ import {
   PRESET_MODULES,
   presetForInstalled,
   autoDetectedPresetApplies,
+  libraryRegistryEntries,
+  LIBRARY_SETUP_FILES,
+  type PresetName,
 } from "./preset-map.js";
 
 async function autoDetectPresets(diagnostics: boolean, projectRoot: string): Promise<Preset[]> {
@@ -594,14 +597,21 @@ async function startRequireBridge(project: BridgeProject, vitest: unknown): Prom
   (vitest as { onClose?: (fn: () => unknown) => void }).onClose?.(() => server.close());
 }
 
+interface BuiltRegistries {
+  registry: string;
+  libraryRegistry: string | null;
+}
+
 /**
  * Build (or reuse) the precompiled React Native registry for a project.
  *
  * The builder ships as runtime `.mjs` next to this file (it is also imported by the
  * native setup file, which Node loads directly), so it is reached through a computed
  * dynamic import rather than a static one — a static specifier would bundle a second
- * copy into the plugin entry. Returns the registry path, or null when one could not
- * be produced, in which case the engine keeps loading RN file by file.
+ * copy into the plugin entry. Returns the registry paths (React Native's, and the
+ * library registry layered on it when `libraryEntries` names any), or null when React
+ * Native's could not be produced, in which case the engine keeps loading RN file by
+ * file.
  */
 interface RegistryOptions {
   projectRoot: string;
@@ -611,15 +621,16 @@ interface RegistryOptions {
   sourceExts: string[];
   diagnostics: boolean;
   resolverInputs?: ResolverInputs;
+  libraryEntries?: string[];
 }
 
-async function buildRegistryFor(options: RegistryOptions): Promise<string | null> {
+async function buildRegistryFor(options: RegistryOptions): Promise<BuiltRegistries | null> {
   try {
     const dir = path.dirname(fileURLToPath(import.meta.url));
     const module = (await import(
       pathToFileURL(path.resolve(dir, "native/registry-process.mjs")).href
     )) as {
-      buildRegistryFor: (o: typeof options) => Promise<string | null>;
+      buildRegistryFor: (o: typeof options) => Promise<BuiltRegistries | null>;
     };
     return module.buildRegistryFor(options);
   } catch (error) {
@@ -1040,7 +1051,10 @@ const UTILITY_SUBPATH_LEAVES = new Set(["jest-utils", "jestSetup", "mock", "plug
 
 function isUtilitySubpath(specifier: string): boolean {
   const leaf = subpathLeafOf(specifier);
-  return leaf !== null && UTILITY_SUBPATH_LEAVES.has(leaf);
+  if (leaf !== null && UTILITY_SUBPATH_LEAVES.has(leaf)) return true;
+  // A package's `jest/` directory is its test tooling, as in native/match.mjs.
+  const pkg = packageNameOf(specifier);
+  return pkg !== specifier && specifier.slice(pkg.length + 1).split("/")[0] === "jest";
 }
 
 /** Check if a value (or any nested value) contains functions. */
@@ -2351,6 +2365,25 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (options?.experimental?.nodeMocks === true || ownershipModel === "resolution") {
           fields.nodeMocks = true;
         }
+        // The Jest setup files of installed libraries whose preset steps aside here and
+        // that run as themselves (LIBRARY_SETUP_FILES), for the native setup file to
+        // run ahead of the project's own.
+        let ownJestSupport: string[] = [];
+        if (!selection.listed) {
+          const librarySetupFiles = autoDetectPresetNames(resolvedRoot, diagnostics)
+            .filter((n) => !disabledNative.has(n) && !nativePresetNames.includes(n))
+            .map((n) => LIBRARY_SETUP_FILES[n as PresetName])
+            .filter((file): file is string => typeof file === "string");
+          if (librarySetupFiles.length > 0) {
+            fields.librarySetupFiles = librarySetupFiles;
+          }
+          // experimental.ownershipModel: these libraries run as themselves under their own
+          // Jest support, so both module systems resolve them as Jest does, to `main`
+          // (decision (d)): one file, the one their Jest setup and test utilities load.
+          ownJestSupport = librarySetupFiles.map((request) => packageNameOf(request));
+          const pending = pendingResolverInputs.get(directoryKey(resolvedRoot));
+          if (pending && ownJestSupport.length > 0) pending.ownJestSupport = ownJestSupport;
+        }
         if (selection.modulePaths.length > 0) {
           fields.presetModules = selection.modulePaths;
         }
@@ -2414,7 +2447,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           memoizePackageDirOf(dependencyDirOf),
           {
             compileReactNativeFieldSource:
-              ownershipModel && engine === "native" ? { platform, sourceExts } : undefined,
+              ownershipModel && engine === "native"
+                ? { platform, sourceExts, resolvedToMain: ownJestSupport }
+                : undefined,
             reachedPaths: aliasTargets,
             onReachedUndeclared: (name, dir) => {
               if (diagnostics) {
@@ -2596,6 +2631,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           assetExts: assetExtList,
           sourceExts,
           diagnostics,
+          libraryEntries: libraryRegistryEntries(resolvedRoot, fields.presetNames ?? []),
         };
         // experimental.ownershipModel: the registry's walk resolves with the shared
         // resolver, whose inputs are final only in configureVitest (the conditions come
@@ -2603,8 +2639,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (fields.ownershipModel) {
           pendingRegistries.set(directoryKey(resolvedRoot), registryOptions);
         } else {
-          const registryFile = await buildRegistryFor(registryOptions);
-          if (registryFile) fields.registry = registryFile;
+          const registries = await buildRegistryFor(registryOptions);
+          if (registries) {
+            fields.registry = registries.registry;
+            if (registries.libraryRegistry) fields.libraryRegistry = registries.libraryRegistry;
+          }
         }
 
         // Lazy import: pulls in vitest/node, which only exists when running under
@@ -2882,7 +2921,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         let shadows = false;
         for (const [moduleName, presetModule] of Object.entries(preset.modules)) {
           const names = presetModule.exportsFor
-            ? presetModule.exportsFor({ projectRoot: config.root, platform: resolved.platform })
+            ? presetModule.exportsFor({
+                projectRoot: config.root,
+                platform: resolved.platform,
+                engine,
+              })
             : presetModule.exports;
           exportsByModule[moduleName] = names;
           if (names === null) continue;
@@ -3384,8 +3427,19 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         ? pendingRegistries.get(directoryKey(root))
         : undefined;
       if (registryOptions) {
-        ownershipReady = buildRegistryFor({ ...registryOptions, resolverInputs }).then((registry) =>
-          publish(registry ? { ...changes, registry } : changes),
+        ownershipReady = buildRegistryFor({ ...registryOptions, resolverInputs }).then(
+          (registries) =>
+            publish(
+              registries
+                ? {
+                    ...changes,
+                    registry: registries.registry,
+                    ...(registries.libraryRegistry
+                      ? { libraryRegistry: registries.libraryRegistry }
+                      : {}),
+                  }
+                : changes,
+            ),
         );
       } else {
         publish(changes);

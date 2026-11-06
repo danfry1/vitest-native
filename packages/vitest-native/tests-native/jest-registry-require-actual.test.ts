@@ -9,7 +9,7 @@
  * too. Under Vitest the variant loads through Node, where no mock applied, so it read
  * the REAL storage.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { kind, sessionId } from "@vn-app/registry/session";
 
 declare const jest: {
@@ -55,5 +55,22 @@ describe("require() from a test file", () => {
     expect(jest.requireMock("@vn-app/registry/storage")).toBe(required);
     // A relative specifier resolves against this file and lands on the same entry.
     expect(require("./fixtures/alias-app/registry/storage")).toBe(required);
+  });
+});
+
+describe("jest.requireActual of a package a preset shadows", () => {
+  it("is the package, not the preset", () => {
+    // The safe-area-context preset shadows the package by name (its module is the
+    // library's own mock, whose hooks are mock functions); Jest's requireActual gives
+    // the real package, whose hooks are not.
+    const actual = jest.requireActual<Record<string, unknown>>("react-native-safe-area-context");
+    const shadowed = jest.requireMock<Record<string, unknown>>("react-native-safe-area-context");
+    expect(vi.isMockFunction(shadowed.useSafeAreaInsets)).toBe(true);
+    expect(typeof actual.useSafeAreaInsets).toBe("function");
+    expect(vi.isMockFunction(actual.useSafeAreaInsets)).toBe(false);
+    // Only that load: the next one by name is the preset again.
+    expect(jest.requireMock<Record<string, unknown>>("react-native-safe-area-context")).toBe(
+      shadowed,
+    );
   });
 });

@@ -67,7 +67,7 @@ installKnownNativeModules(projectRoot);
 // worker holding a second, separate copy of RN's singletons from the one every
 // test file sees.
 if (context.registry) {
-  installRegistry(context.registry, projectRoot, sourceExts);
+  installRegistry(context.registry, projectRoot, sourceExts, context.libraryRegistry);
 }
 installRequireHooks(
   projectRoot,

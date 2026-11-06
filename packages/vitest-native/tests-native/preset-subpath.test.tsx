@@ -1,10 +1,11 @@
 /**
  * Deep (subpath) imports of preset packages whose leaf the mock exports are shadowed
- * like the root import: `import Swipeable from 'react-native-gesture-handler/Swipeable'`
- * is a common real-app pattern, and RNGH 3.x no longer ships a /Swipeable file, so
- * pre-3.x app code only works because of the redirect. Any other subpath loads its real
- * file, as `jest.mock(pkg)` leaves a package's subpaths alone under Jest: serving the
- * root mock for it gave the importer another module's exports.
+ * like the root import
+ * (`import SafeAreaView from 'react-native-safe-area-context/lib/commonjs/SafeAreaView'`):
+ * letting one fall through would load a second, real copy of a package the preset
+ * stands in for. Any other subpath loads its real file, as `jest.mock(pkg)` leaves a
+ * package's subpaths alone under Jest: serving the root mock for it gave the importer
+ * another module's exports.
  *
  * JSON subpaths are exempt: `require('pkg/package.json').version` gates must
  * read the real manifest.
@@ -14,17 +15,17 @@ import React from "react";
 import { render, screen } from "@testing-library/react-native";
 import { Text } from "react-native";
 // @ts-expect-error — no type declarations for the deep path (redirected at runtime)
-import Swipeable from "react-native-gesture-handler/Swipeable";
-import { Swipeable as RootSwipeable } from "react-native-gesture-handler";
+import SubpathSafeAreaView from "react-native-safe-area-context/lib/commonjs/SafeAreaView";
+import { SafeAreaView as RootSafeAreaView } from "react-native-safe-area-context";
 
 describe("preset subpath imports under the native engine", () => {
   it("ESM deep import yields the preset mock's leaf export and renders", async () => {
-    expect(Swipeable).toBeTruthy();
-    expect(Swipeable).toBe(RootSwipeable);
+    expect(SubpathSafeAreaView).toBeTruthy();
+    expect(SubpathSafeAreaView).toBe(RootSafeAreaView);
     await render(
-      <Swipeable>
+      <SubpathSafeAreaView>
         <Text>row content</Text>
-      </Swipeable>,
+      </SubpathSafeAreaView>,
     );
     expect(screen.getByText("row content")).toBeTruthy();
   });
@@ -33,9 +34,9 @@ describe("preset subpath imports under the native engine", () => {
   // runtime preset mocks are rebuilt per file, so a stale subpath cache would
   // surface here as an identity mismatch (see preset-subpath-cross-file twin).
   it("CJS subpath leaf identity matches the current root mock", () => {
-    const viaSubpath = require("react-native-gesture-handler/Swipeable");
-    const root = require("react-native-gesture-handler");
-    expect(viaSubpath.default).toBe(root.Swipeable);
+    const viaSubpath = require("react-native-safe-area-context/lib/commonjs/SafeAreaView");
+    const root = require("react-native-safe-area-context");
+    expect(viaSubpath.default).toBe(root.SafeAreaView);
   });
 
   // Utility subpaths (jest-utils, jestSetup, mock, plugin) passing through to
@@ -58,8 +59,8 @@ describe("preset subpath imports under the native engine", () => {
   });
 
   it("CJS deep require yields the leaf with interop default, identity-stable", () => {
-    const a = require("react-native-gesture-handler/Swipeable");
-    const b = require("react-native-gesture-handler/Swipeable");
+    const a = require("react-native-safe-area-context/lib/commonjs/SafeAreaView");
+    const b = require("react-native-safe-area-context/lib/commonjs/SafeAreaView");
     expect(a.default).toBeTruthy();
     expect(a.__esModule).toBe(true);
     // Memoized: repeated requires must return the same object (spies/instanceof).
@@ -84,14 +85,13 @@ describe("preset subpath imports under the native engine", () => {
     const root = require("react-native-safe-area-context");
     const required = require("react-native-safe-area-context/src");
     expect(required.SafeAreaView).toBe(root.SafeAreaView);
-    expect(typeof required._setInsets).toBe("function");
     const imported = await import("react-native-safe-area-context/src");
     expect(imported.SafeAreaView).toBe(root.SafeAreaView);
   });
 
   it("package.json subpath reads the real manifest", () => {
-    const pkg = require("react-native-gesture-handler/package.json");
-    expect(pkg.name).toBe("react-native-gesture-handler");
+    const pkg = require("react-native-safe-area-context/package.json");
+    expect(pkg.name).toBe("react-native-safe-area-context");
     expect(typeof pkg.version).toBe("string");
   });
 });

@@ -79,6 +79,10 @@ function canonicalInputs(inputs) {
     preserveSymlinks: inputs.preserveSymlinks === true,
     aliases: inputs.aliases ?? [],
     conditions: [...(inputs.conditions ?? [])].sort(),
+    // It changes what the resolver answers, so every realm's copy must agree on it, and
+    // the caches keyed by this hash must tell it apart. Left out when empty, so the hash
+    // (and the registries cached under it) is unchanged for every other project.
+    ...(inputs.ownJestSupport?.length ? { ownJestSupport: [...inputs.ownJestSupport].sort() } : {}),
   };
 }
 
@@ -251,6 +255,7 @@ function createResolverCore(inputs, { viteAliasesApplied = false } = {}) {
       (typeof find === "object" && find !== null && ("prefix" in find || "exact" in find)),
   );
   const preserveSymlinks = inputs.preserveSymlinks === true;
+  const ownJestSupport = new Set(inputs.ownJestSupport ?? []);
   // `react-native` first, as Metro and Jest's preset match it, then the realm-wide set.
   const conditions = [
     "react-native",
@@ -391,7 +396,12 @@ function createResolverCore(inputs, { viteAliasesApplied = false } = {}) {
             pkg.manifest.exports !== undefined && pkg.manifest.exports !== null
               ? exportTarget(pkg.manifest.exports, subpath, conditions)
               : undefined;
-          const field = expanded === name ? pkg.manifest["react-native"] : undefined;
+          // A package that runs under its own Jest support resolves as Jest does: its
+          // `react-native` field is not read (decision (d), a7-readiness).
+          const field =
+            expanded === name && !ownJestSupport.has(name)
+              ? pkg.manifest["react-native"]
+              : undefined;
           if (typeof target === "string" && target.startsWith("./")) {
             result = path.resolve(pkg.dir, target);
           } else if (target === undefined && typeof field === "string") {

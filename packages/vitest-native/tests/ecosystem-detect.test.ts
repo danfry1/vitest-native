@@ -272,6 +272,15 @@ describe("detectEcosystemPackages with compileReactNativeFieldSource", () => {
     expect(detect([path.join(root, "app"), root])).toEqual([]);
   });
 
+  it("leaves a package the resolver sends to main (its own Jest support)", () => {
+    const dir = fieldProject("src.js", "export const A = () => <View />;\n");
+    expect(
+      detectEcosystemPackages(dir, [], [], [], [], undefined, {
+        compileReactNativeFieldSource: { ...profile, resolvedToMain: ["field-pkg"] },
+      }),
+    ).toEqual([]);
+  });
+
   it("claims nothing without Babel's parser", () => {
     const dir = fieldProject("src.js", "export const A = () => <View />;\n");
     fs.rmSync(path.join(dir, "node_modules", "@babel"), { recursive: true });
