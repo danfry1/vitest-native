@@ -413,25 +413,6 @@ function majorOf(version: string | null | undefined): number {
  * real module in the native suite, across every React Native version in CI.
  */
 export function parseReactNativeExports(indexSource: string): string[] {
-  return parseReactNativeMembers(indexSource).map((member) => member.name);
-}
-
-/**
- * The members of React Native's index that announce their own deprecation.
- *
- * React Native marks a deprecated or extracted export by calling `warnOnce` inside
- * its getter, so reading the member is what prints the notice. The facade must not
- * read these while it initialises, or every file that imports `Pressable` prints
- * notices for `SafeAreaView`, `Clipboard` and the rest; it exposes them as getters
- * instead, and the notice appears only where a test really uses one.
- */
-export function parseDeprecatedReactNativeExports(indexSource: string): string[] {
-  return parseReactNativeMembers(indexSource)
-    .filter((member) => member.deprecated)
-    .map((member) => member.name);
-}
-
-function parseReactNativeMembers(indexSource: string): { name: string; deprecated: boolean }[] {
   const start = indexSource.indexOf("module.exports = {");
   if (start === -1) return [];
   // Only the object literal, which closes at the first unindented brace (`} as
@@ -440,14 +421,12 @@ function parseReactNativeMembers(indexSource: string): { name: string; deprecate
   const end = indexSource.slice(start).search(/^\}/m);
   const body = end === -1 ? indexSource.slice(start) : indexSource.slice(start, start + end);
   const matches = [...body.matchAll(/^ {2}(?:get\s+)?([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*[(:,]/gm)];
-  const members = new Map<string, boolean>();
-  matches.forEach((match, i) => {
+  const members = new Set<string>();
+  for (const match of matches) {
     const name = match[1];
-    if (name === "default" || name === "__esModule" || name === "get") return;
-    const text = body.slice(match.index, matches[i + 1]?.index ?? body.length);
-    members.set(name, (members.get(name) ?? false) || /\bwarnOnce\s*\(/.test(text));
-  });
-  return [...members].map(([name, deprecated]) => ({ name, deprecated }));
+    if (name !== "default" && name !== "__esModule" && name !== "get") members.add(name);
+  }
+  return [...members];
 }
 
 /** The part of Vitest's resolved coverage options that picks the provider. */
@@ -2036,8 +2015,6 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // available (React Native absent, or its index could not be read), in which case
   // the native engine leaves `react-native` externalized exactly as before.
   let rnFacadeExports: string[] | null = null;
-  // The subset of those whose getter prints a deprecation notice when read.
-  let rnFacadeDeprecated = new Set<string>();
   let rnFacadeRoot = "";
   // One project-scoped owner/transform/reset policy. Config, the Vite fallback
   // transform, runtime serialization and diagnostics all consume this same object.
@@ -2729,6 +2706,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             resolvedRoot,
           ),
           serverDepsInlineAll: userInlinesEverything,
+          installedTypeScriptToNode: fields.nodeMocks === true,
           packageDirOf: dirOf,
         });
         assertInlineOwnership(userInline);
@@ -3211,7 +3189,6 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           const indexSource = fs.readFileSync(indexPath, "utf8");
           const names = parseReactNativeExports(indexSource);
           rnFacadeExports = names.length > 0 ? names : null;
-          rnFacadeDeprecated = new Set(parseDeprecatedReactNativeExports(indexSource));
         } catch {
           // React Native not resolvable — keep `react-native` externalized.
           rnFacadeExports = null;
@@ -3312,10 +3289,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // `importOriginal()` work under the native engine, which is the single most
       // common thing a migrating Jest suite reaches for.
       //
-      // Reading each name off the index runs React Native's lazy getters eagerly.
-      // That is not a new cost: Node already materialises every detected named
-      // export when an ESM import consumes a CommonJS module, which is how this
-      // import resolved before.
+      // Every name is a getter on the module's exports, read when used, as Jest's Babel
+      // output reads `_reactNative.View` at the point of use. Binding them at module start
+      // would run all of React Native's lazy getters and load its whole graph for a file
+      // that uses two components (#528). A getter also keeps a deprecated member's notice
+      // to where one is used.
       if (id === "\0virtual:rn-facade" && rnFacadeExports !== null) {
         const cached = virtualCodeCache.get(id);
         if (cached) return cached;
@@ -3324,24 +3302,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           `const _rn = createRequire(${JSON.stringify(
             path.join(rnFacadeRoot, "package.json"),
           )})("react-native");`,
-          ...rnFacadeExports
-            .filter((n) => !rnFacadeDeprecated.has(n))
-            .map((n) => `export const ${n} = _rn[${JSON.stringify(n)}];`),
           `export default _rn;`,
-          // An ESM binding is read once, when the module initialises, and reading a
-          // deprecated member is what prints its notice. These stay getters on the
-          // module's exports object, so the notice appears only where one is used.
-          ...(rnFacadeDeprecated.size > 0
-            ? [
-                `for (const name of ${JSON.stringify([...rnFacadeDeprecated])}) {`,
-                `  Object.defineProperty(__vite_ssr_exports__, name, {`,
-                `    enumerable: true,`,
-                `    configurable: true,`,
-                `    get: () => _rn[name],`,
-                `  });`,
-                `}`,
-              ]
-            : []),
+          `for (const name of ${JSON.stringify(rnFacadeExports)}) {`,
+          `  Object.defineProperty(__vite_ssr_exports__, name, {`,
+          `    enumerable: true,`,
+          `    configurable: true,`,
+          `    get: () => _rn[name],`,
+          `  });`,
+          `}`,
         ].join("\n");
         virtualCodeCache.set(id, code);
         return code;

@@ -28,6 +28,30 @@ describe("native engine: react-native facade", () => {
     expect(missing).toEqual([]);
   });
 
+  // Each export is read from React Native when it is used, as Jest's Babel output reads
+  // `_reactNative.X`: binding them all when the facade loads would run every lazy getter
+  // on React Native's index and load its whole module graph for every file (#528).
+  it("reads each export from React Native when it is used", () => {
+    const node = req("react-native");
+    // Not a deprecated member: those were getters before #528 too.
+    const name = "ActivityIndicator";
+    const original = Object.getOwnPropertyDescriptor(node, name);
+    expect(original?.get).toBeTypeOf("function");
+    const sentinel = { sentinel: true };
+    Object.defineProperty(node, name, {
+      configurable: true,
+      enumerable: true,
+      get: () => sentinel,
+    });
+    try {
+      expect((RN as Record<string, unknown>)[name]).toBe(sentinel);
+      expect(Object.keys(RN)).toContain(name);
+    } finally {
+      Object.defineProperty(node, name, original!);
+    }
+    expect((RN as Record<string, unknown>)[name]).toBe(node[name]);
+  });
+
   it("exposes the module itself as the default export", () => {
     expect((RN as unknown as { default: unknown }).default).toBe(req("react-native"));
   });

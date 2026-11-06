@@ -4,7 +4,8 @@
 // - `dispatch-consumer-lib`, an installed package whose require reaches the top-level
 //   fixtures (dispatch-target-lib and its siblings) from node_modules, as Node walks up;
 // - `dispatch-nested-lib`, with its own nested copy of dispatch-target-lib
-//   (fixtures/dispatch-target-lib-v2).
+//   (fixtures/dispatch-target-lib-v2);
+// - `vn-installed-ts-lib`, an installed package that ships TypeScript source (#544).
 // Several configs run at once (scripts/run-scripts.mjs), so each package is built in a
 // temporary directory and renamed into place, and nothing removes it afterwards:
 // node_modules is not committed, and the next build replaces it.
@@ -31,6 +32,12 @@ function place(name: string, build: (dir: string) => void) {
 }
 
 export function setup() {
+  place("vn-installed-ts-consumer", (dir) =>
+    fs.cpSync(path.join(fixtures, "vn-installed-ts-consumer"), dir, { recursive: true }),
+  );
+  place("vn-installed-ts-lib", (dir) =>
+    fs.cpSync(path.join(fixtures, "vn-installed-ts-lib"), dir, { recursive: true }),
+  );
   place("dispatch-consumer-lib", (dir) =>
     fs.cpSync(path.join(fixtures, "dispatch-consumer-lib"), dir, { recursive: true }),
   );

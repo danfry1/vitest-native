@@ -119,7 +119,8 @@ export function _resetRegistryFailureReports() {
 // 5: the registry's internal require consults jest-compat's Node-side mocks.
 // 6: each module keeps its own strictness, and runs with `this` = module.exports.
 // 7: modules are stored as source and compiled per module under their own file name.
-export const REGISTRY_FORMAT_VERSION = 9;
+// 10: the React Native registry exposes `ran()`, the modules run since the last reset.
+export const REGISTRY_FORMAT_VERSION = 10;
 
 /**
  * Literal `require('…')` / `require("…")` calls. The leading class excludes
@@ -588,7 +589,10 @@ function emit(files, modules, { library = false } = {}) {
     `const __entry = __r(0);`,
     `module.exports = __entry;`,
     `Object.defineProperty(module.exports, "__vitestNativeRegistry", {`,
-    `  value: { ids: __ids, load: __r, entry: __ids[0], ${reset} },`,
+    // `ran` as in the library registry: what a test file's imports cost in React Native
+    // modules, which tests-native/rn-facade-cost.test.ts holds and
+    // scripts/measure-rn-evaluations.mjs sums per file.
+    `  value: { ids: __ids, load: __r, entry: __ids[0], ${reset}, ${ran} },`,
     `  enumerable: false, configurable: true,`,
     `});`,
   ];

@@ -94,6 +94,18 @@ describe("the ledger", () => {
     expect(ledger.conflicts[1].message).toContain("server.deps.inline");
   });
 
+  // #544: with nodeMocks off, Vitest inlines an installed package's TypeScript source while
+  // Node compiles it for a require. The way out is nodeMocks, which gives it to Node.
+  it("names nodeMocks as the fix for an installed TypeScript file both sides evaluate", () => {
+    const { ledger } = ledgerWith({
+      ownerOf: () => ({ owner: "vitest-default", reason: "delegated" }),
+    });
+    ledger.recordNode("/repo/node_modules/lib/src/index.ts", { via: "cjs" });
+    ledger.recordVite("/repo/node_modules/lib/src/index.ts", "/repo/node_modules/lib/src/index.ts");
+    expect(ledger.conflicts.map((c) => c.route)).toEqual(["installed-typescript"]);
+    expect(ledger.conflicts[0].message).toContain("experimental: { nodeMocks: true }");
+  });
+
   it("keeps one record per Node module, so a copy restored to the cache is seen again", () => {
     // isolateModules: the outer copy leaves the cache, an inner copy is loaded, and the
     // outer one is put back. One record per PATH lost the outer copy.

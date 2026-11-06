@@ -7,6 +7,7 @@
  * the Vite main process and every worker reconstruct the same decision.
  */
 import path from "node:path";
+import { projectContext } from "../context.mjs";
 import {
   NODE_MODULES_PATH,
   REACT_NATIVE_PATH,
@@ -115,6 +116,17 @@ function decision(owner, format, transform, reset, reasons, evidence) {
  * caller that has already resolved the same packages from the same root passes its
  * own memoized lookup (memoizePackageDirOf) so they are not resolved again.
  */
+/**
+ * TypeScript source in an installed package (not a declaration file): Node's (#544).
+ * Node already compiles it for both a require (hooks.mjs, the `.ts`/`.tsx` handlers) and
+ * an import (loader.mjs, NODE_MODULES_TS, one CommonJS instance), but Vitest inlines a
+ * file Node cannot run as published, so Vite evaluated a second copy for an import.
+ * Externalizing it leaves the one copy Node compiles. The same extensions as Node's
+ * handlers: an `.mts` or `.cts` file has none, and stays Vitest's to decide.
+ */
+export const INSTALLED_TYPESCRIPT = /[\\/]node_modules[\\/].*(?<!\.d)\.tsx?$/;
+const isInstalledTypeScript = (file) => INSTALLED_TYPESCRIPT.test(file.replace(/[?#].*$/, ""));
+
 export function createNativeOwnershipPolicy({
   projectRoot = process.cwd(),
   explicitTransforms = [],
@@ -125,6 +137,13 @@ export function createNativeOwnershipPolicy({
   reactNativeRoots = [],
   entryFiles = [],
   serverDepsInlineAll = false,
+  // Whether an installed package's TypeScript source is Node's (#544). Only with nodeMocks
+  // on (experimental.nodeMocks, or ownershipModel 'resolution'): there a vi.mock reaches
+  // what Node loads, so moving these files to Node keeps every mock reaching them. With
+  // it off, a package Vite inlines is the only route for a vi.mock to reach its imports,
+  // so Vitest keeps deciding. Workers read it from their context (the plugin sets
+  // `nodeMocks` there from the same condition).
+  installedTypeScriptToNode = projectContext()?.nodeMocks === true,
   packageDirOf,
 } = {}) {
   const dirOf = memoizePackageDirOf(packageDirOf);
@@ -175,6 +194,7 @@ export function createNativeOwnershipPolicy({
   const externalPatterns = [
     REACT_NATIVE_PATH,
     ...reactNativeRootPatterns,
+    ...(installedTypeScriptToNode ? [INSTALLED_TYPESCRIPT] : []),
     ...nodeTransformPackages.flatMap((name) => packagePatterns(name, root, dirOf)),
   ];
   const matchesNodeTransformedFile = buildPkgMatcher(nodeTransformPackages, root, dirOf);
@@ -298,6 +318,16 @@ export function createNativeOwnershipPolicy({
         runtimeResident
           ? ["serialized worker transform set", "CJS/ESM identity must remain stable"]
           : ["serialized worker transform set"],
+      );
+    }
+    if (installedTypeScriptToNode && isInstalledTypeScript(file)) {
+      return decision(
+        "node",
+        "package",
+        "native-babel",
+        runtimeResident ? "worker-resident" : "per-file",
+        ["installed-typescript"],
+        ["TypeScript source under node_modules, compiled by Node for require and import"],
       );
     }
     if (runtimeResident) {

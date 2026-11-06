@@ -6,8 +6,9 @@
 // The museum is red on main by design (open bugs fail as their bug), so the run's own
 // exit code says nothing about a pull request. What a pull request can change is a
 // verdict:
-//   regressed     main PASS, now FAIL; or main FAIL (bug), now FAIL (other): the
-//                 exhibit no longer reaches its bug, so the change broke something first
+//   regressed     main PASS, now FAIL; main FAIL (bug), now FAIL (other): the exhibit
+//                 no longer reaches its bug, so the change broke something first; or
+//                 main FAIL (other), now FAIL (bug): the bug itself shows again
 //   now passes    main FAIL, now PASS: a fix. Record it (run-columns.mjs, status.mjs)
 //   inconclusive  the exhibit's check.mjs reports its precondition unmet on this machine
 //                 (cfg-group-conflict-fallback: hot auto decides by the runner's memory)
@@ -68,6 +69,7 @@ for (const exhibit of exhibits) {
   else if (now === "PASS" && recorded !== "PASS") change = "now passes";
   else if (recorded === "PASS" && now !== "PASS") change = "regressed";
   else if (recorded === "FAIL (bug)" && now === "FAIL (other)") change = "regressed";
+  else if (recorded === "FAIL (other)" && now === "FAIL (bug)") change = "regressed";
   else if (now !== recorded) change = "changed";
   const detail =
     now === "N/A" ? verdict.reason : now.startsWith("FAIL") ? verdict.failures?.[0] : "";

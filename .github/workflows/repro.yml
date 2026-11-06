@@ -1,0 +1,58 @@
+name: Repro
+
+# Runs one command on one CI runner, against any branch, on demand: for reproducing a
+# failure on an OS the maintainers do not have locally (Windows, mostly) without pushing
+# a commit that starts the whole CI matrix. It starts by hand only:
+#
+#   gh workflow run repro.yml --ref <branch> \
+#     -f os=windows-latest -f command='bun run --filter vitest-native test -- tests/x.test.ts'
+#
+# The command runs from the repository root after the same setup as the Full gate (the
+# lockfile install and the build). It is passed through an environment variable, never
+# interpolated into the script, and the job can read the repository only. It refuses to
+# run on main: the setup action saves its caches at the end of the job, and main's caches
+# are the ones every pull request restores.
+
+on:
+  workflow_dispatch:
+    inputs:
+      os:
+        description: Runner
+        type: choice
+        options: [windows-latest, macos-latest, ubuntu-latest]
+        default: windows-latest
+      node-version:
+        description: Node version
+        type: string
+        default: 22.22.3
+      command:
+        description: Command to run from the repository root, after install and build
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  repro:
+    name: Repro (${{ inputs.os }}, Node ${{ inputs.node-version }})
+    if: github.ref != 'refs/heads/main'
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Build
+        run: bun run build
+
+      - name: Run the command
+        shell: bash
+        env:
+          REPRO_COMMAND: ${{ inputs.command }}
+        run: bash -c "$REPRO_COMMAND"
