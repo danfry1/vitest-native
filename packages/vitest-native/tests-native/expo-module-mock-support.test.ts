@@ -2,7 +2,8 @@
  * An Expo module's `mocks/<NativeModule>` file is written for Jest: `jest.fn` around each
  * member and `jest.requireActual` for what the web build supplies (expo-font's
  * ExpoFontLoader). It loads as the package's own test support (native/library-jest.mjs),
- * with a `jest` of its own, so no jest-compat layer and no `jest` global is needed.
+ * with a `jest` of its own, so neither the jest-compat layer nor a `jest` global is needed,
+ * and whatever `globalThis.jest` is in the suite stays as it is.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -26,7 +27,7 @@ function expoModule(name: string, files: Record<string, string>) {
 }
 
 describe("an Expo module's own native-module mock", () => {
-  it("loads without a jest global, with the library's own jest", () => {
+  it("loads with a jest of its own, whatever the suite's global is", () => {
     fs.writeFileSync(path.join(root, "package.json"), "{}");
     expoModule("expo-font", {
       "src/ExpoFontLoader.web.js": "exports.isLoaded = (name) => name === 'loaded';",
@@ -35,19 +36,23 @@ describe("an Expo module's own native-module mock", () => {
         "const web = jest.requireActual('../src/ExpoFontLoader.web');",
         "exports.isLoaded = jest.fn(web.isLoaded);",
         "exports.loadAsync = jest.fn();",
-        "exports.sawGlobal = typeof globalThis.jest;",
+        "exports.ownJest = jest;",
       ].join("\n"),
     });
-    expect(typeof (globalThis as { jest?: unknown }).jest).toBe("undefined");
+    const g = globalThis as { jest?: unknown };
+    const globalBefore = g.jest;
     const members = expoModuleMock(root, "ExpoFontLoader", (fn: () => unknown) => vi.fn(fn));
     expect(members.getLoadedFonts()).toEqual([]);
     expect(members.isLoaded("loaded")).toBe(true);
     expect(members.isLoaded("other")).toBe(false);
     expect(members.loadAsync()).toBeUndefined();
     expect(vi.isMockFunction(members.getLoadedFonts)).toBe(true);
-    // The jest is the file's own: nothing was installed on the global, before or after.
-    expect(members.sawGlobal).toBe("undefined");
-    expect(typeof (globalThis as { jest?: unknown }).jest).toBe("undefined");
+    // The file's jest is the library's own, not the suite's global (which the
+    // jest-compat layer defines and a plain Vitest suite leaves undefined).
+    expect(typeof members.ownJest.fn).toBe("function");
+    expect(typeof members.ownJest.requireActual).toBe("function");
+    expect(members.ownJest).not.toBe(globalBefore);
+    expect(g.jest).toBe(globalBefore);
   });
 
   it("keeps a mock's own implementation through a reset", () => {
