@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { SITE_URL as DOCS_SITE_URL } from "../src/docs-url.mjs";
 
 // VitePress fails the build on a link to a page that does not exist, but not on a link
 // to a heading that does not: `/guide/engines#worker-recycling` kept building after the
@@ -10,7 +11,8 @@ import { describe, expect, it } from "vitest";
 // link the site by absolute URL), against the headings VitePress turns into anchors.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const SITE = path.join(repoRoot, "website");
-const SITE_URL = "https://danfry1.github.io/vitest-native";
+// The site's address, from the constant every printed link is built from.
+const SITE_URL: string = DOCS_SITE_URL;
 // Pages outside the site that link it by absolute URL: both READMEs, and the packaged
 // migration pointer that vitest-native's own messages link to.
 const READMES = [
@@ -105,14 +107,19 @@ function sourceFiles(dir: string): string[] {
 // it to SITE_URL.
 const SITE_LINK = /https:\/\/danfry1\.github\.io\/vitest-native(\/[\w/-]*)(?:#([\w-]+))?/g;
 
+// A link built from the constant: `docsUrl("/guide/errors#CODE")`. The path is one string
+// literal, so a reader of the source sees the page it links.
+const DOCS_CALL = /docsUrl\(\s*["'`](\/[\w/-]*)(?:#([\w-]+))?["'`]\s*\)/g;
+
 function sourceLinks(): Link[] {
-  return sourceFiles(SOURCE).flatMap((file) =>
-    [...fs.readFileSync(file, "utf8").matchAll(SITE_LINK)].map(([, target, anchor]) => ({
+  return sourceFiles(SOURCE).flatMap((file) => {
+    const text = fs.readFileSync(file, "utf8");
+    return [...text.matchAll(SITE_LINK), ...text.matchAll(DOCS_CALL)].map(([, target, anchor]) => ({
       from: path.relative(repoRoot, file),
       target,
       anchor: anchor ?? null,
-    })),
-  );
+    }));
+  });
 }
 
 function links(): Link[] {
@@ -155,7 +162,33 @@ describe("site anchors", () => {
 
   it("finds the links to check", () => {
     expect(all.length).toBeGreaterThan(50);
-    expect(fromSource.length).toBeGreaterThanOrEqual(5);
+    expect(fromSource.length).toBeGreaterThanOrEqual(12);
+    // Every docsUrl() call has a literal path this test can read. One built from a variable
+    // or a template would link a page nothing checks.
+    const calls = sourceFiles(SOURCE)
+      .filter((file) => !/docs-url\.(mjs|d\.mts)$/.test(file))
+      .flatMap((file) => fs.readFileSync(file, "utf8").match(/docsUrl\(/g) ?? []).length;
+    const checked = sourceFiles(SOURCE)
+      .filter((file) => !/docs-url\.(mjs|d\.mts)$/.test(file))
+      .flatMap((file) => [...fs.readFileSync(file, "utf8").matchAll(DOCS_CALL)]).length;
+    expect(checked).toBe(calls);
+  });
+
+  it("spells the site's address in src/ only in docs-url.mjs, or in a doc comment", () => {
+    // Moving the site changes one constant. A message that spells the address out would
+    // keep pointing at the old one; a doc comment cannot call docsUrl(), so it may, and the
+    // literal-link check above holds it to the constant's address.
+    const host = new URL(SITE_URL).host;
+    const spelled = sourceFiles(SOURCE).flatMap((file) =>
+      path.basename(file) === "docs-url.mjs"
+        ? []
+        : fs
+            .readFileSync(file, "utf8")
+            .split("\n")
+            .filter((line) => line.includes(host) && !/^\s*(\*|\/\/|\/\*)/.test(line))
+            .map((line) => `${path.relative(repoRoot, file)}: ${line.trim()}`),
+    );
+    expect(spelled).toEqual([]);
   });
 
   it("links the site, not the repository's docs/ folder, from the package's messages", () => {
