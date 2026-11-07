@@ -100,11 +100,31 @@ tester.run("escaped-regexp", rule("escaped-regexp"), {
     { filename: src(), code: "new RegExp(`^${escapeRe(name)}/`);" },
     { filename: src(), code: `new RegExp("^" + escapeRe(dir) + "/", "i");` },
     { filename: src(), code: `new RegExp(re.source, "g");` },
+    { filename: src(), code: "new RegExp(`^${STAR}+`);" },
+    { filename: src(), code: 'new RegExp(String.raw`${ROOT}\\d+`, "g");' },
+    { filename: src(), code: 'new RegExp(`^${parts.map(escapeRe).join("/")}$`);' },
+    { filename: src(), code: 'new RegExp(`^${parts.map((p) => escapeRe(p)).join("|")}$`);' },
   ],
   invalid: [
     { filename: src(), code: "new RegExp(`^${name}/`);", errors: [{ messageId: "unescaped" }] },
     { filename: src(), code: `new RegExp("^" + dir + "/");`, errors: [{ messageId: "unescaped" }] },
     { filename: src(), code: `RegExp(userInput);`, errors: [{ messageId: "unescaped" }] },
+    // A lower-case name is data, even in String.raw or a join.
+    {
+      filename: src(),
+      code: "new RegExp(String.raw`${root}\\d+`);",
+      errors: [{ messageId: "unescaped" }],
+    },
+    {
+      filename: src(),
+      code: 'new RegExp(parts.map((p) => p.trim()).join("|"));',
+      errors: [{ messageId: "unescaped" }],
+    },
+    {
+      filename: src(),
+      code: "new RegExp(`\\b${binding}\\(`);",
+      errors: [{ messageId: "unescaped" }],
+    },
   ],
 });
 

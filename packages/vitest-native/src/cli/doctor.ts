@@ -46,6 +46,7 @@ import {
 } from "../peer-requirements.js";
 import { SUPPORTED_NODE, satisfiesNodeRange, unsupportedNodeMessage } from "../node-range.js";
 import { installedViteVersion, ownVitestPackage, usesVitePlus } from "../host.js";
+import { escapeRegExp } from "../regexp.js";
 
 /**
  * The Vitest that runs here, as the peer check reports it: the project's own, or under
@@ -155,8 +156,11 @@ export function extendsSharedConfig(source: string): boolean {
       if (binding === "defineConfig" || binding === "default") continue;
       // The binding has to BE the exported config, or the base being merged into it —
       // merely appearing on the export line is any ordinary helper call.
-      if (new RegExp(`export\\s+default\\s+${binding}\\s*;?\\s*$`, "m").test(code)) return true;
-      if (new RegExp(`\\bmergeConfig\\s*\\(\\s*${binding}\\b`).test(code)) return true;
+      // Escaped: `$` is legal in an identifier and an anchor in a RegExp.
+      if (new RegExp(`export\\s+default\\s+${escapeRegExp(binding)}\\s*;?\\s*$`, "m").test(code))
+        return true;
+      if (new RegExp(`\\bmergeConfig\\s*\\(\\s*${escapeRegExp(binding)}(?![\\w$])`).test(code))
+        return true;
     }
   }
   return false;
@@ -202,10 +206,16 @@ export function analyzeConfigUsage(source: string): ConfigUsage {
     // Imported something else from the package (helpers, presets) — not our call
     // to judge; treat the import as use.
     if (!binding) return { imports: true, invokes: true };
-    return { imports: true, invokes: new RegExp(`\\b${binding}\\s*\\(`).test(code) };
+    return {
+      imports: true,
+      invokes: new RegExp(`(?<![\\w$])${escapeRegExp(binding)}\\s*\\(`).test(code),
+    };
   }
   if (namespaced) {
-    return { imports: true, invokes: new RegExp(`\\b${namespaced[1]}\\.\\w+\\s*\\(`).test(code) };
+    return {
+      imports: true,
+      invokes: new RegExp(`(?<![\\w$])${escapeRegExp(namespaced[1])}\\.\\w+\\s*\\(`).test(code),
+    };
   }
   // Any other import form (side-effect, dynamic) still counts as importing.
   if (/from\s*["']vitest-native["']|require\(\s*["']vitest-native["']\s*\)/.test(code)) {

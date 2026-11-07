@@ -1,13 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": [
-    "typescript",
-    "unicorn",
-    "import"
-  ],
-  "jsPlugins": [
-    "./packages/vitest-native/lint/vitest-native-rules.mjs"
-  ],
+  "plugins": ["typescript", "unicorn", "import"],
+  "jsPlugins": ["./packages/vitest-native/lint/vitest-native-rules.mjs"],
   "categories": {
     "correctness": "error",
     "suspicious": "warn",
@@ -27,12 +21,11 @@
   },
   "overrides": [
     {
-      "files": [
-        "packages/vitest-native/src/**"
-      ],
+      "files": ["packages/vitest-native/src/**"],
       "rules": {
         "vitest-native/no-monkey-patching": "error",
-        "vitest-native/no-doc-urls-in-src": "error"
+        "vitest-native/no-doc-urls-in-src": "error",
+        "vitest-native/escaped-regexp": "error"
       }
     }
   ],
@@ -51,9 +44,5 @@
     "builtin": true
   },
   "globals": {},
-  "ignorePatterns": [
-    "dist",
-    "node_modules",
-    "packages/vitest-native/tests-native/fixtures"
-  ]
+  "ignorePatterns": ["dist", "node_modules", "packages/vitest-native/tests-native/fixtures"]
 }
