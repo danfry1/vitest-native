@@ -27,6 +27,7 @@ import {
 import { rootBabelConfigFile } from "./fs-module-cache.js";
 import { installedManifest } from "./installed-manifest.js";
 import { projectBabelCaller } from "./native/babel-caller.mjs";
+import { relativeToRoot, rootSpellingOf } from "./native/root-spelling.mjs";
 import { VitestNativeError } from "./errors.mjs";
 import type { PresetName } from "./preset-map.js";
 
@@ -598,8 +599,10 @@ export function createProjectBabel(
     platform: options.platform,
     esm: true,
   });
-  const partialFor = (filename: string) =>
-    babel.loadPartialConfig({ filename, cwd: root, root, caller });
+  // Babel's root in the spelling of `filename` (root-spelling.mjs): Babel looks for the
+  // .babelrc files above a file only under a root spelled as the file is.
+  const partialFor = (filename: string, babelRoot = root) =>
+    babel.loadPartialConfig({ filename, cwd: root, root: babelRoot, caller });
 
   // The plugins React Native's and Expo's presets expand to, under this caller, by key
   // (normalizePluginKey) with their options: a preset that expands to no others, with the
@@ -753,8 +756,12 @@ export function createProjectBabel(
     announce(fresh);
   };
   // Only files in the project: a project-wide Babel config applies to any file Babel is
-  // asked about, including a linked workspace package's and vitest-native's own.
-  const rootPrefix = root.split(path.sep).join("/").replace(/\/?$/, "/");
+  // asked about, including a linked workspace package's and vitest-native's own. Vite's ids
+  // are native real paths with forward slashes, so a root given in another spelling (a
+  // Windows 8.3 short name, a symlinked directory) is matched through root-spelling.mjs;
+  // the result is the root as the file spells it, or null outside the project.
+  const projectRootOf = (id: string): string | null =>
+    isProjectSourceFile(id) ? rootSpellingOf(root, path.normalize(id)) : null;
   // A package plugin by its version; a local plugin file by its content, read each time
   // (one small file), so an edit counts however coarse the file system's timestamps are.
   const versionOf = (item: ConfigItem): string => {
@@ -779,8 +786,9 @@ export function createProjectBabel(
     },
 
     cacheKey(id, source) {
-      if (!isProjectSourceFile(id) || !id.startsWith(rootPrefix)) return "";
-      const partial = partialFor(id);
+      const babelRoot = projectRootOf(id);
+      if (babelRoot === null) return "";
+      const partial = partialFor(id, babelRoot);
       if (!partial?.hasFilesystemConfig()) return "";
       const presets = partial.options.presets ?? [];
       const plugins = partial.options.plugins ?? [];
@@ -819,9 +827,10 @@ export function createProjectBabel(
     },
 
     async load(id, chain) {
-      if (!isProjectSourceFile(id) || !id.startsWith(rootPrefix)) return undefined;
+      const babelRoot = projectRootOf(id);
+      if (babelRoot === null) return undefined;
       if (asking.getStore() === id) return undefined;
-      const partial = partialFor(id);
+      const partial = partialFor(id, babelRoot);
       // Babel ignores the file (`ignore`/`only`), or no project config applies to it.
       if (!partial?.hasFilesystemConfig()) return undefined;
       const plan = planOf(partial.options);
@@ -838,12 +847,12 @@ export function createProjectBabel(
       if (reasons.length === 0 && JS_FILE(id) && hasFlowPragma(code)) reasons.push("Flow syntax");
       if (reasons.length === 0) return undefined;
       announceOnce(reasons);
-      options.onCompile?.(path.relative(root, id).split(path.sep).join("/"), reasons);
+      const file = relativeToRoot(root, path.normalize(id));
+      options.onCompile?.(file.split(path.sep).join("/"), reasons);
       if (chain) {
         const other = await asking.run(id, () => chain.load(id));
         if (other != null) return other;
       }
-      const file = path.relative(root, id);
       // This config's CommonJS writer is known and applies to the file: fall back without
       // compiling when it is the file's only need, else fail as the first file did.
       const knownWriter = matched.find((need) => need.unknown && need.key === plan.commonjsWriter);
