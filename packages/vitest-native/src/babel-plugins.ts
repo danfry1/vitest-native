@@ -27,6 +27,8 @@ export interface BabelConfigReport {
   evaluated: boolean;
   plugins: BabelPluginEntry[];
   presets: string[];
+  /** The presets with their options, as listed (for the engine's projectBabel classification). */
+  presetEntries?: BabelPluginEntry[];
   /**
    * The settings that make babel-jest compile imports into lazy `require()` calls, as the
    * report names them (`babel-preset-expo lazyImports`). See lazyImportSettings.
