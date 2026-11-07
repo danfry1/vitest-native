@@ -16,6 +16,11 @@ export const ISSUES = [
     text: "The weekly check against react-native@latest failed. Run `bun run --filter vitest-native check-compat` locally to see export gaps.",
   },
   {
+    job: /^Supported Expo SDKs at their newest patch/,
+    title: () => "Compatibility: a supported Expo SDK fails at its newest patch",
+    text: "The supported Expo SDKs, installed at their newest patch (at least seven days old), fail the packed consumer fixtures.",
+  },
+  {
     job: /^Canary \((.+)\)$/,
     title: (match) => `Canary: the ${match[1]} prerelease fails`,
     text: "A canary (upstream's next release, ahead of latest) fails the gate.",
