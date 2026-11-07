@@ -49,12 +49,10 @@ export function nodeKey(file) {
   return fold(ledgerKey(file));
 }
 
+// The OS's spelling of the whole path (realpathOr), as both sides of the ledger are keyed:
+// an allow entry or an exempt directory matches whichever spelling it was written in.
 export function realKey(file) {
-  try {
-    return fold(ledgerKey(fs.realpathSync(file)));
-  } catch {
-    return fold(ledgerKey(file));
-  }
+  return fold(ledgerKey(realpathOr(file, file)));
 }
 
 const NOT_THE_MODULE = /[?&](?:raw|url|inline|worker|sharedworker)\b/;
@@ -81,11 +79,21 @@ function realDir(dir) {
   }
   return real;
 }
+/**
+ * The one key both sides of the ledger use for a file: its directory's native real path
+ * (cached per directory) and its name. Node's file name keeps the spelling it was reached
+ * by, a Windows 8.3 short name (RUNNER~1) when the path was built on a root given that
+ * way, while Vite's ids are long: keyed as given, the two copies of one file never met.
+ */
+export function fileKey(file) {
+  return nodeKey(path.join(realDir(path.dirname(file)), path.basename(file)));
+}
+
 export function viteMarkerFor(id) {
   if (typeof id !== "string" || id.includes("\0") || NOT_THE_MODULE.test(id)) return null;
   const file = id.replace(/[?#].*$/, "");
   if (!path.isAbsolute(file) || !/\.(?:[cm]?[jt]sx?|json)$/.test(file)) return null;
-  const key = nodeKey(path.join(realDir(path.dirname(file)), path.basename(file)));
+  const key = fileKey(file);
   return `${OWNERSHIP_ACCESS}.vite?.(${JSON.stringify(key)}, ${JSON.stringify(file)});`;
 }
 
@@ -205,6 +213,9 @@ export function createOwnershipLedger({
   // Whether Node holds `file` now, loaded or still loading: a requirer Node is still
   // evaluating is not recorded yet (Node's copies are recorded once they have loaded).
   nodeHolds = () => false,
+  // The key a Node file name is recorded under, so parents are looked up by the same one
+  // (installOwnershipLedger passes fileKey, or realKey with --preserve-symlinks).
+  keyOf = nodeKey,
   warn = (message) => console.warn(message),
 } = {}) {
   const node = new Map();
@@ -241,7 +252,7 @@ export function createOwnershipLedger({
     if (nodeEntry.jestRequire) return "jest-compat";
     const parent = nodeEntry.parent;
     if (typeof parent === "string" && NODE_MODULES_PATH.test(parent)) return "installed-package";
-    if (typeof parent === "string" && (node.has(nodeKey(parent)) || nodeHolds(parent))) {
+    if (typeof parent === "string" && (node.has(keyOf(parent)) || nodeHolds(parent))) {
       return "node-owned-source";
     }
     return "require-from-vite";
@@ -263,7 +274,7 @@ export function createOwnershipLedger({
       if (typeof parent !== "string" || NODE_MODULES_PATH.test(parent)) return entry;
       if (ownerOf(parent)?.owner === "node") return entry;
       // A live copy only: under the hot runtime an earlier generation's record can remain.
-      const up = liveNode(nodeKey(parent));
+      const up = liveNode(keyOf(parent));
       if (up === undefined || seen.has(up)) return entry;
       seen.add(up);
       entry = up;
@@ -278,7 +289,7 @@ export function createOwnershipLedger({
     const originRoute =
       origin === nodeEntry
         ? route
-        : routeOf(nodeKey(origin.filename), origin, ownerOf(origin.filename));
+        : routeOf(keyOf(origin.filename), origin, ownerOf(origin.filename));
     const cause = { route: originRoute, file: origin.filename };
     const causeKey = `${originRoute}\0${origin.filename}`;
     // The fix is the cause's: the files a require pulled in name their importer as the
@@ -364,7 +375,7 @@ export function createOwnershipLedger({
     // When Node evaluates `filename`: before an ES module runs (the loader's hook), so in
     // error mode the throw means it never runs; once a CommonJS module has loaded (the
     // dispatcher's report), so the throw fails the require after it ran.
-    recordNode(filename, entry, { key = nodeKey(filename) } = {}) {
+    recordNode(filename, entry, { key = keyOf(filename) } = {}) {
       entry.filename = filename;
       const records = node.get(key);
       if (records === undefined) node.set(key, [entry]);
@@ -436,7 +447,10 @@ export function installOwnershipLedger({ projectRoot = process.cwd() } = {}) {
     if (spy) nodes.push(spy);
     return nodes;
   };
+  // One spelling for both sides (fileKey): Node's file names as Vite's ids are keyed.
+  const keyOf = preserveSymlinks() ? realKey : fileKey;
   const ledger = createOwnershipLedger({
+    keyOf,
     mode: config.mode,
     allow: config.allow.map((entry) => ({
       ...entry,
@@ -467,7 +481,6 @@ export function installOwnershipLedger({ projectRoot = process.cwd() } = {}) {
     },
   });
 
-  const keyOf = preserveSymlinks() ? realKey : nodeKey;
   // Raised by jest-compat while a jest.require* call loads (node-registry.mjs).
   const jestRequire = () => (channel.jestRequireDepth ?? 0) > 0;
 
