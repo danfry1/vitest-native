@@ -509,6 +509,7 @@ export function installRequireHooks(
       key = path.resolve(file);
       if (!preserveSymlinks) {
         try {
+          // Node's spelling (fs.realpathSync): the key Module._cache holds the file under (#282).
           key = fs.realpathSync(key);
         } catch {
           // Missing: leave it to the loader to report.

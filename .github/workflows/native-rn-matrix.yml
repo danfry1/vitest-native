@@ -22,7 +22,8 @@ name: Native engine — Vitest × RN matrix
 #    most churn-prone surface we depend on. Every column is blocking — `RN matrix
 #    verdict` below is a required check — because the declared peer range (>=5 <6)
 #    promises every one of them: the lockfile version and the newest Vitest 5
-#    release on every row.
+#    release on every row. The latest-supported column also takes Vite and React
+#    Native Testing Library to their newest supported releases.
 #
 # Every cell runs the native suite STOCK and HOT, plus the mock-vs-real-RN
 # cross-check — the full real-RN gate against that (Vitest, RN) pair.
@@ -149,20 +150,26 @@ jobs:
           key: vn-transform-${{ runner.os }}-rn${{ matrix.rn }}-vitest-${{ matrix.vitest }}-${{ hashFiles('bun.lock') }}
           restore-keys: vn-transform-${{ runner.os }}-rn${{ matrix.rn }}-vitest-${{ matrix.vitest }}-
 
-      - name: Pin Vitest to the newest supported 5.x release
+      - name: Pin each peer to the newest supported release
         if: matrix.vitest == 'latest-supported'
-        # Bump the coverage provider in lockstep — a mismatched @vitest/coverage-v8
-        # vs vitest fails to load (a provider and runtime from different releases has
-        # bitten us).
-        # bunfig's minimumReleaseAge still applies: the newest 5.x at least a week old.
+        # Vitest (with its coverage provider in lockstep: a provider and runtime from
+        # different releases fail to load), Vite and React Native Testing Library, each at
+        # the newest release of its newest supported major. The specs come from the
+        # package's peer requirements, so this column follows a range change
+        # (.github/scripts/latest-supported.mjs, docs/upstream-policy.md).
+        # bunfig's minimumReleaseAge still applies: each at least a week old.
         run: |
-          bun add -d "vitest@^5" "@vitest/coverage-v8@^5" --cwd packages/vitest-native
+          specs=$(node .github/scripts/latest-supported.mjs)
+          echo "Installing: $specs"
+          bun add -d $specs --cwd packages/vitest-native
 
       - name: Resolved versions
         run: |
           node -e "console.log('react-native            ', require('./packages/vitest-native/node_modules/react-native/package.json').version)"
           node -e "console.log('@react-native/babel-preset', require('./packages/vitest-native/node_modules/@react-native/babel-preset/package.json').version)"
           node -e "console.log('vitest                  ', require('./packages/vitest-native/node_modules/vitest/package.json').version)"
+          node -e "console.log('vite                    ', require('./packages/vitest-native/node_modules/vite/package.json').version)"
+          node -e "console.log('@testing-library/react-native', require('./packages/vitest-native/node_modules/@testing-library/react-native/package.json').version)"
 
       - name: Build
         run: bun run build

@@ -12,7 +12,8 @@
  * that part of the key:
  *   - the vitest-native version,
  *   - the plugin's resolved options and the environment it hands to workers,
- *   - the project's lockfile(s), so any dependency change invalidates the cache.
+ *   - the project's lockfile(s), so any dependency change invalidates the cache;
+ *   - the project's root Babel config, which `projectBabel` compiles project source with.
  * Without a lockfile the root package.json stands in for it.
  */
 import { createHash } from "node:crypto";
@@ -70,7 +71,8 @@ export function fsModuleCacheKey(
     typeof value === "function" || value instanceof RegExp ? String(value) : value,
   );
   return sha1(
-    `vitest-native@${packageVersionAt(ownPackageDir)}\0${dependencyFingerprint(projectRoot)}\0${state}`,
+    `vitest-native@${packageVersionAt(ownPackageDir)}\0${dependencyFingerprint(projectRoot)}\0` +
+      `${babelConfigFingerprint(projectRoot)}\0${state}`,
   );
 }
 
@@ -85,4 +87,38 @@ export function shouldDefaultFsModuleCache(
   return (
     userTest?.fsModuleCache === undefined && userTest?.experimental?.fsModuleCache === undefined
   );
+}
+
+// Babel's config files at the project root, hashed into Vitest's transform-cache key.
+const CONFIG_FILES = [
+  "babel.config.js",
+  "babel.config.cjs",
+  "babel.config.mjs",
+  "babel.config.json",
+  "babel.config.cts",
+  "babel.config.ts",
+  ".babelrc",
+  ".babelrc.js",
+  ".babelrc.cjs",
+  ".babelrc.mjs",
+  ".babelrc.json",
+];
+
+/**
+ * A digest of the project's root Babel config (its files, and package.json's `babel`
+ * field), so editing it invalidates Vitest's transform cache. A `.babelrc` in a
+ * subdirectory is not covered.
+ */
+export function babelConfigFingerprint(root: string): string {
+  const hash = createHash("sha1");
+  for (const name of CONFIG_FILES) {
+    const file = path.join(root, name);
+    if (fs.existsSync(file)) hash.update(name).update(fs.readFileSync(file));
+  }
+  const manifestFile = path.join(root, "package.json");
+  if (fs.existsSync(manifestFile)) {
+    const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+    if (manifest.babel !== undefined) hash.update(JSON.stringify(manifest.babel));
+  }
+  return hash.digest("hex");
 }

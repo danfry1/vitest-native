@@ -43,6 +43,9 @@ import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { JSX_TRANSFORM, nativeEngineConfig } from "./native/apply.js";
 import { isProjectJsFile, loadProjectJsx, projectJsxOptions } from "./project-jsx.js";
+import { createProjectBabel, isProjectSourceFile } from "./project-babel.js";
+import { installedManifest } from "./installed-manifest.js";
+import type { ProjectBabel } from "./project-babel.js";
 import type { LoadChain } from "./project-jsx.js";
 import { detectEngine } from "./native/detect.js";
 import { aliasReachedPaths, detectEcosystemPackages } from "./native/ecosystem.js";
@@ -57,7 +60,7 @@ type AssetModules = typeof import("./native/assets.mjs");
 import type { HotMemoryPlan } from "./native/memory.mjs";
 import type { NativePoolOptions } from "./native/pool.js";
 import { workerVitestMismatch } from "./native/worker-vitest.js";
-import { OWNERSHIP_META_KEY, viteMarkerFor } from "./native/ownership-ledger.mjs";
+import { OWNERSHIP_META_KEY, OWNERSHIP_ROUTES, viteMarkerFor } from "./native/ownership-ledger.mjs";
 import {
   assertHostResolvesRunningVitest,
   assertHotWorkerLoadsRunningVitest,
@@ -210,7 +213,9 @@ export function setupEntryFiles(setupFiles: unknown, projectRoot: string): strin
     // canonicalDir use) and the OS's (`realpathSync.native`), which differ on Windows
     // for 8.3 short names (#399).
     if (fs.existsSync(file)) {
+      // Node's spelling (fs.realpathSync), the one Module._cache and canonicalDir use.
       files.add(fs.realpathSync(file));
+      // The OS's spelling (realpathSync.native), which differs on Windows for 8.3 short names.
       files.add(fs.realpathSync.native(file));
     }
   }
@@ -1804,7 +1809,12 @@ export function ownershipGuardConfig(
  * `ownership.allow` entries that exempted nothing during the run.
  */
 export class OwnershipSummaryReporter {
-  private readonly found = new Map<string, Set<string>>();
+  // One entry per cause (where Node's load began, and how): the files it put in both
+  // module graphs and the test files it happened in.
+  private readonly found = new Map<
+    string,
+    { route: string; origin: string; files: Set<string>; tests: Set<string> }
+  >();
   private readonly used = new Set<string>();
   private mode = "warn";
   constructor(
@@ -1817,17 +1827,31 @@ export class OwnershipSummaryReporter {
     this.used.clear();
     this.mode = "warn";
   }
+  private add(route: string, origin: string, file: string, test: string): void {
+    const key = `${route}\0${origin}`;
+    let cause = this.found.get(key);
+    if (cause === undefined) {
+      cause = { route, origin, files: new Set(), tests: new Set() };
+      this.found.set(key, cause);
+    }
+    cause.files.add(file);
+    cause.tests.add(test);
+  }
   onTestModuleEnd(testModule: {
     moduleId: string;
     meta(): Record<string, unknown>;
     errors?(): readonly { message?: string }[];
   }): void {
-    const where = (route: string) =>
-      `${path.relative(process.cwd(), testModule.moduleId)} (${route})`;
+    const test = path.relative(process.cwd(), testModule.moduleId).split(path.sep).join("/");
     const data = testModule.meta()?.[OWNERSHIP_META_KEY] as
       | {
           mode: string;
-          conflicts: { file: string; second: string; route: string }[];
+          conflicts: {
+            file: string;
+            second: string;
+            route: string;
+            cause?: { route: string; file: string };
+          }[];
           allowUsed: string[];
         }
       | undefined;
@@ -1838,32 +1862,52 @@ export class OwnershipSummaryReporter {
         const match = /\[vitest-native\] (.+?) was evaluated by both Node and Vite/.exec(
           error.message ?? "",
         );
-        const route = /route\s+-> (.+)/.exec(error.message ?? "")?.[1] ?? "while collecting";
         if (!match) continue;
+        // Grouped by the cause, as in warn mode: the origin and its route when the message
+        // names one, else the file and its own route.
+        const origin = /origin\s+-> (.+?), which Node loaded through (.+?), and which loaded/.exec(
+          error.message ?? "",
+        );
+        const label =
+          origin?.[2] ?? /route\s+-> (.+)/.exec(error.message ?? "")?.[1] ?? "while collecting";
+        const route =
+          Object.entries(OWNERSHIP_ROUTES).find(([, r]) => r.label === label)?.[0] ?? label;
         this.mode = "error";
-        const at = this.found.get(match[1]) ?? new Set<string>();
-        at.add(where(route));
-        this.found.set(match[1], at);
+        this.add(route, origin?.[1] ?? match[1], match[1], test);
       }
       return;
     }
     if (data.mode === "error") this.mode = "error";
     for (const used of data.allowUsed) this.used.add(used);
     for (const conflict of data.conflicts) {
-      const at = this.found.get(conflict.file) ?? new Set<string>();
-      at.add(where(conflict.route));
-      this.found.set(conflict.file, at);
+      const cause = conflict.cause ?? { route: conflict.route, file: conflict.file };
+      this.add(cause.route, cause.file, conflict.file, test);
     }
   }
   onTestRunEnd(): void {
     const lines: string[] = [];
     if (this.found.size > 0) {
+      const files = new Set([...this.found.values()].flatMap((cause) => [...cause.files]));
+      // Forward slashes on every platform, as the guard's other messages print paths.
+      const rel = (file: string) =>
+        (path.relative(process.cwd(), file) || file).split(path.sep).join("/");
+      const some = (items: Set<string>) =>
+        [...items].slice(0, 3).join(", ") + (items.size > 3 ? `, +${items.size - 3} more` : "");
       lines.push(
-        `[vitest-native] ownership: ${this.found.size} file(s) were evaluated by both Node ` +
-          `and Vite (${this.mode === "error" ? "failed: ownership 'error'" : "warning; reactNative({ ownership: 'error' }) fails on it"}):`,
+        `[vitest-native] ownership: ${files.size} file(s) were evaluated by both Node ` +
+          `and Vite (${this.mode === "error" ? "failed: ownership 'error'" : "warning; reactNative({ ownership: 'error' }) fails on it"}), ` +
+          `from ${this.found.size} cause(s):`,
       );
-      for (const [file, where] of this.found) {
-        lines.push(`  ${file}`, ...[...where].map((w) => `    in ${w}`));
+      for (const cause of this.found.values()) {
+        const known = OWNERSHIP_ROUTES[cause.route as keyof typeof OWNERSHIP_ROUTES];
+        const first = [...cause.files][0];
+        lines.push(
+          `  ${rel(cause.origin)}, loaded by Node through ${known?.label ?? cause.route}: ` +
+            `${cause.files.size} file(s), in ${some(cause.tests)}`,
+          // A file of the cause's when its origin is not itself one of them.
+          ...(cause.files.has(cause.origin) ? [] : [`    first: ${rel(first)}`]),
+          ...(known ? [`    fix: ${known.fix}`] : []),
+        );
       }
       lines.push(
         "  See https://danfry1.github.io/vitest-native/guide/errors#SOURCE_EVALUATED_TWICE.",
@@ -1949,6 +1993,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     {
       pool: unknown;
       userPool: unknown;
+      userRunner: unknown;
       userMaxWorkers: unknown;
       singleWorkerAccepted: boolean;
       // The enforced memory plan and what it was built from, so configureVitest can
@@ -2021,6 +2066,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // The resolved Vite config and its Oxc options for project `.js` files (project-jsx.ts).
   let viteConfig: ResolvedConfig | undefined;
   let projectJsx: ReturnType<typeof projectJsxOptions>;
+  // The project's Babel route per project root (project-babel.ts).
+  const projectBabels = new Map<string, ProjectBabel>();
+  // Keyed by path.resolve's spelling: Vite's config.root is `C:/…` on Windows, the root
+  // configureProject has is `C:\…`, and both must find the same route.
+  const projectBabelFor = (root: string | undefined): ProjectBabel | undefined =>
+    root === undefined ? undefined : projectBabels.get(path.resolve(root));
   const presetModules = new Map<string, () => Record<string, any>>();
   // The preset that shadows each module (configResolved), and the Jest setup files of
   // the libraries that run as themselves under the native engine (config()).
@@ -2240,6 +2291,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Hot-runtime worker entry + runner (shipped verbatim alongside the setup file).
   const nativeWorkerPath = path.resolve(thisDir, "native/worker.mjs");
   const nativeRunnerPath = path.resolve(thisDir, "native/runner.mjs");
+  // Vitest's runner with compile locations on import failures (native/test-runner.mjs),
+  // for both engines, unless the project sets its own runner.
+  const testRunnerPath = path.resolve(thisDir, "native/test-runner.mjs");
+  const userRunnerOf = (config: UserConfig): unknown =>
+    (config as { test?: { runner?: unknown } }).test?.runner;
 
   // Seeded with bare React Native defaults, then replaced project-by-project by
   // the bounded Metro profile loader during config().
@@ -2947,6 +3003,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           hotSelections.set(vitestRootOf(userConfig), {
             pool: hot.pool,
             userPool,
+            userRunner: userRunnerOf(userConfig),
             userMaxWorkers: userTest?.maxWorkers,
             singleWorkerAccepted: hotMemory?.allowUnboundedMemory === true,
             memory:
@@ -2980,6 +3037,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           nativeOwnership,
         );
         nativeConfig.test.env = withProjectContext(fields, env, resolvedRoot);
+        if (!hot && userRunnerOf(userConfig) == null) {
+          (nativeConfig.test as { runner?: string }).runner = testRunnerPath;
+        }
         return asCompatibleViteConfig(nativeConfig);
       }
 
@@ -3055,6 +3115,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         test: {
           setupFiles: [setupFilePath, presetReadyPath],
           env: withProjectContext(fields, env, resolvedRoot),
+          ...(userRunnerOf(userConfig) == null ? { runner: testRunnerPath } : {}),
         },
       });
     },
@@ -3222,6 +3283,35 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       }
       presetExportsByRoot.set(vitestRootOf(config), exportsByModule);
 
+      // projectBabel: the project's Babel config for the project source that needs a
+      // plugin Oxc does not cover (project-babel.ts). A Babel Vite plugin in the config
+      // (a babel() entry) runs its own plugin list on the output, which repeats an
+      // entry the engine already applied without effect, so this does not step aside.
+      const babelRoute = createProjectBabel(
+        config.root,
+        options?.projectBabel ?? "auto",
+        {
+          active: resolved.presets.map((preset) => preset.name as PresetName),
+          hasExpo: installedManifest(config.root, "expo") !== null,
+          platform: resolved.platform,
+          onCompile: diagnostics
+            ? (file, reasons) =>
+                console.log(`[vitest-native] projectBabel: ${file} (${reasons.join(", ")})`)
+            : undefined,
+        },
+        // Once per reason: at startup for the project root, then the first time a file
+        // compiles for a reason the root does not have (`overrides`, Flow).
+        (reasons) =>
+          console.log(
+            `[vitest-native] projectBabel: project source that needs it compiles with the ` +
+              `project's Babel config, for ${reasons.join(", ")}. ` +
+              `Set projectBabel: 'never' to compile it with Oxc only.`,
+          ),
+      );
+      if (babelRoute) projectBabels.set(path.resolve(config.root), babelRoute);
+      else projectBabels.delete(path.resolve(config.root));
+      babelRoute?.announceRoot();
+
       // Read the facade's export list from React Native's own index.
       if (engine === "native") {
         rnFacadeRoot = config.root;
@@ -3324,18 +3414,25 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     load(id) {
-      // JSX in a project .js file, as Metro and babel-jest compile it (project-jsx.ts).
-      if (projectJsx && isProjectJsFile(id)) {
-        // Only a dev environment (Vitest's) has a plugin container to ask.
-        const env = this.environment as { pluginContainer?: LoadChain } | undefined;
-        return loadProjectJsx(
-          id,
-          projectJsx,
-          viteConfig,
-          env?.pluginContainer,
-          diagnostics ? console.log : undefined,
-        );
+      // Project source: with the project's Babel config where it needs a plugin Oxc does
+      // not cover (project-babel.ts), else JSX in a .js file as Metro and babel-jest
+      // compile it (project-jsx.ts). Only a dev environment (Vitest's) has a plugin
+      // container to ask first.
+      const chain = (this.environment as { pluginContainer?: LoadChain } | undefined)
+        ?.pluginContainer;
+      const jsx = () =>
+        loadProjectJsx(id, projectJsx, viteConfig, chain, diagnostics ? console.log : undefined);
+      const projectBabel = projectBabelFor(
+        (this.environment as { config?: { root?: string } } | undefined)?.config?.root,
+      );
+      if (projectBabel && isProjectSourceFile(id)) {
+        return projectBabel
+          .load(id, chain)
+          .then((compiled) =>
+            compiled == null && projectJsx && isProjectJsFile(id) ? jsx() : compiled,
+          );
       }
+      if (projectJsx && isProjectJsFile(id)) return jsx();
 
       // The native engine's react-native facade. It re-exports the SAME instance
       // Node's graph holds — `_rn.View` is the very object an externalized library
@@ -3548,7 +3645,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     project,
     defineCacheKeyGenerator,
   }: {
-    defineCacheKeyGenerator?: (generator: () => string) => void;
+    defineCacheKeyGenerator?: (
+      generator: (context?: { id?: string; sourceCode?: string }) => string,
+    ) => void;
     vitest: {
       version?: string;
       distPath?: string;
@@ -3650,7 +3749,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       });
     }
     const cacheKey = cacheKeys.get(root);
-    if (cacheKey) defineCacheKeyGenerator?.(() => cacheKey);
+    // A project file compiled with the project's Babel config also depends on what that
+    // config loads for it: its plugins' versions and options, and the environment
+    // they may inline (projectBabel's cacheKey).
+    if (cacheKey) {
+      defineCacheKeyGenerator?.(
+        (context?: { id?: string; sourceCode?: string }) =>
+          cacheKey +
+          (context?.id
+            ? (projectBabelFor(root)?.cacheKey(context.id, context.sourceCode) ?? "")
+            : ""),
+      );
+    }
     // A project that shares a Vite server without this plugin's test config would
     // run without React Native's setup; say so instead of failing per file.
     const setupFile = contributedSetup.get(root);
@@ -3831,7 +3941,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     if (!hotRuntimeAuto) throw hotRuntimeOverridden(reason);
     projectConfig.pool = cli.pool ?? selection.userPool ?? "threads";
     projectConfig.isolate = cli.isolate ?? true;
-    projectConfig.runner = undefined;
+    projectConfig.runner = (selection.userRunner as string | undefined) ?? testRunnerPath;
     // The memory plan may have capped the worker count; give back Vitest's own.
     if (cli.maxWorkers === undefined && !process.env.VITEST_MAX_WORKERS) {
       projectConfig.maxWorkers =

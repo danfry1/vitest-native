@@ -41,6 +41,7 @@ import { createJestObject } from "../jest-compat/jest-object.mjs";
 import { nodeRegistry } from "../jest-compat/node-registry.mjs";
 import { nodeDispatch } from "../node-dispatch.mjs";
 import { projectContext } from "../context.mjs";
+import { rootSpellingOf, rootSpellings } from "./root-spelling.mjs";
 
 const SUPPORT_LEAVES = new Set(["jestSetup", "mock"]);
 const MENTIONS_JEST = /\bjest\b/;
@@ -113,7 +114,12 @@ function supportPackageOfFile(file) {
   if (root === null) return null;
   // The project's own `jest/setup.js` or `src/api/mock.ts` is not a library's support:
   // giving it a library's `jest` would make its mocks outlive a reset.
-  if (root.dir === projectRoot || projectRoot.startsWith(root.dir + path.sep)) return null;
+  // The package is the project root or contains it, in any spelling of the root
+  // (root-spelling.mjs): the directory comes from a file name, which may be spelled
+  // otherwise than the root.
+  if (rootSpellings(projectRoot).some((spelling) => rootSpellingOf(root.dir, spelling) !== null)) {
+    return null;
+  }
   const rest = path.relative(root.dir, file).split(path.sep).join("/");
   const leaf = path.posix.basename(rest).replace(/\.[cm]?[jt]sx?$/, "");
   return SUPPORT_LEAVES.has(leaf) || rest.split("/")[0] === "jest" ? root.name : null;

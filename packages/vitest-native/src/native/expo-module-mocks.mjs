@@ -218,6 +218,7 @@ function writeCachedScan(file, scan) {
 
 function realpath(dir) {
   try {
+    // Node's spelling (fs.realpathSync): the directory require() records the mocks under.
     return fs.realpathSync(dir);
   } catch {
     return dir;
@@ -289,6 +290,7 @@ function addMocks(pkgDir, index) {
     const match = /^(.+)\.(ts|tsx|js)$/.exec(file);
     if (!match || file.endsWith(".d.ts")) continue;
     // The first copy found wins (see the order in expoModuleMockIndex).
+    // Node's spelling (fs.realpathSync) of the mock file, the one require() records.
     if (!index.has(match[1])) index.set(match[1], fs.realpathSync(path.join(mocks, file)));
   }
 }

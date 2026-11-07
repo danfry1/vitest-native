@@ -74,6 +74,15 @@ function walk(node: any, fn: (n: any) => boolean | void): void {
 // in nested functions run after the factory has returned, where nothing can be
 // awaited, and stay synchronous.
 //
+// A plain `require('<spec>')` in the factory's own body is the same load as Jest gives
+// it (its module registry, which serves a mock where one is registered), and moves the
+// same way: `__vnFactoryRequire` returns the registered jest.mock factory's value if there
+// is one, else the module as `import()` loads it, in the shape `require` gives. An import,
+// not `vi.importActual`, so every other Vitest mock applies too: a factory-less mock's
+// `__mocks__` file, an automock. Left synchronous: a require of the module
+// the factory itself mocks (awaiting its own result would never settle; the registry
+// reports the cycle instead), and every `require` in a file that binds the name itself.
+//
 // Rejected: making the synchronous call itself return Vite's instance. Vite's module
 // runner evaluates asynchronously, so a module it has not reached cannot be produced
 // from inside a synchronous call; the remaining option, handing Node's copy to Vite's
@@ -92,24 +101,49 @@ function requireActualSpec(node: any): string | null {
   if (callee.property?.type !== "Identifier" || callee.property.name !== "requireActual") {
     return null;
   }
-  const arg = node.arguments[0];
-  if (arg.type === "Literal" && typeof arg.value === "string") return arg.value;
-  if (arg.type === "TemplateLiteral" && arg.expressions.length === 0) {
+  return literalSpec(node.arguments[0]);
+}
+
+/** The string specifier of a `require('<literal>')` call, or null. */
+function requireSpec(node: any): string | null {
+  if (node.type !== "CallExpression" || node.arguments.length !== 1) return null;
+  if (node.callee?.type !== "Identifier" || node.callee.name !== "require") return null;
+  return literalSpec(node.arguments[0]);
+}
+
+function literalSpec(arg: any): string | null {
+  if (arg?.type === "Literal" && typeof arg.value === "string") return arg.value;
+  if (arg?.type === "TemplateLiteral" && arg.expressions.length === 0) {
     return arg.quasis[0].value.cooked ?? null;
   }
   return null;
 }
 
+/** Whether the file declares its own `require` (createRequire, a parameter, an import). */
+const BINDS_REQUIRE =
+  /\b(?:const|let|var|function|class)\s+require\b|\bimport\s+require\b|[(,]\s*require\s*[,)=]|\{[^}]*\brequire\b[^}]*\}\s*=/;
+
+type LoadKind = "requireActual" | "require";
+
 /**
- * The `jest.requireActual` calls a factory makes while it runs: those in its own body,
- * not in a nested function or a class body (where `await` is not allowed either).
+ * The `jest.requireActual` and `require` calls a factory makes while it runs: those in
+ * its own body, not in a nested function or a class body (where `await` is not allowed
+ * either). `mocked` is the specifier the factory mocks, whose own require stays as is.
  */
-function ownRequireActualCalls(factory: any): { node: any; spec: string }[] {
-  const calls: { node: any; spec: string }[] = [];
+function ownLoadCalls(
+  factory: any,
+  mocked: string | null,
+  requireIsGlobal: boolean,
+): { node: any; spec: string; kind: LoadKind }[] {
+  const calls: { node: any; spec: string; kind: LoadKind }[] = [];
   walk(factory.body, (node) => {
     if (FUNCTION.has(node.type) || node.type === "ClassBody") return false;
-    const spec = requireActualSpec(node);
-    if (spec !== null) calls.push({ node, spec });
+    const actual = requireActualSpec(node);
+    if (actual !== null) return void calls.push({ node, spec: actual, kind: "requireActual" });
+    const required = requireIsGlobal ? requireSpec(node) : null;
+    if (required !== null && required !== mocked) {
+      calls.push({ node, spec: required, kind: "require" });
+    }
   });
   return calls;
 }
@@ -501,12 +535,14 @@ function adapt(
     return null; // let the normal pipeline surface the syntax error
   }
 
-  // The factories' own `jest.requireActual` calls, which may move to Vite.
-  const candidates = new Map<any, { node: any; spec: string }[]>();
+  // The factories' own `jest.requireActual` calls, which may move to Vite. Resolving
+  // them is asynchronous, so a file without any is transformed synchronously.
+  const candidates = new Map<any, { node: any; spec: string; kind: LoadKind }[]>();
+  const requireIsGlobal = !BINDS_REQUIRE.test(code);
   walk(ast, (node) => {
     const factory = mockFactoryOf(node);
     if (!factory || factory.generator) return;
-    const calls = ownRequireActualCalls(factory);
+    const calls = ownLoadCalls(factory, literalSpec(node.arguments[0]), requireIsGlobal);
     if (calls.length > 0) candidates.set(factory, calls);
   });
   if (candidates.size === 0) return rewrite(code, ast, new Map(), manualMockFor);
@@ -524,7 +560,7 @@ function adapt(
     const owned = new Set(resolved.filter(([, yes]) => yes).map(([spec]) => spec));
     const toAsync = new Map<any, any[]>();
     for (const [factory, calls] of candidates) {
-      const moved = calls.filter((call) => owned.has(call.spec)).map((call) => call.node);
+      const moved = calls.filter((call) => owned.has(call.spec));
       if (moved.length > 0) toAsync.set(factory, moved);
     }
     return rewrite(code, ast, toAsync, manualMockFor);
@@ -553,7 +589,7 @@ function mockFactoryOf(node: any): any {
 function rewrite(
   code: string,
   ast: any,
-  toAsync: Map<any, any[]>,
+  toAsync: Map<any, { node: any; spec: string; kind: LoadKind }[]>,
   manualMockFor: (spec: string) => string | null = () => null,
 ): Adapted {
   const s = new MagicString(code);
@@ -568,14 +604,18 @@ function rewrite(
   // Factories already replaced, whose source must not be edited again.
   const replaced: [number, number][] = [];
 
-  /** The factory's source, async, with its own project `requireActual`s via Vite. */
-  const asyncFactory = (factory: any, calls: any[]): string => {
+  /** The factory's source, async, with its own project loads via Vite. */
+  const asyncFactory = (factory: any, calls: { node: any; kind: LoadKind }[]): string => {
     let text = "";
     let at = factory.start;
-    for (const call of [...calls].sort((a, b) => a.start - b.start)) {
+    for (const { node: call, kind } of [...calls].sort((a, b) => a.node.start - b.node.start)) {
       const arg = call.arguments[0];
+      const spec = code.slice(arg.start, arg.end);
       text += code.slice(at, call.start);
-      text += `(${SETUP}("__vnActualExports")(await vi.importActual(${code.slice(arg.start, arg.end)})))`;
+      text +=
+        kind === "require"
+          ? `(await ${SETUP}("__vnFactoryRequire")(import.meta.url, ${spec}, () => import(${spec})))`
+          : `(${SETUP}("__vnActualExports")(await vi.importActual(${spec})))`;
       at = call.end;
     }
     text += code.slice(at, factory.end);

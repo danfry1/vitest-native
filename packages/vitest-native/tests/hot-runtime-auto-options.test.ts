@@ -204,7 +204,7 @@ describe("hotRuntime: { mode: 'auto', memoryLimit }", () => {
       expect(() =>
         plugin.configureVitest({ vitest: { config: { cliOptions: cli } }, project: { config } }),
       ).not.toThrow();
-      expect(config.runner, JSON.stringify(cli)).toBeUndefined();
+      expect(config.runner, JSON.stringify(cli)).toMatch(/native[\\/]test-runner\.mjs$/);
       expect(config.env.VITEST_NATIVE_MEMORY_PLAN).toBeUndefined();
       expect(error).toHaveBeenCalledWith(expect.stringMatching(reason));
     }

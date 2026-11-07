@@ -3,7 +3,8 @@ import fs from "node:fs";
 import Module, { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { COLD_IMPORT_BUDGET_MS } from "./support/cold-import";
 
 // The require hook keeps the resolutions it made for the life of the worker, and the
 // engine keeps each compiled source keyed by its size and mtime (hooks.mjs,
@@ -135,6 +136,12 @@ describe("a compiled source edited after it was loaded", () => {
     delete req.cache[file];
     return (req(file) as { edit: string }).edit;
   };
+
+  // The first compile through the hook loads the toolchain, cold on a fresh runner (it has
+  // taken 1.8 s on Windows): paid here, so the cases time only their own recompiles.
+  beforeAll(() => {
+    expect(load(write("edit/warm.ts", 'export const edit: string = "warm";\n'))).toBe("warm");
+  }, COLD_IMPORT_BUDGET_MS);
 
   it("is compiled again when only its mtime changed (same size)", () => {
     const file = write("edit/mtime.ts", 'export const edit: string = "a";\n');
