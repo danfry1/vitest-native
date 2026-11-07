@@ -65,16 +65,61 @@ const realpathSpelling = {
   create(context) {
     const report = baselined(context, "realpath-spelling");
     const source = context.sourceCode;
+    const mentions = (comment) => /spelling/i.test(comment.value);
+    // The comments directly above `node`: the block ending on the line before it, back
+    // through every comment that touches the one after it.
+    const blockAbove = (node) => {
+      const comments = source.getCommentsBefore(node);
+      const block = [];
+      let line = node.loc.start.line;
+      for (let i = comments.length - 1; i >= 0; i--) {
+        if (comments[i].loc.end.line < line - 1) break;
+        block.push(comments[i]);
+        line = comments[i].loc.start.line;
+      }
+      return block;
+    };
+    const STATEMENT = /Statement$|Declaration$/;
+    const FUNCTION = /^(FunctionDeclaration|FunctionExpression|ArrowFunctionExpression)$/;
+    const nearestStatement = (node) => {
+      for (let at = node.parent; at; at = at.parent) {
+        if (STATEMENT.test(at.type) && at.type !== "BlockStatement") return at;
+      }
+      return null;
+    };
+    // Where a statement's comments sit: before its `export` if it is exported, and before
+    // the statement it shares a first line with (a one-line `if` and its consequent).
+    const commentAnchor = (statement) => {
+      let at = statement;
+      for (;;) {
+        if (/^Export(Named|Default)Declaration$/.test(at.parent?.type ?? "")) {
+          at = at.parent;
+          continue;
+        }
+        const outer = nearestStatement(at);
+        if (outer && outer.loc.start.line === at.loc.start.line) {
+          at = outer;
+          continue;
+        }
+        return at;
+      }
+    };
+    // Explained by a comment mentioning "spelling": on the call's own line, in the comment
+    // block directly above the statement holding it, or in the comment block (JSDoc
+    // included) above a function enclosing it; oxlint has no getJSDocComment. Not by a
+    // comment above some outer statement.
     const explained = (node) => {
       const line = node.loc.start.line;
-      return source
-        .getAllComments()
-        .some(
-          (comment) =>
-            /spelling/i.test(comment.value) &&
-            comment.loc.end.line >= line - 1 &&
-            comment.loc.start.line <= line,
-        );
+      if (source.getAllComments().some((c) => mentions(c) && c.loc.start.line === line))
+        return true;
+      const statement = nearestStatement(node);
+      if (statement && blockAbove(commentAnchor(statement)).some(mentions)) return true;
+      for (let at = node.parent; at; at = at.parent) {
+        if (!FUNCTION.test(at.type)) continue;
+        const declaration = at.type === "FunctionDeclaration" ? at : nearestStatement(at);
+        if (declaration && blockAbove(commentAnchor(declaration)).some(mentions)) return true;
+      }
+      return false;
     };
     return {
       CallExpression(node) {
