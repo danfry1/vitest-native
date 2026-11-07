@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions: read-all
 
@@ -176,12 +176,12 @@ jobs:
       - name: Install dependencies (lockfile only, no scripts)
         run: bun install --frozen-lockfile --ignore-scripts
 
-      # The build script runs `bunx --bun tsdown`, and bunx downloads a package it cannot
-      # find installed. Require the lockfile's tsdown, so the build never fetches one.
+      # The build runs the installed tsdown (`bun --bun tsdown`), which fails rather than
+      # fetching one when it is missing. Say so plainly here, before the build.
       - name: The build's tsdown comes from the lockfile
         run: |
           if [ ! -x packages/vitest-native/node_modules/.bin/tsdown ]; then
-            echo "::error::tsdown is not installed from the lockfile; bunx would download it."
+            echo "::error::tsdown is not installed from the lockfile."
             exit 1
           fi
 
