@@ -212,6 +212,19 @@ jobs:
   # cell names that change whenever a row is added. Fails if any cell failed or was
   # cancelled; passes when every cell succeeded or the matrix was skipped because
   # the pull request's changes do not need it. Same pattern as `CI verdict` in ci.yml.
+  verdict:
+    name: RN matrix verdict
+    needs: [classify, matrix]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' > /dev/null
+
   # Publishes the fidelity matrix for the docs site. Vercel's build has no GitHub token, so
   # it cannot read this run's artifacts; this job renders the page from them and pushes it,
   # as a single commit, to the `site-data` branch, which the site's build fetches publicly
@@ -261,18 +274,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add fidelity-matrix.md
           git commit -q -m "Fidelity matrix from run $GITHUB_RUN_ID ($GITHUB_SHA)"
-          git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            HEAD:refs/heads/site-data
-
-  verdict:
-    name: RN matrix verdict
-    needs: [classify, matrix]
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 2
-    steps:
-      - env:
-          RESULTS: ${{ toJSON(needs) }}
-        run: |
-          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          echo "$RESULTS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' > /dev/null
+          # The token goes in a header, not the URL, so no git message can print it.
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c http.extraheader="$auth" push -q --force \
+            "https://github.com/${GITHUB_REPOSITORY}.git" HEAD:refs/heads/site-data

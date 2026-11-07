@@ -18,7 +18,9 @@ try {
   const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   const page = await response.text();
-  if (!page.includes(MARKER)) throw new Error("not a generated fidelity matrix page");
+  if (!page.startsWith("<!--") || !page.includes(MARKER)) {
+    throw new Error("not a generated fidelity matrix page");
+  }
   fs.writeFileSync(out, page);
   console.log(`fidelity matrix: fetched from ${url}`);
 } catch (error) {
