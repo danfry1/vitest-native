@@ -348,6 +348,51 @@ const noDocUrlsInSrc = {
   },
 };
 
+// --------------------------------------------------------------------------------------
+
+/** Text that makes a template literal source code: a module or call the code generates. */
+const GENERATED_CODE =
+  /\brequire\(|\bimport\(|(?:^|\n)\s*(?:import|export)\s|\bmodule\.exports\b|\bjest\.mock\(|\bvi\.(?:mock|hoisted|importActual)\(/;
+
+/** A value generated code may carry as-is: escaped, or a constant the code wrote. */
+const safeInCode = (node) =>
+  node?.type === "Literal" ||
+  (node?.type === "Identifier" && /^[A-Z][A-Z0-9_]*$/.test(node.name)) ||
+  (node?.type === "CallExpression" &&
+    (nameOf(node.callee) === "jsString" ||
+      (memberName(node.callee) === "stringify" && node.callee.object?.name === "JSON")));
+
+/**
+ * Generated code carries values only as escaped literals. A template literal that builds
+ * source (a module, a `require`/`import`, a `jest.mock` call) interpolates each value
+ * through jsString() (src/js-string.mjs) or JSON.stringify(): a path or name with a
+ * quote, backslash, `<` or a line separator otherwise changes the code around it. CodeQL
+ * reported this class (js/bad-code-sanitization) in jest-compat's generated setup.
+ */
+const escapedCodeTemplates = {
+  meta: {
+    type: "problem",
+    messages: {
+      unescaped:
+        "This template builds code and interpolates a value that is not escaped: pass it through jsString() (src/js-string.mjs) or JSON.stringify().",
+    },
+  },
+  create(context) {
+    const report = baselined(context, "escaped-code-templates");
+    return {
+      "Program:exit": report.exit,
+      TemplateLiteral(node) {
+        if (node.parent?.type === "TaggedTemplateExpression") return;
+        if (node.expressions.length === 0) return;
+        const text = node.quasis.map((q) => q.value.cooked ?? q.value.raw).join("");
+        if (!GENERATED_CODE.test(text)) return;
+        if (node.expressions.every(safeInCode)) return;
+        report({ node, messageId: "unescaped" });
+      },
+    };
+  },
+};
+
 export default {
   meta: { name: "vitest-native" },
   rules: {
@@ -356,5 +401,6 @@ export default {
     "no-monkey-patching": noMonkeyPatching,
     "escaped-regexp": escapedRegExp,
     "no-doc-urls-in-src": noDocUrlsInSrc,
+    "escaped-code-templates": escapedCodeTemplates,
   },
 };

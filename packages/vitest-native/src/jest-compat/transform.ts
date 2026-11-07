@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MagicString } from "magic-string";
+import { jsString } from "../js-string.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { findNodeModuleMocks, ignorePattern, type ManualMocks } from "./root-mocks.js";
 
@@ -488,32 +489,6 @@ function jestCompatSetupFile(): string {
  */
 function manualMockFactory(file: string): string {
   return `function __vnManualMock() { return jest.requireActual(${jsString(file)}); }`;
-}
-
-const UNSAFE_IN_CODE: Record<string, string> = {
-  "<": "\\u003C",
-  ">": "\\u003E",
-  "\b": "\\b",
-  "\f": "\\f",
-  "\n": "\\n",
-  "\r": "\\r",
-  "\t": "\\t",
-  "\0": "\\0",
-  "\u2028": "\\u2028",
-  "\u2029": "\\u2029",
-};
-
-/**
- * `value` as a JavaScript string literal for generated code: JSON's escaping, plus the
- * characters JSON leaves as they are that could end a script tag or a line in the code
- * around it. Every string the generated code carries (a module name, a file path) goes
- * through this, never through concatenation.
- */
-function jsString(value: string): string {
-  return JSON.stringify(value).replace(
-    /[<>\b\f\n\r\t\0\u2028\u2029]/g,
-    (char) => UNSAFE_IN_CODE[char] ?? char,
-  );
 }
 
 /** A file's jest.* calls, adapted (see rewrite). */

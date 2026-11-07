@@ -33,7 +33,8 @@
       "rules": {
         "vitest-native/no-monkey-patching": "error",
         "vitest-native/no-doc-urls-in-src": "error",
-        "vitest-native/realpath-spelling": "error"
+        "vitest-native/realpath-spelling": "error",
+        "vitest-native/escaped-code-templates": "error"
       }
     }
   ],
