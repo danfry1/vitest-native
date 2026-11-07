@@ -77,13 +77,34 @@ const unknownEntry = (
 
 // Source tests: cheap, and over-matching only costs a Babel compile, never a wrong one.
 const has = (re: RegExp) => (source: string) => re.test(source);
-// Run on the raw source, comments included: a decorator or a class mentioned in a comment
-// routes the file, which only costs a Babel compile. Missing a real one would compile the
-// file without the plugin it needs.
+// Run on the raw source: a decorator or a class mentioned in a comment can route the
+// file, which only costs a Babel compile, while missing a real one would compile the file
+// without the plugin it needs. Decorators skip the comment positions one line shows.
 // `@name` where an expression or declaration can start, wherever it is on the line
 // (`export default @observer class`, `@ field() name`), not inside a word (an e-mail
 // address), a path (`/@user`) or a string (`'@env'`).
-const DECORATOR = has(/(?:^|[^\w$@./'"`])@\s*[A-Za-z_$][\w$.]*/m);
+const DECORATOR_AT = /(?:^|[^\w$@./'"`])@\s*[A-Za-z_$][\w$.]*/gm;
+/**
+ * Whether the line before an `@` puts it in a comment a decorator can never be in: after
+ * `//`, on a JSDoc line (` * @param`), or after a `/*` the line does not close. Only that
+ * line is read, so nothing that spans lines or strings can hide a real decorator; a tag
+ * in a block comment whose lines do not start with `*` still counts (a Babel compile).
+ */
+function inLineComment(line: string): boolean {
+  // Strings on the line first, so a `//` in one (a URL) does not read as a comment.
+  const before = line.replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`/g, '""');
+  if (before.includes("//") || /^\s*\*/.test(before)) return true;
+  const open = before.lastIndexOf("/*");
+  return open !== -1 && !before.includes("*/", open + 2);
+}
+const DECORATOR = (source: string): boolean => {
+  for (const match of source.matchAll(DECORATOR_AT)) {
+    const at = match.index + match[0].indexOf("@");
+    const lineStart = source.lastIndexOf("\n", at - 1) + 1;
+    if (!inLineComment(source.slice(lineStart, at))) return true;
+  }
+  return false;
+};
 // A macro module: `x.macro`, `x.macro.js`, `lib/macro`, `lib/macro/index.js`.
 const MACRO_IMPORT = has(/['"][^'"\n]*[./]macro(?:\/index)?(?:\.[cm]?[jt]sx?)?['"]/);
 const WORKLET = has(
