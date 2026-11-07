@@ -543,11 +543,13 @@ describe("a jest-expo app's package.json#jest", () => {
     const root = blueskyLike();
     const report = analyzeJestConfig(root);
     const all = [...report.automatic, ...report.attention, ...report.dropped].join("\n");
-    // Required, and not emitted: no Vite 8 + @rolldown/plugin-babel installed here.
-    expect(report.attention.join("\n")).toContain(
-      "@lingui/babel-plugin-lingui-macro compiles macro imports away",
+    // The engine applies the macro plugin to the project source that needs it (projectBabel
+    // 'auto'), so nothing is wired and nothing is asked of the user.
+    expect(report.automatic.join("\n")).toContain(
+      "plugin @lingui/babel-plugin-lingui-macro → applied by the engine to the project source that needs it",
     );
-    expect(all).toContain(`babel({ plugins: ["@lingui/babel-plugin-lingui-macro"] })`);
+    expect(report.attention.join("\n")).not.toContain("lingui");
+    expect(all).not.toContain("babel({");
     expect(report.suggestedConfig).not.toContain("plugin-babel");
     // module-resolver alias carried over.
     expect(report.suggestedConfig).toContain(
@@ -555,7 +557,11 @@ describe("a jest-expo app's package.json#jest", () => {
     );
     expect(report.dropped.join("\n")).toContain("react-native-worklets/plugin");
     expect(report.dropped.join("\n")).toContain("babel-plugin-react-compiler");
-    expect(report.attention.join("\n")).toContain("some-inline-env-plugin ran on every file");
+    // An unknown plugin: the engine compiles every project file with it (Oxc as the fallback).
+    expect(report.automatic.join("\n")).toContain(
+      "plugin babel-plugin-some-inline-env-plugin → applied by the engine",
+    );
+    expect(report.attention.join("\n")).not.toContain("some-inline-env-plugin ran on every file");
 
     const classified = classifyBabelPlugins(readBabelConfig(root), root, []);
     expect(classified.map((p) => [p.name, p.verdict])).toEqual([
@@ -568,10 +574,27 @@ describe("a jest-expo app's package.json#jest", () => {
 
     const doctor = runDoctor(root).lines.join("\n");
     expect(doctor).toContain("Babel");
-    expect(doctor).toContain("⚠ @lingui/babel-plugin-lingui-macro compiles macro imports away");
+    expect(doctor).toContain(
+      "· @lingui/babel-plugin-lingui-macro: applied by the engine where needed",
+    );
+    expect(doctor).not.toContain("⚠ @lingui/babel-plugin-lingui-macro");
   });
 
-  it("emits the Babel plugin when Vite 8 and @rolldown/plugin-babel are installed", () => {
+  it("doctor calls a babel() entry that repeats an engine-applied plugin redundant", () => {
+    const root = blueskyLike({
+      "vitest.config.mts": `import { defineConfig } from 'vitest/config'
+import babel from '@rolldown/plugin-babel'
+import { reactNative } from 'vitest-native'
+export default defineConfig({ plugins: [reactNative(), babel({ plugins: ['@lingui/babel-plugin-lingui-macro'] })] })
+`,
+    });
+    const doctor = runDoctor(root).lines.join("\n");
+    expect(doctor).toContain(
+      "babel() lists @lingui/babel-plugin-lingui-macro, which the engine already applies",
+    );
+  });
+
+  it("does not emit babel() for a plugin the engine applies, even with @rolldown/plugin-babel installed", () => {
     const report = analyzeJestConfig(
       blueskyLike({
         "node_modules/vite/package.json": { name: "vite", version: "8.0.0" },
@@ -586,10 +609,8 @@ describe("a jest-expo app's package.json#jest", () => {
         "node_modules/@babel/core/package.json": { name: "@babel/core", version: "7.29.0" },
       }),
     );
-    expect(report.suggestedConfig).toContain(`import babel from '@rolldown/plugin-babel'`);
-    expect(report.suggestedConfig).toContain(
-      `babel({ plugins: ["@lingui/babel-plugin-lingui-macro"] }), jestMockTransform()`,
-    );
+    expect(report.suggestedConfig).not.toContain("plugin-babel");
+    expect(report.suggestedConfig).not.toContain("babel({");
   });
 
   describe("the worklets plugin, where Reanimated runs as its own mock", () => {
@@ -635,20 +656,19 @@ describe("a jest-expo app's package.json#jest", () => {
       "node_modules/@rolldown/plugin-babel/dist/index.mjs": "export default () => ({});",
     };
 
-    it("is required and wired, last as the config lists it", () => {
+    it("is required, and applied by the engine rather than wired into babel()", () => {
       const root = blueskyLike({ ...nativeReanimated(), ...pluginBabel });
       const classified = classifyBabelPlugins(readBabelConfig(root), root, ["reanimated"]);
       expect(classified.find((p) => p.name === "react-native-worklets/plugin")?.verdict).toBe(
         "required",
       );
       const report = analyzeJestConfig(root);
-      expect(report.suggestedConfig).toContain(
-        `babel({ plugins: ["@lingui/babel-plugin-lingui-macro", "react-native-worklets/plugin"] })`,
-      );
+      expect(report.suggestedConfig).not.toContain("babel({");
       expect(report.automatic.join("\n")).toContain(
-        "react-native-worklets/plugin gives Reanimated's hooks their dependencies",
+        "plugin react-native-worklets/plugin → applied by the engine to the project source that needs it",
       );
       expect(report.dropped.join("\n")).not.toContain("react-native-worklets/plugin");
+      expect(report.attention.join("\n")).not.toContain("react-native-worklets/plugin");
     });
 
     it("covers react-native-reanimated/plugin and keeps a plugin's options", () => {
@@ -664,16 +684,19 @@ describe("a jest-expo app's package.json#jest", () => {
       expect(classified.map((p) => [p.name, p.verdict])).toEqual([
         ["react-native-reanimated/plugin", "required"],
       ]);
-      expect(analyzeJestConfig(root).suggestedConfig).toContain(
-        `babel({ plugins: [["react-native-reanimated/plugin", {"relativeSourceLocation":true}]] })`,
+      const report = analyzeJestConfig(root);
+      expect(report.suggestedConfig).not.toContain("babel({");
+      expect(report.automatic.join("\n")).toContain(
+        "plugin react-native-reanimated/plugin → applied by the engine",
       );
     });
 
-    it("is listed with the install recipe when @rolldown/plugin-babel is missing", () => {
+    it("needs no @rolldown/plugin-babel install, since the engine applies it", () => {
       const report = analyzeJestConfig(blueskyLike(nativeReanimated()));
       expect(report.suggestedConfig).not.toContain("plugin-babel");
-      expect(report.attention.join("\n")).toContain(
-        "react-native-worklets/plugin gives Reanimated's hooks their dependencies",
+      expect(report.attention.join("\n")).not.toContain("install @rolldown/plugin-babel");
+      expect(report.automatic.join("\n")).toContain(
+        "plugin react-native-worklets/plugin → applied by the engine",
       );
       expect(report.dropped.join("\n")).not.toContain("react-native-worklets/plugin");
     });

@@ -194,32 +194,16 @@ See [untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-sourc
 
 ### Babel plugins your Jest run applied
 
-Under Jest, babel-jest ran your `babel.config.js` on every file. Under the native engine, vitest-native applies it only to project TypeScript files Node loads (through `require()` or `jest.requireActual`): the files your tests `import` go through Vite's transform, and React Native's own code through RN's Babel preset. Most plugins in a React Native Babel config exist for Metro and are not missed, but a few change what the code means. `vitest-native migrate` and `doctor` read the config and sort its plugins:
+Under Jest, babel-jest ran your `babel.config.js` on every file. vitest-native compiles your own source with Vite's Oxc transform, and applies your Babel config only where a file needs something Oxc does not do ([`projectBabel`](/guide/plugin-options#projectbabel), `'auto'` by default). Examples are decorators, macros, the worklets plugin where Reanimated runs as its own mock, inline environment variables, and any plugin vitest-native does not know. Those files compile with Babel, as babel-jest compiled them; every other file keeps Oxc, and packages in `node_modules` are not affected. `vitest-native migrate` and `doctor` read the config and say what happens to each entry:
 
 | Plugin | Under vitest-native |
 |---|---|
-| `babel-plugin-macros` (`'macros'`), `@lingui/babel-plugin-lingui-macro`, other macro plugins | **Required.** A macro is compiled away at build time; without the plugin the macro module is imported for real and fails, typically with `Cannot find module 'babel-plugin-macros'`. |
+| `@babel/plugin-proposal-decorators`, `babel-plugin-macros` (`'macros'`), `@lingui/babel-plugin-lingui-macro`, `react-native-dotenv`, inline-environment plugins, plugins vitest-native does not know | **Applied by the engine** to the files that need it. Nothing to add. |
+| `react-native-worklets/plugin`, `react-native-reanimated/plugin` | **Applied by the engine** under the native engine with Reanimated 4.7+ and Worklets 0.9+, where Reanimated runs as its own mock and its hooks need the plugin. Not needed with an older Reanimated or the mock engine, where the preset's module replaces the library. |
 | `babel-plugin-module-resolver` (`'module-resolver'`) | Its `alias` entries become `resolve.alias` (same exact-or-`key/` prefix rule). `migrate` writes them. |
-| `react-native-worklets/plugin`, `react-native-reanimated/plugin` | **Required** under the native engine with Reanimated 4.7+ and Worklets 0.9+, where Reanimated runs as its own mock and its hooks need the plugin (`useAnimatedStyle` throws "used without a dependency array or Babel plugin" without it). Not needed with an older Reanimated or the mock engine, where the preset's module replaces the library, or when the library is not installed; otherwise listed for you to judge. |
 | `babel-plugin-react-compiler` | Not needed: it only adds memoization, and components render the same without it. |
-| anything else | Listed for you to judge — check whether a test depends on what it does. |
 
-Required plugins run through a Vite plugin that calls Babel:
-
-```ts
-// npm i -D @rolldown/plugin-babel @babel/core
-import babel from '@rolldown/plugin-babel'
-
-export default defineConfig({
-  plugins: [
-    reactNative(),
-    babel({ plugins: ['@lingui/babel-plugin-lingui-macro'] }),
-    jestMockTransform(),
-  ],
-})
-```
-
-Vite 8's `@vitejs/plugin-react` (v6) no longer runs Babel and points to [`@rolldown/plugin-babel`](https://www.npmjs.com/package/@rolldown/plugin-babel) for it. List only the plugins your tests need. It does not load `babel.config.js`, so the full Metro preset is not applied twice. When `@rolldown/plugin-babel` and `@babel/core` are installed, `migrate --write` adds the `babel()` entry itself.
+A startup line names the plugins that send files through Babel, and `diagnostics: true` names each file. You do not need `@rolldown/plugin-babel` for any of these. If your config already has a `babel()` entry for one of them, `doctor` reports it as redundant; it can be removed.
 
 ### Other Jest config options
 

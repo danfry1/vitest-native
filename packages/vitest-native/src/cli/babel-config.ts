@@ -233,6 +233,7 @@ export function readBabelConfig(root: string): BabelConfigReport {
     evaluated,
     plugins,
     presets: presetEntries.map((p) => p.name),
+    presetEntries,
     lazyImports: [...new Set([...lazyImportSettings(presetEntries, plugins), ...lazyInText])],
   };
 }
