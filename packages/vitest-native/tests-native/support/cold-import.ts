@@ -8,3 +8,11 @@
  * its timeout on CI.
  */
 export const COLD_IMPORT_BUDGET_MS = 60_000;
+
+/**
+ * The budget for an afterAll that deletes a large scratch tree: a materialised app with
+ * its node_modules, or a project holding React Native registry builds. On a Windows
+ * runner, removing one took more than Vitest's default 10 s hook timeout, which failed
+ * the file after its tests had passed.
+ */
+export const CLEANUP_BUDGET_MS = 60_000;
