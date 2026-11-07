@@ -49,10 +49,29 @@ export function nodeKey(file) {
   return fold(ledgerKey(file));
 }
 
-// The OS's spelling of the whole path (realpathOr), as both sides of the ledger are keyed:
-// an allow entry or an exempt directory matches whichever spelling it was written in.
+// The OS's spelling of the whole path (realpathOr), as both sides of the installed ledger
+// are keyed (fileKey).
 export function realKey(file) {
   return fold(ledgerKey(realpathOr(file, file)));
+}
+
+// Every key an allow entry or exempt directory can be met under: the OS's spelling, and
+// Node's (fs.realpathSync, which keeps a Windows 8.3 short name), so it matches whichever
+// spelling a side recorded the file in.
+function realKeys(file) {
+  return [...new Set([realKey(file), fold(ledgerKey(nodeRealpathOr(file)))])].map((key) =>
+    key.replace(/\/+$/, ""),
+  );
+}
+
+function nodeRealpathOr(file) {
+  try {
+    // Node's spelling (fs.realpathSync): the one a ledger keyed as given (nodeKey) holds.
+    return fs.realpathSync(file);
+  } catch {
+    // Missing: kept as written, so the entry matches nothing until it exists.
+    return file;
+  }
 }
 
 const NOT_THE_MODULE = /[?&](?:raw|url|inline|worker|sharedworker)\b/;
@@ -72,10 +91,13 @@ function realpathOr(file, fallback) {
   }
 }
 function realDir(dir) {
-  let real = realDirs.get(dir);
+  // Keyed by the resolved path: on Windows, Vite's ids say `D:/a` and Node's file names
+  // `D:\a`, which would otherwise cost each directory two realpaths.
+  const at = path.resolve(dir);
+  let real = realDirs.get(at);
   if (real === undefined) {
-    real = realpathOr(dir, dir);
-    realDirs.set(dir, real);
+    real = realpathOr(at, at);
+    realDirs.set(at, real);
   }
   return real;
 }
@@ -229,8 +251,8 @@ export function createOwnershipLedger({
   // On the ledger key (real path, folded where the file system ignores case), the same
   // whichever side was second: Node's filename and Vite's id can spell one file apart.
   const within = (dirKey, key) => key === dirKey || key.startsWith(`${dirKey}/`);
-  const exemptKeys = exemptDirs.map((dir) => realKey(dir).replace(/\/+$/, ""));
-  const allowKeys = allow.map((entry) => ({ entry, key: realKey(entry.path).replace(/\/+$/, "") }));
+  const exemptKeys = exemptDirs.flatMap((dir) => realKeys(dir));
+  const allowKeys = allow.flatMap((entry) => realKeys(entry.path).map((key) => ({ entry, key })));
   const exemption = (key) => {
     if (TEST_RUNTIME_RESIDENT_PATH.test(key)) return "the test runtime (vitest, chai)";
     if (exemptKeys.some((dir) => within(dir, key))) return "the engine's own runtime";
