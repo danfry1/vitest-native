@@ -12,7 +12,12 @@ import path from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { afterAll } from "vitest";
 // @ts-expect-error — runtime .mjs, no types
-import { materialise, museumRoot, packageRoot } from "../../validation/bug-museum/lib/materialise.mjs";
+import {
+  materialise,
+  museumRoot,
+  packageRoot,
+} from "../../validation/bug-museum/lib/materialise.mjs";
+import { CLEANUP_BUDGET_MS } from "./cold-import";
 
 export interface Edit {
   file: string;
@@ -21,9 +26,10 @@ export interface Edit {
 }
 
 const works: string[] = [];
+// Each work directory holds a materialised app with its node_modules.
 afterAll(() => {
   for (const work of works) fs.rmSync(work, { recursive: true, force: true });
-});
+}, CLEANUP_BUDGET_MS);
 
 export function runApp(
   id: string,
