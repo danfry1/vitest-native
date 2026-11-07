@@ -551,9 +551,37 @@ jobs:
   # on a push to main.
   # needs.<job>.result is one of success, failure, cancelled, skipped (GitHub Actions
   # contexts reference).
+  # The global installs that only tag and scheduled runs make (release.yml's npm,
+  # bakeoff-ratchet.yml's corepack), run here on every pull request as those jobs run
+  # them, so a broken path is found before a tag, which cannot be moved, depends on it.
+  release-tools:
+    name: Release-path tool installs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # release.yml's setup-node pin and Node version.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          package-manager-cache: false
+          node-version: 22.22.3
+
+      - name: npm 11.15.0, as the release jobs install it
+        run: |
+          node .github/scripts/install-global.mjs npm 11.15.0
+          test "$(npm --version)" = 11.15.0
+
+      - name: corepack 0.35.0, as the bake-off ratchet installs it
+        run: |
+          node .github/scripts/install-global.mjs corepack 0.35.0
+          test "$(corepack --version)" = 0.35.0
+
   verdict:
     name: CI verdict
-    needs: [classify, docs, snippets, changeset, unit, check, packed]
+    needs: [classify, docs, snippets, changeset, unit, check, packed, release-tools]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
