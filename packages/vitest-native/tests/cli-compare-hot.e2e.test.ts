@@ -87,6 +87,15 @@ describe.runIf(distExists)("compare --hot: end to end", () => {
     expect(report.runs[0].snapshots.written).toBe(0);
   }, 180_000);
 
+  it("gives no verdict for a config without a vitest-native plugin", async () => {
+    const root = hotProject("native", {
+      "vitest.config.mjs": `export default { test: { include: ["src/**/*.test.js"] } };\n`,
+    });
+    const { code, text } = await runCli(["--hot", "--root", root, "--runs", "1", "--no-shuffle"]);
+    expect(code).toBe(2);
+    expect(text).toContain("this config has no vitest-native plugin (reactNative())");
+  }, 180_000);
+
   it("gives no verdict where the config cannot run hot (the mock engine)", async () => {
     const root = hotProject("mock");
     const { code, text } = await runCli(["--hot", "--root", root, "--runs", "1", "--no-shuffle"]);

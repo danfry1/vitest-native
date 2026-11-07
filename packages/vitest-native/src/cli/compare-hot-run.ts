@@ -281,6 +281,7 @@ export async function runCompareHot(options: CompareHotOptions): Promise<number>
     const retryReporter = path.join(configDir, "retries-reporter.mjs");
     fs.writeFileSync(retryReporter, RETRY_REPORTER);
     const retriesFile = (n: number) => path.join(work, `retries-${n}.jsonl`);
+    const problemFile = (n: number) => path.join(work, `problem-${n}.txt`);
     const sanitizeCtx = {
       roots: [root, fs.realpathSync(root)],
       tmp: tmpSpellings(),
@@ -315,7 +316,11 @@ export async function runCompareHot(options: CompareHotOptions): Promise<number>
         ],
         {
           cwd: root,
-          env: { ...runnerEnv(), VN_COMPARE_RETRIES: retriesFile(index) },
+          env: {
+            ...runnerEnv(),
+            VN_COMPARE_RETRIES: retriesFile(index),
+            VN_COMPARE_PROBLEM: problemFile(index),
+          },
           timeoutMs: options.timeoutMs,
           showOutput: options.showOutput,
           cleanup,
@@ -326,6 +331,13 @@ export async function runCompareHot(options: CompareHotOptions): Promise<number>
         },
       );
       const wallMs = Date.now() - started;
+      if (fs.existsSync(problemFile(index))) {
+        for (const problem of fs.readFileSync(problemFile(index), "utf8").split("\n")) {
+          log(`✗ ${planned.label}: ${problem}.`);
+        }
+        log("  No verdict: compare could not run this config in one mode.");
+        return 2;
+      }
       const failure = runFailure("Vitest", run, options.timeoutMs);
       if (failure) return reportFailure(log, `${planned.label}: ${failure}`, run);
       const report = readReport(out);

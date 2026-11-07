@@ -680,7 +680,9 @@ function isolateProject(project, inherited) {
 const HOT_RUNTIME = ${hotRuntime === undefined ? "undefined" : JSON.stringify(hotRuntime)};
 const HOOK = Symbol.for("vitest-native.compare-hot-runtime");
 // Sets the mode on every vitest-native plugin, nested plugin arrays and inline projects
-// included, before Vite runs any hook. A config without one cannot be compared hot.
+// included, before Vite runs any hook. What compare cannot set (no plugin, a project given as
+// a path, a Promise plugin) is written to VN_COMPARE_PROBLEM, which compare reads after the
+// run and refuses on: no verdict from a run whose mode it did not control.
 function setHotRuntime(config) {
   let found = 0;
   const walk = (plugins) => {
@@ -690,8 +692,9 @@ function setHotRuntime(config) {
       else if (p && typeof p[HOOK] === "function") { p[HOOK](HOT_RUNTIME); found++; }
     }
   };
+  const problems = [];
   const refuse = (what) => {
-    throw new Error("[vitest-native compare --hot] " + what + " cannot be set to one mode by compare; compare each project's config with --vitest-config instead");
+    problems.push(what + " cannot be set to one mode by compare; compare each project's config with --vitest-config instead");
   };
   const walkChecked = (plugins) => {
     for (const p of Array.isArray(plugins) ? plugins.flat(Infinity) : []) {
@@ -707,7 +710,10 @@ function setHotRuntime(config) {
       walkChecked(project.plugins);
     } else if (typeof project === "function") refuse("a project given as a function");
   }
-  if (found === 0) throw new Error("[vitest-native compare --hot] no vitest-native plugin (reactNative()) in this config");
+  if (found === 0) problems.push("this config has no vitest-native plugin (reactNative())");
+  if (problems.length && process.env.VN_COMPARE_PROBLEM) {
+    fs.writeFileSync(process.env.VN_COMPARE_PROBLEM, problems.join("\\n"));
+  }
 }
 
 function compareConfig(config) {
