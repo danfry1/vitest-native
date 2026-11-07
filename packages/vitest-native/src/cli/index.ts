@@ -17,6 +17,7 @@ import {
   parseCompareArgs,
   runCompare,
 } from "./compare-run.js";
+import { docsUrl } from "../docs-url.mjs";
 
 /** Each command's flags, besides --root <dir> and --help, which every command takes. */
 export const COMMAND_FLAGS: Record<string, string[]> = {
@@ -67,7 +68,7 @@ Options:
   --root <dir>   project root (default: cwd)
   --help         this text
 
-Docs: https://danfry1.github.io/vitest-native/`;
+Docs: ${docsUrl("/")}`;
 
 export function main(
   argv: string[],

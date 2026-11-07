@@ -14,13 +14,16 @@
 //
 // Scripts start in the order given, so put the longest first. Every script runs even
 // when another fails; the exit code is 1 if any failed. With VN_SCRIPT_DEADLINE_MS set
-// (CI sets it), a script still running at that deadline is stopped and fails with the
+// (CI sets it), a script still running at its deadline is stopped and fails with the
 // test files it was running (scripts/ci/deadline.mjs), and its Vitest runs carry the
-// no-progress reporter (scripts/ci/hang-reporter.mjs). `--jobs 1` (or VN_TEST_JOBS=1)
+// no-progress reporter (scripts/ci/hang-reporter.mjs). VN_SCRIPT_DEADLINE_MS is the
+// default; the long scripts have their own, from measured durations
+// (scripts/ci/script-deadlines.mjs). `--jobs 1` (or VN_TEST_JOBS=1)
 // is the old sequential behaviour, for bisecting a suspected interaction.
 import os from "node:os";
 import process from "node:process";
 import { describeRunning, runWithDeadline } from "./ci/deadline.mjs";
+import { deadlineFor } from "./ci/script-deadlines.mjs";
 
 const args = process.argv.slice(2);
 let jobs = Number(process.env.VN_TEST_JOBS) || 0;
@@ -39,12 +42,14 @@ if (!Number.isInteger(jobs) || jobs < 1)
   jobs = Math.max(1, Math.min(3, os.availableParallelism() - 1));
 
 const github = process.env.GITHUB_ACTIONS === "true";
-const deadlineMs = Number(process.env.VN_SCRIPT_DEADLINE_MS) || 0;
+const defaultDeadlineMs = Number(process.env.VN_SCRIPT_DEADLINE_MS) || 0;
 const results = [];
 
 async function run(script) {
   const started = Date.now();
   const chunks = [];
+  // No default deadline means none at all (a local run), not just the listed ones.
+  const deadlineMs = defaultDeadlineMs && deadlineFor(script, defaultDeadlineMs);
   const { code, timedOut, running } = await runWithDeadline("bun", ["run", script], {
     deadlineMs,
     env: { ...process.env, FORCE_COLOR: process.env.FORCE_COLOR ?? "1" },

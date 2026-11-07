@@ -24,6 +24,7 @@ import {
 import { parseJestScript } from "./jest-discovery.js";
 import { installedManifest } from "./manifest.js";
 import { analyzeJestConfig } from "./migrate.js";
+import { docsUrl } from "../docs-url.mjs";
 
 export interface CompareOptions {
   root: string;
@@ -246,7 +247,7 @@ export function parseCompareArgs(argv: string[]): Omit<CompareOptions, "log"> | 
     return {
       error:
         `--jest-args may not contain ${refusedJest}: compare passes only arguments that cannot write ` +
-        `snapshots or replace its reports (see https://danfry1.github.io/vitest-native/guide/cli#compare).`,
+        `snapshots or replace its reports (see ${docsUrl("/guide/cli#compare")}).`,
     };
   }
   const refusedVitest = refusedArg(vitestArgs, VITEST_ARGS);
@@ -255,7 +256,7 @@ export function parseCompareArgs(argv: string[]): Omit<CompareOptions, "log"> | 
       error:
         `--vitest-args may not contain ${refusedVitest}: compare passes only arguments that cannot write ` +
         `snapshots or replace its reports or config (name a config with --vitest-config; see ` +
-        `https://danfry1.github.io/vitest-native/guide/cli#compare).`,
+        `${docsUrl("/guide/cli#compare")}).`,
     };
   }
   const top = Number(values.get("top") ?? 10);

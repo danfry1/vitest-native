@@ -9,18 +9,48 @@
       "reason": "jest-compat's setup installs the `jest` global and Jest-only members on `vi`/`expect` for suites migrated from Jest; it runs only when the project adds jestCompatSetup."
     }
   },
+  "realpath-spelling": {
+    "src/native/ownership-ledger.mjs": {
+      "count": 1,
+      "reason": "#592: realKey keys allow entries and preserve-symlinks lookups in Node's loader spelling; it is unified with identityKey under #592."
+    },
+    "src/plugin.ts": {
+      "count": 2,
+      "reason": "#592: ownership.allow entries are keyed in Node's loader spelling (plugin.ts realpath of allow entries); and, for 0.16, hasSetupFile compares Node's spelling on both sides, which does not unify an 8.3 name with its long form: switch it to identityKey."
+    },
+    "src/native/shared-resolver.mjs": {
+      "count": 1,
+      "reason": "Not a spelling choice: the call exists so the file system raises ELOOP on a symlink loop before resolution continues."
+    },
+    "src/jest-compat/transform.ts": {
+      "count": 1,
+      "reason": "0.16 (#592 class): a native-spelled Vite id is checked against ownership policy directories spelled as given, which can differ under an 8.3 root."
+    },
+    "src/native/native-modules.mjs": {
+      "count": 1,
+      "reason": "0.16 (#592 class): React Native roots in Node's spelling become the ownership policy's roots and are compared with Vite ids; review together with ownership.mjs's root check."
+    },
+    "src/cli/compare-run.ts": {
+      "count": 1,
+      "reason": "0.16: the compare sanitizer gets the root as given and in Node's spelling but not the OS's, so long-name paths in Vitest's output are not sanitized under an 8.3 root; use rootSpellings."
+    }
+  },
   "root-containment": {
     "src/cli/compare-run.ts": {
       "count": 5,
       "reason": "Four are safe: three paths built from the root by the walk or path.resolve, and one check that compares JS realpath with JS realpath. 0.16: the report's testPath is Vite's spelling against the root as given; use relativeToRoot."
     },
     "src/cli/migrate.ts": {
-      "count": 1,
-      "reason": "Derived from the root: the path is built from it, so it has the root's spelling by construction."
+      "count": 2,
+      "reason": "Derived from the root: one path is path.resolve(root, file); the manual mocks are found by walking roots resolved from it, and the result is only shown."
     },
     "src/cli/untranspiled.ts": {
       "count": 1,
       "reason": "Derived from the directory: the file comes from walking it, so it has the directory's spelling."
+    },
+    "src/jest-compat/transform.ts": {
+      "count": 1,
+      "reason": "Derived from the root: manual mock files are found under module.root, and the relative path is only shown in a warning."
     },
     "src/native/babel-toolchain.mjs": {
       "count": 1,
@@ -45,10 +75,6 @@
     "src/plugin.ts": {
       "count": 1,
       "reason": "One spelling on both sides: roots and files are both native here (mayServe converts first)."
-    },
-    "src/project-babel.ts": {
-      "count": 2,
-      "reason": "0.16 (#563 class): Vite ids (native spelling) against the root as given, for onCompile's name and the error's file; the load gate's rootPrefix check has the same mismatch under an 8.3 root. Use relativeToRoot and rootSpellingOf."
     }
   }
 }

@@ -36,11 +36,8 @@ const distExists = fs.existsSync(path.join(dist, "index.mjs"));
  * Inlined copies the build keeps on purpose, by bundle. Each one must still be present,
  * so the list cannot outlive what it describes.
  */
-const KEPT_COPIES: Record<string, string[]> = {
-  // The CommonJS build cannot import an ES module without require(esm) in every
-  // consumer; the error classes are matched by shape (isVitestNativeError), not identity.
-  "helpers.cjs": ["src/errors.mjs"],
-};
+// None: the CommonJS build requires the shipped errors.mjs too (tsdown.config.ts).
+const KEPT_COPIES: Record<string, string[]> = {};
 
 /** dist/*.mjs and dist/*.cjs that tsdown produced: everything but the verbatim copies. */
 function bundles(): string[] {
