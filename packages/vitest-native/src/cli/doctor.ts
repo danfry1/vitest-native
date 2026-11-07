@@ -24,7 +24,13 @@ import {
   autoDetectedPresetApplies,
   type PresetName,
 } from "../preset-map.js";
-import { babelRecipe, classifyBabelPlugins, readBabelConfig } from "./babel-config.js";
+import {
+  babelRecipe,
+  classifyBabelPlugins,
+  normalizeBabelName,
+  readBabelConfig,
+} from "./babel-config.js";
+import { projectBabelTrigger } from "../project-babel.js";
 import {
   activePresets,
   installedManifest,
@@ -504,12 +510,41 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   // not. A warning, never blocking: most plugins in a React Native config exist for
   // Metro, and the classification says which ones a test run actually misses.
   const babel = readBabelConfig(root);
+  const engineAppliedPlugins: string[] = [];
   if (babel.source) {
     lines.push("", "Babel");
-    const classified = classifyBabelPlugins(babel, root, activePresets(root, [], decision.engine));
-    const required = classified.filter((p) => p.verdict === "required");
+    const active = activePresets(root, [], decision.engine);
+    const classified = classifyBabelPlugins(babel, root, active);
+    // The engine applies these itself to the project source that needs it (projectBabel
+    // 'auto'), so they need nothing from the project.
+    const byEngine = (name: string, kind: "plugin" | "preset", options: unknown) =>
+      projectBabelTrigger({ name, kind, options }, root, active);
+    // projectBabel runs only where @babel/core resolves from the project.
+    const babelCore = installedManifest(root, "@babel/core") !== null;
+    for (const p of babel.presetEntries ?? []) {
+      const reason = byEngine(p.name, "preset", p.options);
+      if (reason && !babelCore) {
+        warn(
+          `preset ${p.name} needs projectBabel (${reason}), which needs @babel/core installed in the project.`,
+        );
+      } else if (reason) {
+        lines.push(`  · preset ${p.name}: applied by the engine where needed (${reason}).`);
+      }
+    }
+    const required = classified.filter(
+      (p) => p.verdict === "required" && !byEngine(p.name, "plugin", p.options),
+    );
     for (const p of classified) {
-      if (p.verdict === "required") {
+      const reason = byEngine(p.name, "plugin", p.options);
+      if (reason && !babelCore) {
+        warn(
+          `${p.written} needs projectBabel (${reason}), which needs @babel/core installed in the project; ` +
+            `it does not resolve from here. Add @babel/core as a devDependency.`,
+        );
+      } else if (reason) {
+        lines.push(`  · ${p.written}: applied by the engine where needed (${reason}).`);
+        engineAppliedPlugins.push(p.name);
+      } else if (p.verdict === "required") {
         warn(`${p.reason} Required: ${babelRecipe(required)}.`);
       } else if (p.verdict === "alias") {
         warn(
@@ -538,6 +573,22 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   } else {
     const content = fs.readFileSync(path.join(configRoot, configFile), "utf8");
     const usage = analyzeConfigUsage(content);
+    // A Babel Vite plugin that repeats what the engine already applies: redundant, not a
+    // conflict (the engine never steps aside for it; the worklets plugin run twice is a no-op).
+    const code = withoutComments(content);
+    if (/@rolldown\/plugin-babel|vite-plugin-babel/.test(code)) {
+      // The config's string literals, read as Babel names (`macros` → babel-plugin-macros).
+      const listed = new Set(
+        [...code.matchAll(/["'`]([^"'`\s]+)["'`]/g)].map((m) => normalizeBabelName(m[1])),
+      );
+      const repeated = engineAppliedPlugins.filter((name) => listed.has(name));
+      if (repeated.length) {
+        warn(
+          `${configFile}'s babel() lists ${repeated.join(", ")}, which the engine already applies to the ` +
+            `project source that needs it; the entry is redundant and can be removed.`,
+        );
+      }
+    }
     if (usage.imports && usage.invokes) {
       pass(`${configFile} uses vitest-native.`);
       // A static read: a flag set through a variable is not seen here, so the run's

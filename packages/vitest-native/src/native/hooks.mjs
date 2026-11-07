@@ -28,9 +28,9 @@ import {
   subpathLeafOf,
 } from "./match.mjs";
 import {
-  createNativeOwnershipPolicy,
   findNativeOwnershipConflict,
   parseNativeOwnershipManifest,
+  workerOwnershipPolicy,
 } from "./ownership.mjs";
 import { explainUntransformedSyntaxError } from "./explain.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
@@ -325,10 +325,7 @@ export function installRequireHooks(
     reactNativeRoots: configuredOwnership?.reactNativeRoots ?? [],
     serverDepsInlineAll: configuredOwnership?.enforcement === "overridden-by-inline-all",
   };
-  let ownership = createNativeOwnershipPolicy({
-    ...ownershipBase,
-    runtimeTransforms: transformPkgs,
-  });
+  let ownership = workerOwnershipPolicy({ ...ownershipBase, runtimeTransforms: transformPkgs });
   let isExtra = ownership.matchesNodeTransformedFile;
   let isExtraKey = JSON.stringify(transformPkgs);
   // Whether these hooks compile a package file for the project, read at call time so a
@@ -352,7 +349,7 @@ export function installRequireHooks(
     const key = JSON.stringify(pkgs);
     if (key === isExtraKey) return compiles;
     isExtraKey = key;
-    ownership = createNativeOwnershipPolicy({ ...ownershipBase, runtimeTransforms: pkgs });
+    ownership = workerOwnershipPolicy({ ...ownershipBase, runtimeTransforms: pkgs });
     isExtra = ownership.matchesNodeTransformedFile;
     return compiles;
   };
@@ -512,6 +509,7 @@ export function installRequireHooks(
       key = path.resolve(file);
       if (!preserveSymlinks) {
         try {
+          // Node's spelling (fs.realpathSync): the key Module._cache holds the file under (#282).
           key = fs.realpathSync(key);
         } catch {
           // Missing: leave it to the loader to report.

@@ -29,6 +29,7 @@ const AUTO_CLEANUP = Symbol.for("vitest-native.rntl-auto-cleanup");
 function cacheKeyOf(file) {
   if (Module._cache[file]) return file;
   try {
+    // Node's spelling (fs.realpathSync): the key Module._cache holds the file under.
     const real = fs.realpathSync(file);
     return Module._cache[real] ? real : null;
   } catch {

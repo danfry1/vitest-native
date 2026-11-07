@@ -36,6 +36,7 @@ import {
 } from "./match.mjs";
 import {
   createNativeOwnershipPolicy,
+  workerOwnershipPolicy,
   isResidentPackageName,
   isRuntimeResidentFile,
   isTestRuntimeResidentFile,
@@ -199,12 +200,17 @@ export function initialize(data) {
   // The same core as the require hooks: on the Node floor this loader runs in-thread.
   SHARED_RESOLVER = sharedInputs === null ? null : workerSharedResolver(sharedInputs, "esm");
   const configuredOwnership = parseNativeOwnershipManifest(context?.ownership);
-  ownership = createNativeOwnershipPolicy({
-    projectRoot: PROJECT_ROOT,
-    projectDirs: configuredOwnership?.projectDirs ?? [],
-    reactNativeRoots: configuredOwnership?.reactNativeRoots ?? [],
-    runtimeTransforms: data?.transformPkgs ?? [],
-  });
+  // The same inputs as the require hooks' (hooks.mjs), so the thread builds one policy.
+  ownership = workerOwnershipPolicy(
+    {
+      projectRoot: PROJECT_ROOT,
+      projectDirs: configuredOwnership?.projectDirs ?? [],
+      reactNativeRoots: configuredOwnership?.reactNativeRoots ?? [],
+      serverDepsInlineAll: configuredOwnership?.enforcement === "overridden-by-inline-all",
+      runtimeTransforms: data?.transformPkgs ?? [],
+    },
+    context,
+  );
   isExtra = ownership.matchesNodeTransformedFile;
   workspaceStamp.clear();
   if (data && data.presetExports) presetExports = data.presetExports;

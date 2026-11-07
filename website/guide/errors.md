@@ -72,7 +72,7 @@ A project file Node loads (through `require()` or `jest.requireActual`) is exclu
 
 ### `IMPORT_META_IN_NODE_OWNED` {#IMPORT_META_IN_NODE_OWNED}
 
-A file Node loads compiled to CommonJS uses `import.meta` beyond `url`, `filename` and `dirname`, which CommonJS cannot provide. The message names the file and the property. Move that code into a file your tests import, or avoid the property in it.
+A file Node loads compiled to CommonJS uses `import.meta` beyond `url`, `filename` and `dirname`, which CommonJS cannot provide. The message names the file and the property. If the file is in a package, let Vite load that package: add it to `transform: { exclude: [...] }`, and also to `test.server.deps.inline` when it is published as an ES module (`"type": "module"` or `.mjs`). If it is your own source, import it from the test instead of requiring it, or avoid the property in it.
 
 ### `PRESET_UNAVAILABLE` {#PRESET_UNAVAILABLE}
 
@@ -100,11 +100,15 @@ vitest-native's module loader was given a step it does not know. Usually two cop
 
 ### `SOURCE_EVALUATED_TWICE` {#SOURCE_EVALUATED_TWICE}
 
-One file ran twice in the same worker: Vite loaded it for the test's imports, and Node loaded it through a `require()`. The two copies don't share state, so a store or cache written through one is not seen by the other. The message names the file, which side loaded it first, how the second load reached it, and the fix for that case. With [`ownership`](/guide/plugin-options#ownership) at its default, `'warn'`, it is a warning, printed once per worker. With `'error'` it fails the test file. To accept a file that runs twice on purpose, list it in `ownership.allow: [{ path, reason }]`. An installed package's TypeScript source that a test both requires and imports runs twice unless [`experimental.nodeMocks`](/guide/plugin-options#experimental) is on: with it, Node loads the file once for both, and a `vi.mock` still reaches it.
+One file ran twice in the same worker: Vite loaded it for the test's imports, and Node loaded it through a `require()`. The two copies don't share state, so a store or cache written through one is not seen by the other. The message names the file, which side loaded it first, how the second load reached it, and the fix for that case. Files Node loaded through the same first `require()` share one cause: a `jest.mock` factory that requires a module importing 600 others is one cause, not 600 warnings. With [`ownership`](/guide/plugin-options#ownership) at its default, `'warn'`, the first file of each cause is printed in full, once per worker, and the end of the run lists each cause with its file count, its test files and the fix. With `'error'` it fails the test file. To accept a file that runs twice on purpose, list it in `ownership.allow: [{ path, reason }]`. An installed package's TypeScript source that a test both requires and imports runs twice unless [`experimental.nodeMocks`](/guide/plugin-options#experimental) is on: with it, Node loads the file once for both, and a `vi.mock` still reaches it.
 
 ### `LIBRARY_REGISTRY_FAILED` {#LIBRARY_REGISTRY_FAILED}
 
 vitest-native could not precompile the modules of libraries such as Reanimated and Worklets into one file, which makes them load faster. You see it as a warning, `could not precompile the library registry (…); those libraries load file by file, which is slower`, and results are unaffected; the code itself is raised only inside the process that builds the file. The build is retried once any file it read changes. To retry sooner, delete the `registry` folder in vitest-native's cache ([where it lives](/guide/troubleshooting#when-react-native-s-precompiled-modules-are-reused-or-rebuilt)). If the warning keeps coming back, report the reason it names.
+
+### `PROJECT_BABEL_COMMONJS` {#PROJECT_BABEL_COMMONJS}
+
+A project file compiled with your Babel config ([`projectBabel`](/guide/plugin-options#projectbabel)) came out as CommonJS, which Vite's module runner cannot run. vitest-native turns off the module transforms it knows, wherever a preset adds them, so a plugin or preset in your config transforms modules some other way. The message names the file and, when it is a plugin or preset vitest-native does not know, that entry. Leave it out of the config for tests, or set `projectBabel: 'never'`. The run does not fail when the plugin writing CommonJS is the only thing that sent the file to Babel: the file compiles with Oxc as before, without that plugin, and one warning names it. It fails when the file also needs another plugin or option from the config, because Oxc would drop what that does; the message lists them.
 
 ## Helpers and jest-compat
 

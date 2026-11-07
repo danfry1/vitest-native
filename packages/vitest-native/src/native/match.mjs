@@ -35,10 +35,10 @@ export const NODE_MODULES_PATH = /[\\/]node_modules[\\/]/;
 export const REACT_NATIVE_PATH = /[\\/]node_modules[\\/](react-native|@react-native)[\\/]/;
 
 /**
- * A directory in the form Node's module loader reports paths: fs.realpathSync, not
- * realpathSync.native. The native call expands Windows 8.3 short names (RUNNER~1) and
- * rewrites letter case on case-insensitive disks, so a directory it returns can fail
- * to contain the module ids Node hands the matchers.
+ * A directory in Node's spelling, the form its module loader reports paths in:
+ * fs.realpathSync, not realpathSync.native. The native call expands Windows 8.3 short
+ * names (RUNNER~1) and rewrites letter case on case-insensitive disks, so a directory it
+ * returns can fail to contain the module ids Node hands the matchers.
  */
 function canonicalDir(dir) {
   try {
@@ -244,6 +244,10 @@ export function packagePatterns(name, projectRoot, dirOf = packageDirOf) {
   return patterns;
 }
 
+const NODE_MODULES_SEGMENT = "/node_modules/";
+// An npm package name: `name` or `@scope/name`, no further path segments.
+const PACKAGE_NAME = /^(?:@[^/]+\/)?[^/@][^/]*$/;
+
 /**
  * A predicate over the same patterns Vitest is given, so what the loader transforms
  * and what Vitest externalizes cannot drift apart.
@@ -253,10 +257,37 @@ export function packagePatterns(name, projectRoot, dirOf = packageDirOf) {
  * Node handed them, which on Windows is backslashes.
  */
 export function buildPkgMatcher(pkgs, projectRoot, dirOf = packageDirOf) {
-  const patterns = (pkgs || []).flatMap((name) => packagePatterns(name, projectRoot, dirOf));
+  // The same two rules as packagePatterns, answered by lookup: called on every file Node
+  // resolves or loads, a test per package made each check linear in the number of
+  // packages (hundreds on an Expo project).
+  const names = new Set();
+  const anchors = new Set();
+  // A name that is not a plain package name (a subpath, say) keeps its pattern.
+  const others = [];
+  for (const name of pkgs || []) {
+    if (PACKAGE_NAME.test(name)) names.add(name);
+    else others.push(...packagePatterns(name, undefined));
+    if (!projectRoot) continue;
+    const dir = dirOf(name, projectRoot);
+    if (dir && !containsPath(dir, projectRoot)) anchors.add(toPosix(dir).replace(/\/$/, ""));
+  }
   return (file) => {
     const norm = toPosix(file);
-    return patterns.some((re) => re.test(norm));
+    // `[/\\]node_modules[/\\]<name>[/\\]`: the package named after each node_modules segment.
+    for (let at = norm.indexOf(NODE_MODULES_SEGMENT); at !== -1;) {
+      const start = at + NODE_MODULES_SEGMENT.length;
+      let end = norm.indexOf("/", start);
+      if (end !== -1 && norm[start] === "@") end = norm.indexOf("/", end + 1);
+      if (end !== -1 && names.has(norm.slice(start, end))) return true;
+      at = norm.indexOf(NODE_MODULES_SEGMENT, start - 1);
+    }
+    // `^<dir>[/\\]`: a resolved directory containing the file, found among its parents.
+    if (anchors.size > 0) {
+      for (let at = norm.indexOf("/", 1); at !== -1; at = norm.indexOf("/", at + 1)) {
+        if (anchors.has(norm.slice(0, at))) return true;
+      }
+    }
+    return others.some((re) => re.test(norm));
   };
 }
 

@@ -318,6 +318,25 @@ export interface VitestNativeOptions {
   /** Log plugin activity. Default: false */
   diagnostics?: boolean;
 
+  /**
+   * Compile project source with the project's own Babel config where it needs a
+   * plugin or option that Vite's Oxc transform does not cover (legacy decorators,
+   * macros, a custom plugin), as Metro and babel-jest do. Packages in node_modules
+   * are not affected.
+   *
+   * - `'auto'` (default): a project file compiles with Babel only when the config
+   *   Babel loads for it has a plugin, preset or option outside what Oxc and the
+   *   engine already cover; an unknown plugin counts as outside. Every other file
+   *   keeps Oxc. The plugins that caused it are named once at startup.
+   * - `'always'`: every project file the config applies to compiles with Babel, as
+   *   under babel-jest.
+   * - `'never'`: project source compiles with Oxc only.
+   *
+   * A Babel plugin already in the Vite config (such as `@rolldown/plugin-babel`)
+   * compiles that source itself, and this steps aside for it.
+   */
+  projectBabel?: "auto" | "always" | "never";
+
   /** Additional asset file extensions, loaded as Metro loads assets (e.g. ['.lottie', '.m4b']) */
   assetExts?: string[];
 
@@ -502,6 +521,18 @@ export interface VitestNativeOptions {
    * The hot runtime, CI runs and `experimental.ownershipModel` always wait.
    */
   registryBuild?: "background" | "wait";
+
+  /**
+   * Fail the run when no test makes progress for this many milliseconds, naming the files
+   * and tests that were running. Default: 60 000, or twice the larger of `testTimeout` and
+   * `hookTimeout` if that is longer. `false` turns it off. Off while a debugger is attached.
+   *
+   * Vitest's `testTimeout` runs on the test's own worker, so a test stuck in synchronous
+   * code (a loop that never ends) never reaches it, and the run waits forever with nothing
+   * on screen. This watch runs in Vitest's main process, which stays responsive, so it can
+   * still say where the run stopped.
+   */
+  hangTimeout?: number | false;
 
   /**
    * `engine: 'native'` only. What happens when one file is evaluated by both Node and

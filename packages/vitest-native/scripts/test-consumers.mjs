@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import "./release-age.mjs";
+import { CANARY_INSTALL_FLAGS } from "./release-age.mjs";
 import { HERO_RUN, HERO_TEST, heroRunLines, writeSnippets } from "./doc-snippets.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -225,6 +226,86 @@ function runExpoPnpmSuites(tarball) {
   }
 }
 
+// The supported Expo SDKs at their newest patch: the latest-supported axis for Expo
+// (docs/upstream-policy.md). The fixtures pin exact releases; here `expo` follows its SDK
+// (`~58.0.0`) and Expo's own `expo install --fix` aligns the packages that go with it
+// (expo-*, react-native, the router). Every install keeps the repository's release
+// cooldown (scripts/release-age.mjs, imported above). Expo's CLI runs offline, so the
+// versions it aligns to are the installed expo release's own list (as old as that
+// release), not its online API's, which names releases younger than the gate allows.
+/** Each supported SDK's fixture, with `expo` following that SDK to its newest patch. */
+const EXPO_LATEST = [
+  { fixture: "expo", expo: "~58.0.0" },
+  { fixture: "expo-sdk57", expo: "~57.0.0" },
+];
+
+/**
+ * The newest SDK's fixture on the Expo prerelease in VN_EXPO_VERSION, which the canary
+ * job picks (.github/scripts/canary-version.mjs).
+ */
+function expoNext() {
+  const version = process.env.VN_EXPO_VERSION;
+  if (!version)
+    throw new Error("VN_CONSUMERS=expo-next needs VN_EXPO_VERSION, the expo prerelease to install");
+  return [{ fixture: "expo", expo: version }];
+}
+
+/**
+ * The Expo fixtures with `expo` set to each entry's version and `expo install --fix`
+ * aligning the rest (expo-*, react-native, the router), as an app upgrading would.
+ */
+function runExpoVersions(tarball, leg, entries) {
+  for (const { fixture, expo } of entries) {
+    const fixtureRoot = path.join(tempRoot, `${fixture}-${leg}`);
+    fs.cpSync(path.join(fixturesRoot, fixture), fixtureRoot, { recursive: true });
+    if (fixture === "expo-sdk57") {
+      // As in the fixtures leg: the runtime-surface reader the SDK 57 test checks.
+      fs.mkdirSync(path.join(fixtureRoot, "src", "lib"), { recursive: true });
+      fs.copyFileSync(
+        path.join(packageRoot, "tests", "support", "expo-runtime-surface.ts"),
+        path.join(fixtureRoot, "src", "lib", "expo-runtime-surface.ts"),
+      );
+    }
+    const manifestPath = path.join(fixtureRoot, "package.json");
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    manifest.dependencies.expo = expo;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    addPackedDependency(fixtureRoot, tarball);
+    runCaptured("npm", ["install", ...CANARY_INSTALL_FLAGS], fixtureRoot);
+    // The fixture's own Expo CLI, never npx: a missing binary would resolve from the registry.
+    runCaptured(
+      process.execPath,
+      [path.join("node_modules", "expo", "bin", "cli"), "install", "--fix"],
+      fixtureRoot,
+      { EXPO_OFFLINE: "1" },
+    );
+    // Expo aligns react but not react-test-renderer, which it does not manage;
+    // RNTL refuses a renderer from another React release, and asks for exactly this.
+    const reactVersion = JSON.parse(
+      fs.readFileSync(path.join(fixtureRoot, "node_modules", "react", "package.json"), "utf8"),
+    ).version;
+    // Declared as a dependency or a dev dependency, depending on the fixture.
+    const dev = Boolean(manifest.devDependencies?.["react-test-renderer"]);
+    if (dev || manifest.dependencies?.["react-test-renderer"]) {
+      const spec = `react-test-renderer@${reactVersion}`;
+      runCaptured(
+        "npm",
+        ["install", ...CANARY_INSTALL_FLAGS, ...(dev ? ["-D"] : []), spec],
+        fixtureRoot,
+      );
+    }
+    const version = (name) =>
+      JSON.parse(
+        fs.readFileSync(path.join(fixtureRoot, "node_modules", name, "package.json"), "utf8"),
+      ).version;
+    console.log(
+      `\n${fixture}: expo ${version("expo")}, react-native ${version("react-native")}, expo-router ${version("expo-router")}`,
+    );
+    run("npm", ["test"], fixtureRoot);
+    run("npm", ["run", "test:router"], fixtureRoot);
+  }
+}
+
 // The README's and the quick start's code, run as written (scripts/doc-snippets.mjs).
 // The app is the Expo SDK 58 template fixture, on RNTL 14, whose async render() is
 // what an unawaited snippet breaks. Its own config and tests are removed first, so the
@@ -285,7 +366,7 @@ try {
   // docs-only pull request that changes a page carrying snippets).
   // Unset runs all of them, as prepublishOnly does.
   const only = process.env.VN_CONSUMERS;
-  const LEGS = ["fixtures", "doc-snippets", "expo-pnpm-suite"];
+  const LEGS = ["fixtures", "doc-snippets", "expo-pnpm-suite", "expo-latest", "expo-next"];
   if (only && !LEGS.includes(only)) {
     throw new Error(`VN_CONSUMERS=${only} is not one of ${LEGS.join(", ")}`);
   }
@@ -443,6 +524,10 @@ try {
   }
   if (runs("doc-snippets")) runDocSnippets(tarball);
   if (runs("expo-pnpm-suite")) runExpoPnpmSuites(tarball);
+  // Only when asked for: they install the newest Expo patches, or an Expo prerelease, so
+  // they run on a schedule (compat-check.yml), never as part of a pull request's gate.
+  if (only === "expo-latest") runExpoVersions(tarball, only, EXPO_LATEST);
+  if (only === "expo-next") runExpoVersions(tarball, only, expoNext());
 
   console.log("\nThe packed consumer fixtures passed.");
 } finally {

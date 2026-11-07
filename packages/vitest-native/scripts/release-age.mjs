@@ -16,6 +16,17 @@
 // npm and pnpm resolved 0.87.3, with them 0.87.2. pnpm does not read the
 // `pnpm_config_` spelling of this setting. tests/release-age.test.ts fails when a script
 // that installs from the registry does not import this module, or picks its own cutoff.
+//
+// The one exception is VN_CANARY_UNAGED=1, which leaves the cooldown off. A canary tests
+// a prerelease whose matching packages were published the same day, and the cooldown
+// would hold every one of them back. Only compat-check.yml's read-only canary job may set
+// it (docs/upstream-policy.md §4), which tests/release-age.test.ts checks.
+//
+// Unaged packages are only installed with their install scripts off: a package's
+// install script is where a malicious release runs, before anything can review it. So the
+// switch also sets npm_config_ignore_scripts, which reaches every npm a script starts
+// (including the one `expo install` runs), and scripts pass CANARY_INSTALL_FLAGS to their
+// own installs. `npm test` and `npm run` still run the script they name.
 
 /** The cooldown in days. bunfig.toml's minimumReleaseAge must be the same, in seconds. */
 export const RELEASE_AGE_DAYS = 7;
@@ -30,4 +41,20 @@ export function releaseAgeEnv(now = Date.now()) {
   };
 }
 
-Object.assign(process.env, releaseAgeEnv());
+/** The variable that leaves the cooldown off, for the canary job only. */
+export const CANARY_UNAGED = "VN_CANARY_UNAGED";
+
+/** Whether this is the canary's unaged run. */
+export const canaryUnaged = process.env[CANARY_UNAGED] === "1";
+
+/** Flags for every `npm install` a script runs: install scripts off in the unaged run. */
+export const CANARY_INSTALL_FLAGS = canaryUnaged ? ["--ignore-scripts"] : [];
+
+if (canaryUnaged) {
+  process.env.npm_config_ignore_scripts = "true";
+  console.log(
+    `${CANARY_UNAGED}=1: no release cooldown, and no install scripts, for this canary run.`,
+  );
+} else {
+  Object.assign(process.env, releaseAgeEnv());
+}

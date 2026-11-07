@@ -13,6 +13,7 @@ reactNative({
   hotRuntime: false,     // Per-file isolation (default); 'auto' opts in to the hot runtime
   nativeModules: 'device', // 'device' | 'permissive' — how native module lookups answer, native engine
   registryBuild: 'background', // 'background' | 'wait' — a cold registry build, native engine
+  hangTimeout: 60000,    // fail a stuck run after this many ms with no progress; on by default under the hot runtime
   // presets — omitted on purpose: leaving it out auto-detects your installed
   // libraries. Passing an array uses ONLY that array, so `presets: []` means none.
 })
@@ -145,6 +146,33 @@ reactNative({
 
 A listed package's own dependencies are compiled too, as an auto-detected package's are. See [untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-source).
 
+## `projectBabel`
+
+**Type:** `'auto' | 'always' | 'never'` · **Default:** `'auto'` · **Engine:** both
+
+Compiles your own source with your project's Babel config where a file needs something Vite's Oxc transform does not do, as Metro and babel-jest compile it. Packages in `node_modules` are not affected.
+
+- `'auto'`: your config decides which of its plugins matter, and each file's source decides whether it needs one. A file compiles with Babel only then; every other file keeps Oxc.
+  - Examples: a file with a decorator, with legacy decorators configured (`@babel/plugin-proposal-decorators`); a macro import; an `@env` import with `react-native-dotenv`; a worklet, when Reanimated runs as its own mock; a `className` with NativeWind; a file with an `@flow` pragma.
+  - A plugin vitest-native does not know applies to every file the config covers.
+  - Startup names what caused it:
+
+    ```
+    [vitest-native] projectBabel: project source that needs it compiles with the project's Babel config, for @babel/plugin-proposal-decorators.
+    ```
+
+    With `diagnostics: true`, each file that compiles with Babel is named, with the reason.
+- `'always'`: every project file the config applies to compiles with Babel, as under babel-jest. Slower.
+- `'never'`: Oxc only.
+
+A preset of your own that wraps React Native's or Expo's (an app preset, `@rnx-kit`'s) counts as theirs; the plugins it adds beyond them are judged one by one, like your own. Covered without Babel: React Native's and Expo's presets, `@babel/preset-typescript`, `preset-react`, `preset-flow` and `preset-env`, standard syntax plugins Oxc compiles, `babel-plugin-module-resolver` (its aliases map onto `resolve.alias`), and the worklets plugins, unless Reanimated runs as its own mock. An option that changes what a covered entry outputs, such as `loose`, `assumptions`, a JSX `pragma` or `importSource`, or Flow's `all`, counts as a plugin the files it affects need.
+
+The output stays an ES module for Vite: module transforms (`@babel/plugin-transform-modules-commonjs` and the others, `babel-plugin-dynamic-import-node`, preset-env's `modules`) are turned off for this compile, also inside a preset that adds them itself, and `babel-plugin-istanbul` is left out. If a plugin vitest-native does not know still writes CommonJS, and it is the only thing that sent a file to Babel, that file compiles with Oxc as before, without that plugin, and one warning names it. If the file also needs something else from the config, the run fails with [`PROJECT_BABEL_COMMONJS`](/guide/errors#PROJECT_BABEL_COMMONJS), since falling back would drop what that does.
+
+A Babel plugin in your Vite config (such as a `babel()` entry from `@rolldown/plugin-babel`) still runs its own plugins after this one. A plugin both apply, such as the worklets plugin, finds nothing left to do the second time.
+
+Vitest's transform cache is keyed on what your config loads for each file: the plugins' versions and options, a local plugin's file, `BABEL_ENV` and `NODE_ENV`, your `.env` files when a dotenv plugin is configured, and the environment when an inline-environment plugin is. A file your config itself `require`s for other reasons is not; run with `--clearCache` after changing one.
+
 ## `hotRuntime`
 
 **Type:** `boolean | 'auto' | object` · **Default:** `false` · **Engine:** native
@@ -210,6 +238,35 @@ The hot runtime, CI runs and `experimental.ownershipModel` always wait. A run co
 
 ```ts
 reactNative({ registryBuild: 'wait' })
+```
+
+## `hangTimeout`
+
+**Type:** `number | false` · **Default:** on under the hot runtime, off otherwise · **Engine:** both
+
+Fails a run whose tests have stopped making progress, naming the file and test that were running.
+
+**When it fires.** While test files are running, nothing has made progress (no file picked up, started or finished, and no test started or finished) for `hangTimeout` ms, and every running test is past its own budget. A test's budget is its timeout (from `it(name, fn, ms)`, `{ timeout }`, a `describe` option, `vi.setConfig` or `testTimeout`) plus two hook timeouts and a second. Each retry gets its own budget, so a slow test, or a retried one, isn't cut short. Global setup, coverage, and typecheck mode's compiler run happen outside that window and aren't timed.
+
+**The limit.** The default is 60 s, or twice the larger of `testTimeout` and `hookTimeout` across all projects, if that's longer.
+
+**Turning it on and off.**
+- It's on by default for projects running on the hot runtime. Set a number to turn it on everywhere; set `false` to turn it off.
+- It's also off under any of these:
+  - a `testTimeout` or `hookTimeout` of `Infinity`;
+  - a debugger attached (`--inspect` or `--inspect-brk` for Vitest or its workers, Vitest's `inspect` options, or a debugger attached to the worker running the test);
+  - `false` in any project, when there are several.
+
+**Why `testTimeout` doesn't cover this.** Vitest's `testTimeout` and `hookTimeout` are timers on the test's own worker. A test stuck in synchronous code, such as a loop that never ends, never gives that worker's event loop a turn, so those timers never fire. The run then waits forever with nothing on screen. Only the worker is stuck: Vitest's main process stays responsive, and `hangTimeout` runs there.
+
+**What happens when it fires.**
+- The message names the stuck files and tests. On GitHub Actions it's also an error annotation.
+- Vitest is asked to close, with a 5 s grace period, and then stops with exit code 1. Stuck workers, and processes your global setup started, are stopped with it.
+- `globalTeardown` may not run, and reporters that write files when the run ends (coverage, junit, blob) don't finish.
+- Under Vitest's API (`createVitest`), the host process keeps running: the run is closed, and the exit code is set to 1.
+
+```ts
+reactNative({ hangTimeout: 180_000 })
 ```
 
 ## `ownership`
