@@ -114,6 +114,33 @@ describe("the ledger", () => {
     ]);
   });
 
+  it("meets Node's and Vite's spellings of one file under the key both sides use", () => {
+    // Node reached the files through a short (8.3) spelling of the root; Vite's ids are
+    // long. Keyed as given, the two copies never met (#592).
+    const SHORT = "/repo/RUNNER~1/app";
+    const LONG = "/repo/runneradmin/app";
+    const toLong = (file: string) => nodeKey(file.replace(SHORT, LONG));
+    for (const [keyOf, reported] of [
+      [undefined, 0],
+      [toLong, 2],
+    ] as const) {
+      const { ledger } = ledgerWith(keyOf ? { keyOf } : {});
+      ledger.recordNode(`${SHORT}/src/schema.ts`, { via: "cjs", parent: `${LONG}/x.test.ts` });
+      ledger.recordNode(`${SHORT}/src/a.ts`, { via: "cjs", parent: `${SHORT}/src/schema.ts` });
+      for (const name of ["schema", "a"]) {
+        ledger.recordVite(nodeKey(`${LONG}/src/${name}.ts`), `${LONG}/src/${name}.ts`);
+      }
+      expect(ledger.conflicts).toHaveLength(reported);
+      if (reported) {
+        // The parent lookup uses the same key: a.ts's cause is schema.ts's require.
+        expect(ledger.conflicts.map((c) => c.cause)).toEqual([
+          { route: "require-from-vite", file: `${SHORT}/src/schema.ts` },
+          { route: "require-from-vite", file: `${SHORT}/src/schema.ts` },
+        ]);
+      }
+    }
+  });
+
   it("reports Vite then Node, and classifies the route from the requiring parent", () => {
     const { ledger } = ledgerWith();
     ledger.recordNode("/repo/packages/feature/src/index.ts", { via: "cjs" });
@@ -475,7 +502,7 @@ describe("the installed ledger", () => {
    * make the same calls with the ledger installed as without it. The marker's realpath
    * is per directory, never per module.
    */
-  it("adds no file-system call or resolution per evaluation, and one realpath per directory", () => {
+  it("adds one realpath per directory, shared by both sides, and nothing per evaluation", () => {
     dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-ledger-cost-")));
     for (let d = 0; d < 4; d++) {
       fs.mkdirSync(path.join(dir, `d${d}`));
@@ -504,8 +531,14 @@ describe("the installed ledger", () => {
     const without = run(false);
     const withLedger = run(true);
     expect(withLedger.evaluation.compile).toBe(200);
-    expect(withLedger.evaluation).toEqual(without.evaluation);
-    expect(withLedger.markerRealpaths).toBe(4);
+    // Node's records are keyed as Vite's markers are (fileKey): the native real path of
+    // each of the 4 directories, once, and nothing else per module.
+    const { realpath, ...rest } = withLedger.evaluation;
+    const { realpath: realpathWithout, ...restWithout } = without.evaluation;
+    expect(realpath - realpathWithout).toBe(4);
+    expect(rest).toEqual(restWithout);
+    // Vite's markers reuse the same per-directory cache.
+    expect(withLedger.markerRealpaths).toBe(0);
   });
 
   it("does not keep a module alive once Node's cache has let it go", () => {
