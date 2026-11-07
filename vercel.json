@@ -4,5 +4,6 @@
   "buildCommand": "SITE_BASE=/ bun run build:website",
   "outputDirectory": "website/.vitepress/dist",
   "framework": null,
-  "cleanUrls": true
+  "cleanUrls": true,
+  "ignoreCommand": "bash website/scripts/skip-unless-site-changed.sh"
 }

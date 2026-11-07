@@ -3,8 +3,19 @@ name: Pages
 on:
   push:
     branches: [main]
+    # What the published site is built from; tests/site-inputs.test.ts holds this list to
+    # the build's own imports, and to website/scripts/skip-unless-site-changed.sh.
     paths:
       - 'website/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'packages/vitest-native/src/docs-url.mjs'
+      - 'packages/vitest-native/src/errors.mjs'
+      - 'packages/vitest-native/src/node-range.ts'
+      - 'packages/vitest-native/src/peer-requirements.ts'
+      # Read only by this workflow: the fidelity matrix it renders before the build.
+      - 'packages/vitest-native/scripts/fidelity-matrix.mjs'
+      - '.github/rn-matrix.json'
       - '.github/workflows/pages.yml'
   # Redeploy when the RN × Vitest matrix completes on main, so the published
   # fidelity matrix reflects the latest run's per-cell cross-check reports.
