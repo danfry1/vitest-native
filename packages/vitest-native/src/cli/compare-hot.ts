@@ -33,6 +33,10 @@ export interface HotRun {
   unhandledErrors?: number;
   /** Snapshot bookkeeping, which differs by mode only if a test did not run the same. */
   snapshots?: { written: number; obsolete: number };
+  /** Compared, but left out of the speed-up (a run at another worker count). */
+  untimed?: boolean;
+  /** A label for reports: "per-file 1", "hot 2", "hot shuffled", "hot maxWorkers=2". */
+  label?: string;
 }
 
 /**
@@ -251,8 +255,8 @@ export function compareHotRuns(runs: readonly HotRun[]): HotVerdict {
   }
 
   const wallsMs: Record<HotMode, number[]> = {
-    "per-file": ordered.filter((r) => r.mode === "per-file").map((r) => r.wallMs),
-    hot: ordered.filter((r) => r.mode === "hot").map((r) => r.wallMs),
+    "per-file": ordered.filter((r) => r.mode === "per-file" && !r.untimed).map((r) => r.wallMs),
+    hot: ordered.filter((r) => r.mode === "hot" && !r.untimed).map((r) => r.wallMs),
   };
   // The first run of each mode warms caches; with more than one, it is left out of the median.
   const timed = (w: number[]) => (w.length > 1 ? w.slice(1) : w);

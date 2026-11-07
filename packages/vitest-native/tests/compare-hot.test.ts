@@ -230,3 +230,57 @@ describe("compare --hot: the plugin hook", () => {
     expect(() => (plugin[key] as (v: false | "auto") => void)("auto")).not.toThrow();
   });
 });
+
+describe("compare --hot: options, plan and banner", async () => {
+  const { parseCompareArgs } = await import("../src/cli/compare-run.js");
+  const { bannerProblem, plannedRuns } = await import("../src/cli/compare-hot-run.js");
+
+  it("parses --hot with its own options and refuses Jest-only ones", () => {
+    const ok = parseCompareArgs(["--hot", "--runs", "3", "--seed", "11", "--no-shuffle"]);
+    expect(ok).toMatchObject({ hot: true, runs: 3, seed: 11, shuffle: false });
+    expect(parseCompareArgs(["--hot", "--jest-args", "--silent"])).toEqual({
+      error: expect.stringContaining("--jest-args do not apply"),
+    });
+    expect(parseCompareArgs(["--runs", "3"])).toEqual({
+      error: expect.stringContaining("only with --hot"),
+    });
+    expect(parseCompareArgs(["--hot", "--runs", "0"])).toEqual({
+      error: "--runs needs a positive whole number.",
+    });
+  });
+
+  it("plans N per-file and N hot runs, a shuffled hot run, and an untimed one at two workers", () => {
+    expect(
+      plannedRuns({ runs: 2, shuffle: true, seed: 5 }).map((r) => [
+        r.mode,
+        r.label,
+        r.untimed ?? false,
+      ]),
+    ).toEqual([
+      ["per-file", "per-file 1", false],
+      ["per-file", "per-file 2", false],
+      ["hot", "hot 1", false],
+      ["hot", "hot 2", false],
+      ["hot", "hot shuffled (seed 5)", false],
+      ["hot", "hot at --maxWorkers=2", true],
+    ]);
+  });
+
+  it("checks each run's banner for the mode it claims", () => {
+    const hot =
+      "[vitest-native] engine: native — real react-native@0.86.3 · mocked: x (platform ios, hot runtime)\n";
+    const perFile =
+      "[vitest-native] engine: native — real react-native@0.86.3 · mocked: x (platform ios)\n";
+    expect(bannerProblem("hot", hot)).toBeNull();
+    expect(bannerProblem("per-file", perFile)).toBeNull();
+    expect(bannerProblem("hot", perFile)).toContain("does not report the hot runtime");
+    expect(bannerProblem("per-file", hot)).toContain("reports the hot runtime");
+    expect(
+      bannerProblem(
+        "hot",
+        `[vitest-native] hot runtime off: one worker; Vitest's settings apply.\n${perFile}`,
+      ),
+    ).toContain("declined: one worker");
+    expect(bannerProblem("hot", "no banner")).toContain("no vitest-native engine banner");
+  });
+});

@@ -4177,6 +4177,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       return ready ? ready.then(() => verifyRunningVitest(context)) : verifyRunningVitest(context);
     },
   } as Plugin;
-  Object.defineProperty(plugin, COMPARE_HOT_RUNTIME, { value: setCompareHotRuntime, enumerable: false });
+  Object.defineProperty(plugin, COMPARE_HOT_RUNTIME, {
+    value: setCompareHotRuntime,
+    enumerable: false,
+  });
   return plugin;
 }
