@@ -59,6 +59,6 @@ describe("per-script CI deadlines", () => {
 
   it("fall back to the run's default for every other script", () => {
     expect(deadlineFor("test:native:main", 600_000, "win32")).toBe(600_000);
-    expect(deadlineFor("test:native:ownership", 600_000, "win32")).toBe(20 * 60_000);
+    expect(deadlineFor("test:native:project-babel", 600_000, "win32")).toBe(11 * 60_000);
   });
 });
