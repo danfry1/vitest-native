@@ -283,6 +283,8 @@ export async function runCompareHot(options: CompareHotOptions): Promise<number>
     const retriesFile = (n: number) => path.join(work, `retries-${n}.jsonl`);
     const problemFile = (n: number) => path.join(work, `problem-${n}.txt`);
     const sanitizeCtx = {
+      // A path Vitest prints under either root is shortened: the root as given, and Node's
+      // spelling of it (fs.realpathSync), which the reports use.
       roots: [root, fs.realpathSync(root)],
       tmp: tmpSpellings(),
       home: os.homedir(),
