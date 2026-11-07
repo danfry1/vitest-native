@@ -1874,6 +1874,15 @@
       }
     },
     {
+      "id": "env-jest-real-reanimated-rerender",
+      "class": "env-contract",
+      "title": "Re-rendering Reanimated's real Animated.Text throws",
+      "source": "react-native-paper trial (#583)",
+      "fixedBy": "#585 (merged)",
+      "bugSignature": "^rerender\\.test\\.tsx: Error: Argument appears to not be a ReactComponent\\. Keys: instance",
+      "preFixRef": "e5173880^"
+    },
+    {
       "id": "res-project-js-jsx",
       "class": "transform/resolution",
       "title": "JSX in a project's own .js files does not compile",
