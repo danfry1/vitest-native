@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitepress'
 import { groupIconMdPlugin, groupIconVitePlugin } from 'vitepress-plugin-group-icons'
+import { BASE, OG_IMAGE, SITE_URL, canonicalUrl } from './site.ts'
 
 const description =
   "A Vitest plugin for React Native. Your components run React Native's real JavaScript; only the native side is mocked."
@@ -8,23 +9,25 @@ export default defineConfig({
   title: 'vitest-native',
   description,
   lang: 'en-US',
-  base: '/vitest-native/',
+  base: BASE,
   cleanUrls: true,
   lastUpdated: true,
-  sitemap: { hostname: 'https://danfry1.github.io/vitest-native/' },
+  sitemap: { hostname: `${SITE_URL}/` },
+  // One canonical URL per page, on the published address, whichever host serves the build.
+  transformHead: ({ pageData }) => [['link', { rel: 'canonical', href: canonicalUrl(pageData.relativePath) }]],
   head: [
-    ['link', { rel: 'icon', href: '/vitest-native/favicon.svg', type: 'image/svg+xml' }],
+    ['link', { rel: 'icon', href: `${BASE}favicon.svg`, type: 'image/svg+xml' }],
     ['meta', { name: 'theme-color', content: '#ffffff', media: '(prefers-color-scheme: light)' }],
     ['meta', { name: 'theme-color', content: '#0a0a0a', media: '(prefers-color-scheme: dark)' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:site_name', content: 'vitest-native' }],
     // A PNG: X, Facebook, LinkedIn and Slack do not render an SVG og:image.
-    ['meta', { property: 'og:image', content: 'https://danfry1.github.io/vitest-native/og-card.png' }],
+    ['meta', { property: 'og:image', content: OG_IMAGE }],
     ['meta', { property: 'og:image:width', content: '1200' }],
     ['meta', { property: 'og:image:height', content: '630' }],
     ['meta', { property: 'og:image:alt', content: 'vitest-native: Test React Native as it ships.' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
-    ['meta', { name: 'twitter:image', content: 'https://danfry1.github.io/vitest-native/og-card.png' }],
+    ['meta', { name: 'twitter:image', content: OG_IMAGE }],
     ['meta', { property: 'og:title', content: 'vitest-native: Test React Native as it ships' }],
     ['meta', { name: 'twitter:title', content: 'vitest-native: Test React Native as it ships' }],
   ],
