@@ -7,6 +7,9 @@ dist/
 .turbo
 .DS_Store
 
+# Vercel's local link to the project (vercel link). Machine-local; never committed.
+.vercel/
+
 # VitePress build artifacts
 website/.vitepress/cache/
 website/.vitepress/dist/

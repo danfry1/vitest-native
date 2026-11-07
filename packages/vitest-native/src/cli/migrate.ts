@@ -22,6 +22,7 @@ import {
 } from "../preset-map.js";
 import { detectEcosystemPackages } from "../native/ecosystem.js";
 import { allows, extractAllowlistPackages, type AllowlistEntry } from "./allowlist.js";
+import { findNodeModuleMocks, ignorePattern } from "../jest-compat/root-mocks.js";
 import { HOT_RUNTIME_NOTE } from "./init.js";
 import {
   booleanFlag,
@@ -318,6 +319,10 @@ export function analyzeJestConfig(root: string): MigrationReport {
   const extraImports: string[] = [];
   const extraPlugins: string[] = [];
   let excludeGlobs: string[] = [];
+  // Jest's `roots`, relative to the project root, and `modulePathIgnorePatterns`, when
+  // the config sets them.
+  let jestRoots: string[] | null = null;
+  let jestIgnorePatterns: string[] | null = null;
   // The project's directories, walked once and only when something needs them.
   let directories: string[] | undefined;
   let needsUrlImport = false;
@@ -749,6 +754,16 @@ export function analyzeJestConfig(root: string): MigrationReport {
       const value = take<never>(key);
       if (value !== undefined) discoveryOptions[key] = value;
     }
+    if (Array.isArray(discoveryOptions.modulePathIgnorePatterns)) {
+      jestIgnorePatterns = (discoveryOptions.modulePathIgnorePatterns as unknown[]).filter(
+        (p): p is string => typeof p === "string",
+      );
+    }
+    if (Array.isArray(discoveryOptions.roots)) {
+      jestRoots = (discoveryOptions.roots as unknown[])
+        .filter((r): r is string => typeof r === "string")
+        .map((r) => path.posix.normalize(r.replace(/^<rootDir>/, ".")).replace(/\/$/, "") || ".");
+    }
     const discovery = translateDiscovery(
       discoveryOptions,
       presetConfig,
@@ -908,40 +923,73 @@ export function analyzeJestConfig(root: string): MigrationReport {
     );
   }
 
-  // Manual __mocks__ that a preset replaces: only where a preset actually shadows the
-  // module (PRESET_MODULES, checked against the presets by tests/presets.test.ts) and
-  // the plugin will detect that preset in this project.
-  const mocksDir = path.join(root, "__mocks__");
-  if (fs.existsSync(mocksDir)) {
-    for (const entry of fs.readdirSync(mocksDir)) {
-      const name = entry.replace(/\.(js|cjs|mjs|ts|tsx)$/, "");
-      const scoped = fs.statSync(path.join(mocksDir, entry)).isDirectory();
-      const candidates = scoped
-        ? fs
-            .readdirSync(path.join(mocksDir, entry))
-            .map((f) => `${name}/${f.replace(/\.(js|cjs|mjs|ts|tsx)$/, "")}`)
-        : [name];
-      for (const candidate of candidates) {
-        const preset = presetShadowing(candidate);
-        if (preset && active.includes(preset)) {
-          presetCovered.push(
-            `__mocks__/${candidate} — the auto-detected ${preset} preset shadows ${candidate}; delete the manual mock.`,
-          );
-        } else if (preset && runsWithOwnSetup(preset) && installedManifest(root, candidate)) {
-          presetCovered.push(
-            `__mocks__/${candidate} — the native engine runs ${candidate} with its own Jest setup ` +
-              `(${LIBRARY_SETUP_FILES[preset]}), which replaces its native layer; delete the manual mock.`,
-          );
-        } else if (installedManifest(root, candidate) && installedTestsItself(root, candidate)) {
-          attention.push(
-            `__mocks__/${candidate} — ${candidate} ${installedMajor(root, candidate)} runs its own test ` +
-              `mode under Vitest, so no preset replaces it, and Vitest applies a root __mocks__ file ` +
-              `only through vi.mock; the library's test mode stands in for this mock.`,
-          );
-        }
-      }
+  // Jest's manual mocks of node_modules packages: a file in a __mocks__ folder anywhere
+  // under its roots applies with no jest.mock() call. jestMockTransform() applies it the
+  // same way (jest-compat/root-mocks.ts) unless the plugin already stands in for the
+  // package: a preset shadows it (PRESET_MODULES, checked against the presets by
+  // tests/presets.test.ts), or the library runs with its own Jest setup.
+  const mockRoots = jestRoots ?? ["."];
+  const ignored = (jestIgnorePatterns ?? []).flatMap((pattern) => {
+    const regex = ignorePattern(pattern, root);
+    return regex ? [regex] : [];
+  });
+  const manualMocks = findNodeModuleMocks(
+    mockRoots.map((r) => path.resolve(root, r)),
+    root,
+    ignored,
+  );
+  const relative = (file: string) => path.relative(root, file).split(path.sep).join("/");
+  // One line per file: `__mocks__/pkg/index` answers both `pkg/index` and `pkg`.
+  const byFile = new Map<string, string[]>();
+  for (const mock of manualMocks.mocks) {
+    byFile.set(mock.file, [...(byFile.get(mock.file) ?? []), mock.spec]);
+  }
+  for (const [file, specs] of byFile) {
+    const shown = relative(file).replace(/\.[^./]+$/, "");
+    // The package the file is named for: `pkg`, not `pkg/index`.
+    const candidate = specs[specs.length - 1];
+    const preset = presetShadowing(candidate);
+    const applied =
+      `${shown} → applied to ${specs.slice().reverse().join(" and ")} in every test by ` +
+      `jestMockTransform(), with no jest.mock() call, as Jest applies it.`;
+    if (preset && active.includes(preset)) {
+      presetCovered.push(
+        `${shown} — the auto-detected ${preset} preset shadows ${candidate}; delete the manual mock.`,
+      );
+    } else if (preset && runsWithOwnSetup(preset)) {
+      presetCovered.push(
+        `${shown} — the native engine runs ${candidate} with its own Jest setup ` +
+          `(${LIBRARY_SETUP_FILES[preset]}), which replaces its native layer; delete the manual mock.`,
+      );
+    } else if (installedTestsItself(root, candidate)) {
+      automatic.push(
+        `${applied} ${candidate} ${installedMajor(root, candidate)} also runs its own test mode ` +
+          `under Vitest, which can stand in for this mock.`,
+      );
+    } else {
+      automatic.push(applied);
     }
   }
+  for (const duplicate of manualMocks.duplicates) {
+    attention.push(
+      `duplicate manual mock ${duplicate.name}: ${duplicate.files.map(relative).join(", ")} — ` +
+        `Jest warns and uses one; jestMockTransform() uses the last listed. Delete the others.`,
+    );
+  }
+  // Jest's roots and ignore patterns decide which __mocks__ files count.
+  const transformOptions = [
+    ...(jestRoots && jestRoots.some((r) => r !== ".")
+      ? [`roots: [${jestRoots.map((r) => JSON.stringify(r)).join(", ")}]`]
+      : []),
+    ...(manualMocks.mocks.length > 0 && jestIgnorePatterns?.length
+      ? [
+          `modulePathIgnorePatterns: [${jestIgnorePatterns.map((p) => JSON.stringify(p)).join(", ")}]`,
+        ]
+      : []),
+  ];
+  const transformCall = transformOptions.length
+    ? `jestMockTransform({ ${transformOptions.join(", ")} })`
+    : "jestMockTransform()";
 
   if (navigationOff) {
     pluginOptions.push(`presets: { navigation: false }`);
@@ -1100,7 +1148,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
 import { jestCompatAliases, jestCompatSetup, jestMockTransform } from 'vitest-native/jest-compat'
 ${needsUrlImport ? "import { fileURLToPath } from 'node:url'\n" : ""}${extraImports.map((i) => `${i}\n`).join("")}
 export default defineConfig({
-  plugins: [${[transformLine, ...extraPlugins, "jestMockTransform()"].join(", ")}],
+  plugins: [${[transformLine, ...extraPlugins, transformCall].join(", ")}],
   resolve: {
     dedupe: ['react', 'react-test-renderer', 'react-is'],
     alias: ${aliasSource},

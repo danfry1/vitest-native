@@ -30,7 +30,10 @@ export default defineConfig(({ mode }) => ({
       hotRuntime: mode === "hot" ? { allowUnboundedMemory: true } : false,
       experimental: { nodeMocks: true },
     }),
-    ...(mode === "jest-compat" ? [jestMockTransform()] : []),
+    // rootMocks off: this suite's __mocks__/dispatch-redirect-lib.js exercises Vitest's own
+    // factory-less redirect (redirect.test.ts, zz-automock-unimported.test.ts), not
+    // jest-compat's automatic manual mocks, which test:native:root-mocks covers.
+    ...(mode === "jest-compat" ? [jestMockTransform({ rootMocks: false })] : []),
   ],
   test: {
     environment: "node",

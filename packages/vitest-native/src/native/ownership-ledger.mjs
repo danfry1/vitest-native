@@ -15,6 +15,7 @@ import {
 } from "./ownership.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { projectContext } from "../context.mjs";
+import { docsUrl } from "../docs-url.mjs";
 
 /**
  * The engine's dispatcher channel the ledger lives on (node-dispatch.mjs): `ledger`, and
@@ -361,7 +362,7 @@ export function createOwnershipLedger({
         : "") +
       outcome +
       `A deliberate case can be exempted with ownership.allow: [{ path, reason }] ` +
-      `(https://danfry1.github.io/vitest-native/guide/errors#SOURCE_EVALUATED_TWICE).`;
+      `(${docsUrl("/guide/errors#SOURCE_EVALUATED_TWICE")}).`;
     conflicts.push(
       Object.freeze({
         code: "SOURCE_EVALUATED_TWICE",
