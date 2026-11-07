@@ -6,7 +6,7 @@ Errors vitest-native raises start with `[vitest-native]`, and most carry a `code
 
 ### `INVALID_OPTION` {#INVALID_OPTION}
 
-An option has the wrong type or value: for example a preset factory passed without calling it (`presets.reanimated` instead of `presets.reanimated()`), a hand-built or copied preset object, a function inside [`mocks`](/guide/plugin-options#mocks), or a `hotRuntime.mode` other than `'auto'` (or `mode: 'auto'` combined with `allowUnboundedMemory: true`). A preset module listed by path raises it too when it does not exist, does not resolve, fails to import, default-exports an async function or something that is not a preset, or reuses a built-in or duplicate preset name. Unknown keys in `transform` raise it as well. The message names the option and the accepted values. See [Plugin Options](/guide/plugin-options).
+An option has the wrong type or value: for example a preset factory passed without calling it (`presets.reanimated` instead of `presets.reanimated()`), a hand-built or copied preset object, a function inside [`mocks`](/guide/plugin-options#mocks), or a `hotRuntime.mode` other than `'auto'` (or `mode: 'auto'` combined with `allowUnboundedMemory: true`). A preset module listed by path raises it too when it does not exist, does not resolve, fails to import, default-exports an async function or something that is not a preset, or reuses a built-in or duplicate preset name. Unknown keys in `transform` raise it as well. So does a `jestMockTransform({ modulePathIgnorePatterns })` entry that is not a valid regular expression. The message names the option and the accepted values. See [Plugin Options](/guide/plugin-options).
 
 ### `UNKNOWN_OPTION` {#UNKNOWN_OPTION}
 
