@@ -358,6 +358,9 @@ describe("compare --hot: review fixes", async () => {
       "[vitest-native] engine: native — real react-native@0.86.3 · mocked: x (platform ios, hot runtime, experimental.ownershipModel: resolution)\n";
     expect(bannerProblem("hot", suffixed)).toBeNull();
     expect(bannerProblem("per-file", suffixed)).toContain("reports the hot runtime");
+    const withMocks =
+      "[vitest-native] engine: native — real react-native@0.86.3 · mocked: x (platform ios, hot runtime, experimental.nodeMocks: x, y)\n";
+    expect(bannerProblem("hot", withMocks)).toBeNull();
     expect(
       bannerProblem(
         "hot",

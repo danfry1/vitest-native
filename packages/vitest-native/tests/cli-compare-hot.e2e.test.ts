@@ -28,6 +28,9 @@ export default { plugins: [reactNative({ engine: "${engine}" })], test: { includ
       "src/a.test.js": `import { test, expect } from "vitest";\ntest("a", () => expect(1).toBe(1));\n`,
       "src/b.test.js": `import { test, expect } from "vitest";\ntest("b", () => expect(2).toBe(2));\n`,
       "src/c.test.js": `import { test, expect } from "vitest";\ntest.each([1, 2])("row", (n) => expect(n).toBeGreaterThan(0));\n`,
+      // A test with no recorded snapshot: compare writes none, so it fails the same way in
+      // every run of both modes.
+      "src/e.test.js": `import { test, expect } from "vitest";\ntest("snap", () => expect({ a: 1 }).toMatchSnapshot());\n`,
       // Fails on its first attempt in every run, in both modes: passes after one retry.
       "src/d.test.js": `import { test, expect } from "vitest";\nlet attempts = 0;\ntest("passes on retry", { retry: 1 }, () => { attempts++; expect(attempts).toBe(2); });\n`,
       ...files,
@@ -64,7 +67,7 @@ describe.runIf(distExists)("compare --hot: end to end", () => {
     expect(text).toContain("hot shuffled (seed 7)");
     expect(text).toContain("hot at --maxWorkers=2");
     expect(text).toContain(
-      "No difference in 1 per-file and 3 hot runs (shuffle seed 7): 5 tests compared.",
+      "No difference in 1 per-file and 3 hot runs (shuffle seed 7): 6 tests compared.",
     );
     expect(code).toBe(0);
     const report = JSON.parse(fs.readFileSync(out, "utf8"));
@@ -77,6 +80,11 @@ describe.runIf(distExists)("compare --hot: end to end", () => {
     expect(report.versions.vitest).toBeTruthy();
     // compare's own reporter saw the retry in every run.
     expect(report.runs.map((r: { retried: number }) => r.retried)).toEqual([1, 1, 1, 1]);
+    // compare never writes a snapshot (update: false, CI): a missing one fails alike in every
+    // run, and each run reads its own isolated directory, so the counts agree across runs.
+    const counts = report.runs.map((r: { snapshots: unknown }) => JSON.stringify(r.snapshots));
+    expect(new Set(counts).size).toBe(1);
+    expect(report.runs[0].snapshots.written).toBe(0);
   }, 180_000);
 
   it("gives no verdict where the config cannot run hot (the mock engine)", async () => {

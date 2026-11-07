@@ -260,20 +260,23 @@ export async function runCompareHot(options: CompareHotOptions): Promise<number>
         analysis.suggestedConfig.replaceAll("import.meta.url", JSON.stringify(rootUrl)),
       );
     }
-    const wrappers: Record<HotMode, string> = { "per-file": "", hot: "" };
-    for (const mode of ["per-file", "hot"] as const) {
-      wrappers[mode] = path.join(configDir, `vitest.compare-${mode}.config.mjs`);
+    // One wrapper per run, each with its own isolated snapshot directory: a directory shared
+    // by a mode's runs would hold the first run's new snapshots, so later runs would write
+    // none and the snapshot comparison would see N, then 0 (pM review).
+    const wrapperFor = (n: number, mode: HotMode) => {
+      const file = path.join(configDir, `vitest.compare-${n}.config.mjs`);
       fs.writeFileSync(
-        wrappers[mode],
+        file,
         wrapperSource(
           importSpecifier(configDir, baseFile),
-          path.join(configDir, `snapshots-${mode}`),
-          path.join(work, `snapshots-${mode}.jsonl`),
+          path.join(configDir, `snapshots-${n}`),
+          path.join(work, `snapshots-${n}.jsonl`),
           root,
           mode === "hot" ? "auto" : false,
         ),
       );
-    }
+      return file;
+    };
     // A reporter of compare's own: Vitest's JSON report has no retry count.
     const retryReporter = path.join(configDir, "retries-reporter.mjs");
     fs.writeFileSync(retryReporter, RETRY_REPORTER);
@@ -300,7 +303,7 @@ export async function runCompareHot(options: CompareHotOptions): Promise<number>
           vitest.bin,
           "run",
           "--config",
-          wrappers[planned.mode],
+          wrapperFor(index, planned.mode),
           "--reporter=json",
           `--outputFile.json=${out}`,
           "--reporter=default",
