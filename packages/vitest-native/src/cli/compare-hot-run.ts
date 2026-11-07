@@ -42,7 +42,7 @@ import {
   wrapperSource,
   type CompareOptions,
 } from "./compare-run.js";
-import { rootSpellings } from "../native/root-spelling.mjs";
+import { relativeToRoot, rootSpellings } from "../native/root-spelling.mjs";
 import { compareHotRuns, type HotMode, type HotRun, type HotVerdict } from "./compare-hot.js";
 
 export interface CompareHotOptions extends Pick<
@@ -140,7 +140,9 @@ function readRetried(file: string, root: string): Set<string> {
   for (const line of fs.readFileSync(file, "utf8").split("\n")) {
     if (!line.trim()) continue;
     const r = JSON.parse(line) as { file: string; names: string[]; title: string };
-    const rel = path.relative(root, r.file).split(path.sep).join("/");
+    // The worker reports the file under whichever spelling of the root it loaded it by
+    // (Windows: long name, 8.3 name, drive-letter case), which a plain relative() misses.
+    const rel = relativeToRoot(root, r.file).split(/[\\/]/).join("/");
     out.add(testName({ file: rel, ancestors: r.names, title: r.title }));
   }
   return out;
