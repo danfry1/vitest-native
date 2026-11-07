@@ -848,6 +848,28 @@ module.exports = {
     expect(report.suggestedConfig).toContain(`import { fileURLToPath } from 'node:url'`);
   });
 
+  it("names a jest.mock factory that reads a module-level const while it runs", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { testEnvironment: "node" },
+      "src/checkSupportedVersions.test.ts": `const TODAY = '2023-04-01';
+jest.mock('~/supportedversions', () => ({ enforcementStartDate: TODAY }));
+test('x', () => {});
+`,
+      "src/fine.test.ts": `const LATER = 1;
+jest.mock('a', () => ({ get: () => LATER }));
+`,
+    });
+    withBabelParser(root);
+    const attention = analyzeJestConfig(root).attention.join("\n");
+    expect(attention).toContain(
+      "1 jest.mock() factory reads a const, let or class from the test file's module body while it runs: " +
+        "src/checkSupportedVersions.test.ts:2 (jest.mock('~/supportedversions') reads TODAY)",
+    );
+    expect(attention).toContain("create it with vi.hoisted()");
+    expect(attention).not.toContain("fine.test.ts");
+  });
+
   it("reads package.json#jest and reports a missing config honestly", () => {
     const withEmbedded = fixture({
       "package.json": { name: "x", jest: { preset: "react-native" } },
