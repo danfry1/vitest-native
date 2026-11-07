@@ -100,11 +100,9 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           node-version: 22.22.3
-
-      # As in the packed cells: the npm 10 that Node 22 bundles crashes on these fixtures'
-      # dependency graphs.
-      - name: Use an npm without the arborist edgesOut bug
-        run: npm install -g npm@11.20.0
+          # As in the packed cells: the npm 10 that Node 22 bundles crashes on these fixtures'
+          # dependency graphs.
+          npm-version: 11.20.0
 
       - name: Run the documented snippets against the packed package
         env:
@@ -458,17 +456,15 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           node-version: 22.22.3
-
-      # Every packed cell installs fixtures with npm. Node 22 bundles npm 10.9,
-      # whose arborist crashes with "Cannot read properties of null (reading
-      # 'edgesOut')" on these fixtures' dependency graphs. It is not this package:
-      # a fixture with vitest-native removed entirely crashes the same way, and the
-      # commit that passed on 2026-07-27 fails on re-run with no code change, so a
-      # republished transitive dependency started tripping the bug. npm 11 installs
-      # all of them. It runs first in every cell: on the old shared leg, the packed
-      # CJS reset gate passed only because it happened to run after this step.
-      - name: Use an npm without the arborist edgesOut bug
-        run: npm install -g npm@11.20.0
+          # Every packed cell installs fixtures with npm. Node 22 bundles npm 10.9,
+          # whose arborist crashes with "Cannot read properties of null (reading
+          # 'edgesOut')" on these fixtures' dependency graphs. It is not this package:
+          # a fixture with vitest-native removed entirely crashes the same way, and the
+          # commit that passed on 2026-07-27 fails on re-run with no code change, so a
+          # republished transitive dependency started tripping the bug. npm 11 installs
+          # all of them. It runs first in every cell: on the old shared leg, the packed
+          # CJS reset gate passed only because it happened to run after this step.
+          npm-version: 11.20.0
 
       - name: Build
         run: bun run build
