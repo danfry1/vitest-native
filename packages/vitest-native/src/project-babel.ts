@@ -24,6 +24,7 @@ import {
   normalizeBabelName,
   reanimatedRunsItsOwnMock,
 } from "./babel-plugins.js";
+import { rootBabelConfigFile } from "./fs-module-cache.js";
 import { installedManifest } from "./installed-manifest.js";
 import { projectBabelCaller } from "./native/babel-caller.mjs";
 import { VitestNativeError } from "./errors.mjs";
@@ -508,6 +509,23 @@ export interface ProjectBabel {
   cacheKey(id: string, source?: string): string;
   /** A project source file compiled with the project's Babel config, or undefined. */
   load(id: string, chain: LoadChain): Promise<Rollup.LoadResult>;
+}
+
+/**
+ * The warning for a project whose root Babel config cannot be applied because
+ * `@babel/core` does not resolve from it, or null. Only the mock engine can get here: the
+ * native engine requires @babel/core.
+ */
+export function missingBabelCoreNotice(root: string, mode: ProjectBabelMode): string | null {
+  if (mode === "never") return null;
+  const configFile = rootBabelConfigFile(root);
+  if (configFile === null || installedManifest(root, "@babel/core") !== null) return null;
+  return (
+    `[vitest-native] projectBabel: ${configFile} is not applied, because @babel/core is not ` +
+    `installed in the project. Project source compiles with Oxc only, so a plugin it needs ` +
+    `(decorators, a macro) does not run. Add @babel/core as a dev dependency, or set ` +
+    `projectBabel: 'never' to silence this.`
+  );
 }
 
 /**
