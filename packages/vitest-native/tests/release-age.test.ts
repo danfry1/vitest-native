@@ -169,23 +169,41 @@ describe("release cooldown", () => {
   it("is left off by VN_CANARY_UNAGED=1, and only by exactly that", () => {
     const applied = (value: string | undefined) => {
       const env = { ...process.env, VN_CANARY_UNAGED: value };
-      for (const key of [...ENV_KEYS, ...(value === undefined ? ["VN_CANARY_UNAGED"] : [])])
+      const keys = [...ENV_KEYS, "npm_config_ignore_scripts"];
+      for (const key of [...keys, ...(value === undefined ? ["VN_CANARY_UNAGED"] : [])])
         delete env[key];
       const out = execFileSync(
         process.execPath,
         [
           "--input-type=module",
           "-e",
-          `await import(${JSON.stringify(pathToFileURL(path.join(packageRoot, "scripts/release-age.mjs")).href)}); process.stdout.write("\\n" + JSON.stringify([process.env.npm_config_before ?? null, process.env.npm_config_minimum_release_age ?? null]));`,
+          `await import(${JSON.stringify(pathToFileURL(path.join(packageRoot, "scripts/release-age.mjs")).href)}); process.stdout.write("\\n" + JSON.stringify([process.env.npm_config_before ?? null, process.env.npm_config_minimum_release_age ?? null, process.env.npm_config_ignore_scripts ?? null]));`,
         ],
         { env, encoding: "utf8" },
       );
-      return JSON.parse(out.trim().split("\n").at(-1)!) as [string | null, string | null];
+      return JSON.parse(out.trim().split("\n").at(-1)!) as (string | null)[];
     };
-    expect(applied("1")).toEqual([null, null]);
+    // Off, and never without install scripts off too: every npm a script starts inherits it.
+    expect(applied("1")).toEqual([null, null, "true"]);
     for (const value of [undefined, "", "0", "true"]) {
-      expect(applied(value)[1]).toBe(String(RELEASE_AGE_DAYS * 24 * 60));
+      const [, minimumAge, ignoreScripts] = applied(value);
+      expect(minimumAge).toBe(String(RELEASE_AGE_DAYS * 24 * 60));
+      expect(ignoreScripts).toBeNull();
     }
+  });
+
+  it("installs with install scripts off wherever the canary's unaged run installs", () => {
+    // The unaged run is VN_CONSUMERS=expo-next, in runExpoVersions. Each npm install there
+    // passes CANARY_INSTALL_FLAGS ("--ignore-scripts" in that run), as well as inheriting
+    // npm_config_ignore_scripts.
+    const source = code("scripts/test-consumers.mjs");
+    const start = source.indexOf("function runExpoVersions(");
+    expect(start).toBeGreaterThan(-1);
+    const body = source.slice(start, source.indexOf("\n}\n", start));
+    const installs = [...body.matchAll(/"npm",\s*\[\s*"install"[^\]]*\]/g)].map((m) => m[0]);
+    expect(installs.length).toBeGreaterThanOrEqual(2);
+    for (const install of installs) expect(install).toContain("...CANARY_INSTALL_FLAGS");
+    expect(source).toMatch(/import \{ CANARY_INSTALL_FLAGS \} from "\.\/release-age\.mjs";/);
   });
 
   it("is turned off only in compat-check.yml's canary job, which can only read", () => {

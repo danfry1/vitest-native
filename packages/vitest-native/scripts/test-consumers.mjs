@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import "./release-age.mjs";
+import { CANARY_INSTALL_FLAGS } from "./release-age.mjs";
 import { HERO_RUN, HERO_TEST, heroRunLines, writeSnippets } from "./doc-snippets.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -270,7 +271,7 @@ function runExpoVersions(tarball, leg, entries) {
     manifest.dependencies.expo = expo;
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     addPackedDependency(fixtureRoot, tarball);
-    runCaptured("npm", ["install"], fixtureRoot);
+    runCaptured("npm", ["install", ...CANARY_INSTALL_FLAGS], fixtureRoot);
     // The fixture's own Expo CLI, never npx: a missing binary would resolve from the registry.
     runCaptured(
       process.execPath,
@@ -287,7 +288,11 @@ function runExpoVersions(tarball, leg, entries) {
     const dev = Boolean(manifest.devDependencies?.["react-test-renderer"]);
     if (dev || manifest.dependencies?.["react-test-renderer"]) {
       const spec = `react-test-renderer@${reactVersion}`;
-      runCaptured("npm", ["install", ...(dev ? ["-D"] : []), spec], fixtureRoot);
+      runCaptured(
+        "npm",
+        ["install", ...CANARY_INSTALL_FLAGS, ...(dev ? ["-D"] : []), spec],
+        fixtureRoot,
+      );
     }
     const version = (name) =>
       JSON.parse(
