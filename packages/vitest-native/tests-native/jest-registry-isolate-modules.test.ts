@@ -5,7 +5,8 @@
  * untouched afterwards (jest-runtime 29.7). Both used to throw "has no Vitest
  * equivalent".
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { COLD_IMPORT_BUDGET_MS } from "./support/cold-import";
 
 declare const jest: {
   mock(path: string, factory: () => unknown): void;
@@ -91,6 +92,12 @@ describe("jest.isolateModules", () => {
 });
 
 describe("jest.isolateModulesAsync", () => {
+  // The file's first import of the counter compiles it for Vite, cold on a fresh runner
+  // (it has taken 2 s on Windows). The case's outer import gets this same instance.
+  beforeAll(async () => {
+    await import("./fixtures/alias-app/registry/counter");
+  }, COLD_IMPORT_BUDGET_MS);
+
   it("isolates require() and import() across awaits", async () => {
     const outerRequired: Counter = require(COUNTER);
     const outerImported = await import("./fixtures/alias-app/registry/counter");
