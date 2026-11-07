@@ -78,6 +78,8 @@ describe("classifyProjectBabelEntry: which entries matter (#579)", () => {
     });
     expect(classify("babel-plugin-dynamic-import-node", "plugin")).toEqual({ kind: "strip" });
     expect(classify("babel-plugin-istanbul", "plugin")).toEqual({ kind: "strip" });
+    // It lowers import() only for a module transform, and refuses to run without one.
+    expect(classify("@babel/plugin-transform-dynamic-import", "plugin")).toEqual({ kind: "strip" });
   });
 
   it("covers syntax Oxc compiles, and needs syntax it does not parse only where it appears", () => {

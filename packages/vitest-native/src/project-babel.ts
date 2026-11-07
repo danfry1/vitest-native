@@ -255,6 +255,10 @@ const STRIPPED = new Set([
   "@babel/plugin-transform-modules-umd",
   "@babel/plugin-transform-modules-systemjs",
   "babel-plugin-dynamic-import-node",
+  // Lowers import() only for a module transform, and refuses to run without one; the
+  // output keeps ES modules, where import() runs as written.
+  "@babel/plugin-transform-dynamic-import",
+  "@babel/plugin-proposal-dynamic-import",
   "babel-plugin-transform-import-meta",
   "babel-plugin-istanbul",
 ]);
@@ -401,6 +405,24 @@ export function pluginNameOfKey(key: string): string {
 const optionsKey = (options: unknown): string =>
   JSON.stringify(options ?? {}, (_, value) => (typeof value === "function" ? "[function]" : value));
 
+/**
+ * A React Native or Expo preset's options with its module transform off. Expo's preset
+ * also takes per-platform options (`native`, `web`) that override the top-level one, so
+ * those are set too: `native: { disableImportExportTransform: false }` would otherwise
+ * bring the CommonJS transform back.
+ */
+function esmPresetOptions(options: unknown): Record<string, unknown> {
+  const given = (options ?? {}) as Record<string, unknown>;
+  const result: Record<string, unknown> = { ...given, disableImportExportTransform: true };
+  for (const platform of ["native", "web"]) {
+    const nested = given[platform];
+    if (nested && typeof nested === "object") {
+      result[platform] = { ...(nested as object), disableImportExportTransform: true };
+    }
+  }
+  return result;
+}
+
 /** A Babel ConfigItem, as much of it as this reads. */
 interface ConfigItem {
   file?: { request?: string; resolved?: string };
@@ -465,7 +487,8 @@ const ESM_PRESETS = new Set([
   "babel-preset-expo",
 ]);
 // The module transforms, by the alias Babel gives their visitors.
-const MODULE_TRANSFORM = /^transform-modules-(?:commonjs|amd|umd|systemjs)$|dynamic-import-node/;
+const MODULE_TRANSFORM =
+  /^transform-modules-(?:commonjs|amd|umd|systemjs)$|^(?:transform|proposal)-dynamic-import$|dynamic-import-node/;
 // Output Vite's module runner cannot take, from a plugin the router did not take out.
 const COMMONJS_OUTPUT =
   /Object\.defineProperty\(exports,\s*["']__esModule["']|^\s*module\.exports\s*=/m;
@@ -671,10 +694,7 @@ export function createProjectBabel(
       // ES modules out: the RN and Expo presets keep them when told to, preset-env when
       // its module transform is off.
       if (ESM_PRESETS.has(name) && item.value) {
-        plan.presets.push([
-          item.value,
-          { ...(item.options as object), disableImportExportTransform: true },
-        ]);
+        plan.presets.push([item.value, esmPresetOptions(item.options)]);
       } else if (name === "@babel/preset-env" && item.value) {
         plan.presets.push([item.value, { ...(item.options as object), modules: false }]);
       } else {
