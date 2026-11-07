@@ -218,11 +218,21 @@ describe("source tests: the misses review found (#597)", () => {
     expect(decorators("import { API } from '@env';")).toBe(false);
     expect(decorators("fetch('https://x.io/@user')")).toBe(false);
   });
-  it("reads comments too: a tag in one only routes the file (an accepted over-match)", () => {
-    expect(decorators("/**\n * @param a\n */\nexport const f = (a) => a;")).toBe(true);
+  it("skips the comment positions one line shows: //, a JSDoc line, an open /*", () => {
+    expect(decorators("/**\n * @param a\n */\nexport const f = (a) => a;")).toBe(false);
+    expect(decorators("// @ts-ignore\nconst a: number = b;")).toBe(false);
+    expect(decorators("const a = b; // @ts-expect-error a reason")).toBe(false);
+    expect(decorators("const a = /* @__PURE__ */ make();")).toBe(false);
+  });
+  it("still finds a decorator after a closed comment, a string or JSX text", () => {
+    expect(decorators("/* models */ @observer class A {}")).toBe(true);
+    expect(decorators('const u = "http://x"; @observer class A {}')).toBe(true);
     expect(decorators("const a = 1; /* end */\n<Text>Don't</Text>;\n@observer class A {}")).toBe(
       true,
     );
+    // A block comment whose lines do not start with `*`: its tag still counts (a Babel
+    // compile, never a missed decorator).
+    expect(decorators("/*\n  @deprecated\n*/\nconst a = 1;")).toBe(true);
   });
   it("does not let a string that looks like a comment hide a decorator", () => {
     expect(
