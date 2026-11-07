@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [reactNative({ hotRuntime: false })],
   test: {
     include: ["*.test.ts"],
+    setupFiles: ["./setup.ts"],
     testTimeout: 10_000,
     hookTimeout: 10_000,
   },
