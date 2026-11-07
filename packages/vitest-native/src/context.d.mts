@@ -13,6 +13,7 @@ export interface ProjectContextFields {
   assetExts?: string[];
   hotPreserveGlobals?: string[];
   hotEsmGeneration?: boolean;
+  hotFreshRuntime?: true;
   /** Coverage is on: Node-compiled project source carries an inline source map. */
   sourceMaps?: boolean;
   hotReleaseGenerations?: boolean;

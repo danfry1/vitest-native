@@ -16,6 +16,7 @@ export const CONTEXT_VERSION = 1;
 export const ESCAPE_HATCHES = Object.freeze([
   "VITEST_NATIVE_NO_REGISTRY",
   "VITEST_NATIVE_HOT_ESM_GEN",
+  "VITEST_NATIVE_HOT_FRESH_RUNTIME",
   "VITEST_NATIVE_HOT_STATE_MUTATION",
 ]);
 
@@ -34,6 +35,7 @@ const SCHEMA = {
   assetExts: { valid: strings },
   hotPreserveGlobals: { valid: strings },
   hotEsmGeneration: { valid: (v) => typeof v === "boolean" },
+  hotFreshRuntime: { valid: (v) => v === true },
   sourceMaps: { valid: (v) => typeof v === "boolean" },
   hotReleaseGenerations: { valid: (v) => typeof v === "boolean" },
   registry: { valid: absolute },

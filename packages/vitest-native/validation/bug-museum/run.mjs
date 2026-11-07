@@ -107,9 +107,12 @@ function testFiles(dir) {
 
 function childEnv(exhibit, accountingFile) {
   const env = { ...process.env, CI: "1" };
-  // The runner may itself run under Vitest or with loader flags; none of it reaches the child.
-  for (const key of Object.keys(env))
+  // The runner may itself run under Vitest or with loader flags; none of it reaches the child,
+  // apart from the switch that runs every hot exhibit with hotRuntime.freshRuntime.
+  for (const key of Object.keys(env)) {
+    if (key === "VITEST_NATIVE_HOT_FRESH_RUNTIME") continue;
     if (key.startsWith("VITEST") || key === "NODE_OPTIONS" || key === "NODE_PATH") delete env[key];
+  }
   return { ...env, ...exhibit.env, AXIS_ACCOUNTING_FILE: accountingFile };
 }
 

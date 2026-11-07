@@ -12,6 +12,7 @@ export const accepted: HotRuntime[] = [
   { mode: "auto" },
   { mode: "auto", memoryLimit: 2 * 1024 ** 3, recycleAfterFiles: 50 },
   { mode: "auto", preserveGlobals: ["__STORYBOOK__"], esmGeneration: false },
+  { mode: "auto", freshRuntime: true },
 ];
 
 // @ts-expect-error mode takes only "auto"
