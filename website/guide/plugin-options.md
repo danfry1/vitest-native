@@ -146,6 +146,33 @@ reactNative({
 
 A listed package's own dependencies are compiled too, as an auto-detected package's are. See [untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-source).
 
+## `projectBabel`
+
+**Type:** `'auto' | 'always' | 'never'` · **Default:** `'auto'` · **Engine:** both
+
+Compiles your own source with your project's Babel config where a file needs something Vite's Oxc transform does not do, as Metro and babel-jest compile it. Packages in `node_modules` are not affected.
+
+- `'auto'`: your config decides which of its plugins matter, and each file's source decides whether it needs one. A file compiles with Babel only then; every other file keeps Oxc.
+  - Examples: a file with a decorator, with legacy decorators configured (`@babel/plugin-proposal-decorators`); a macro import; an `@env` import with `react-native-dotenv`; a worklet, when Reanimated runs as its own mock; a `className` with NativeWind; a file with an `@flow` pragma.
+  - A plugin vitest-native does not know applies to every file the config covers.
+  - Startup names what caused it:
+
+    ```
+    [vitest-native] projectBabel: project source that needs it compiles with the project's Babel config, for @babel/plugin-proposal-decorators.
+    ```
+
+    With `diagnostics: true`, each file that compiles with Babel is named, with the reason.
+- `'always'`: every project file the config applies to compiles with Babel, as under babel-jest. Slower.
+- `'never'`: Oxc only.
+
+A preset of your own that wraps React Native's or Expo's (an app preset, `@rnx-kit`'s) counts as theirs; the plugins it adds beyond them are judged one by one, like your own. Covered without Babel: React Native's and Expo's presets, `@babel/preset-typescript`, `preset-react`, `preset-flow` and `preset-env`, standard syntax plugins Oxc compiles, `babel-plugin-module-resolver` (its aliases map onto `resolve.alias`), and the worklets plugins, unless Reanimated runs as its own mock. An option that changes what a covered entry outputs, such as `loose`, `assumptions`, a JSX `pragma` or `importSource`, or Flow's `all`, counts as a plugin the files it affects need.
+
+The output stays an ES module for Vite: module transforms (`@babel/plugin-transform-modules-commonjs` and the others, `babel-plugin-dynamic-import-node`, preset-env's `modules`) are turned off for this compile, also inside a preset that adds them itself, and `babel-plugin-istanbul` is left out. If a plugin vitest-native does not know still writes CommonJS, and it is the only thing that sent a file to Babel, that file compiles with Oxc as before, without that plugin, and one warning names it. If the file also needs something else from the config, the run fails with [`PROJECT_BABEL_COMMONJS`](/guide/errors#PROJECT_BABEL_COMMONJS), since falling back would drop what that does.
+
+A Babel plugin in your Vite config (such as a `babel()` entry from `@rolldown/plugin-babel`) still runs its own plugins after this one. A plugin both apply, such as the worklets plugin, finds nothing left to do the second time.
+
+Vitest's transform cache is keyed on what your config loads for each file: the plugins' versions and options, a local plugin's file, `BABEL_ENV` and `NODE_ENV`, your `.env` files when a dotenv plugin is configured, and the environment when an inline-environment plugin is. A file your config itself `require`s for other reasons is not; run with `--clearCache` after changing one.
+
 ## `hotRuntime`
 
 **Type:** `boolean | 'auto' | object` · **Default:** `false` · **Engine:** native

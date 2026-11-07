@@ -17,6 +17,7 @@ const KNOWN_OPTIONS = [
   "hangTimeout",
   "ownership",
   "experimental",
+  "projectBabel",
 ];
 const KNOWN_EXPERIMENTAL_OPTIONS = ["ownershipModel", "nodeMocks"];
 const KNOWN_HOT_RUNTIME_OPTIONS = [
@@ -104,6 +105,17 @@ export function validateOptions(options: Record<string, unknown>): void {
     options.platform !== "android"
   ) {
     throw new VitestNativeTypeError("INVALID_OPTION", `"platform" must be "ios" or "android".`);
+  }
+  if (
+    options.projectBabel !== undefined &&
+    options.projectBabel !== "auto" &&
+    options.projectBabel !== "always" &&
+    options.projectBabel !== "never"
+  ) {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"projectBabel" must be "auto", "always", or "never".`,
+    );
   }
   if (
     options.registryBuild !== undefined &&
