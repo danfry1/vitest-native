@@ -28,6 +28,8 @@ export default { plugins: [reactNative({ engine: "${engine}" })], test: { includ
       "src/a.test.js": `import { test, expect } from "vitest";\ntest("a", () => expect(1).toBe(1));\n`,
       "src/b.test.js": `import { test, expect } from "vitest";\ntest("b", () => expect(2).toBe(2));\n`,
       "src/c.test.js": `import { test, expect } from "vitest";\ntest.each([1, 2])("row", (n) => expect(n).toBeGreaterThan(0));\n`,
+      // Fails on its first attempt in every run, in both modes: passes after one retry.
+      "src/d.test.js": `import { test, expect } from "vitest";\nlet attempts = 0;\ntest("passes on retry", { retry: 1 }, () => { attempts++; expect(attempts).toBe(2); });\n`,
       ...files,
     },
   });
@@ -62,7 +64,7 @@ describe.runIf(distExists)("compare --hot: end to end", () => {
     expect(text).toContain("hot shuffled (seed 7)");
     expect(text).toContain("hot at --maxWorkers=2");
     expect(text).toContain(
-      "No difference in 1 per-file and 3 hot runs (shuffle seed 7): 4 tests compared.",
+      "No difference in 1 per-file and 3 hot runs (shuffle seed 7): 5 tests compared.",
     );
     expect(code).toBe(0);
     const report = JSON.parse(fs.readFileSync(out, "utf8"));
@@ -73,6 +75,8 @@ describe.runIf(distExists)("compare --hot: end to end", () => {
       "hot",
     ]);
     expect(report.versions.vitest).toBeTruthy();
+    // compare's own reporter saw the retry in every run.
+    expect(report.runs.map((r: { retried: number }) => r.retried)).toEqual([1, 1, 1, 1]);
   }, 180_000);
 
   it("gives no verdict where the config cannot run hot (the mock engine)", async () => {

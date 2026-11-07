@@ -284,3 +284,85 @@ describe("compare --hot: options, plan and banner", async () => {
     expect(bannerProblem("hot", "no banner")).toContain("no vitest-native engine banner");
   });
 });
+
+describe("compare --hot: review fixes", async () => {
+  const { bannerProblem } = await import("../src/cli/compare-hot-run.js");
+  const flaky = (status: "passed" | "failed" | "skipped") => ({
+    "a.test.ts": [
+      { title: "x", status, message: status === "failed" ? "AssertionError: no" : undefined },
+    ],
+  });
+
+  it("treats a hot-only pass on retry as a difference", () => {
+    const v = compareHotRuns([
+      run("per-file", suite),
+      run("hot", suite, 1000, { retried: new Set(["a.test.ts › y"]) }),
+    ]);
+    expect(v.differences).toEqual([
+      expect.objectContaining({
+        test: "a.test.ts › y",
+        perFile: "passed",
+        hot: "passed-after-retry",
+      }),
+    ]);
+  });
+
+  it("does not block on a per-file-flaky test whose hot results stay within its per-file set", () => {
+    const v = compareHotRuns([
+      run("per-file", flaky("passed")),
+      run("per-file", flaky("failed")),
+      run("hot", flaky("failed")),
+      run("hot", flaky("passed")),
+    ]);
+    expect(v.hotFlakes).toEqual([]);
+    expect(v.noDifference).toBe(true);
+  });
+
+  it("judges a per-file-flaky test in the shuffled run by the subset rule", () => {
+    const v = compareHotRuns([
+      run("per-file", flaky("passed")),
+      run("per-file", flaky("failed")),
+      run("hot", flaky("passed")),
+      run("hot", flaky("skipped"), 1000, { seed: 3 }),
+    ]);
+    expect(v.differences).toEqual([
+      expect.objectContaining({ kind: "order", hot: "skipped", seed: 3 }),
+    ]);
+  });
+
+  it("records a file that failed after its tests ran", () => {
+    const withHookFailure = (broken: boolean): HotRun => {
+      const r = run("hot", suite);
+      const file = r.results.files.get("a.test.ts")!;
+      if (broken)
+        Object.assign(file, { broken: true, status: "failed", message: "Error: afterAll failed" });
+      return r;
+    };
+    const v = compareHotRuns([run("per-file", suite), withHookFailure(true)]);
+    expect(v.differences.map((d) => d.test)).toEqual([
+      "a.test.ts › (file failed outside any test)",
+    ]);
+  });
+
+  it("gives no verdict when no test ran", () => {
+    expect(compareHotRuns([run("per-file", {}), run("hot", {})]).noDifference).toBe(false);
+  });
+
+  it("reads Node error codes, not capitalised words, as a kind", () => {
+    expect(failureKind("Error: ENOENT: no such file")).toBe("ENOENT");
+    expect(failureKind("AssertionError: expected ENABLED to be DISABLED")).toBe("AssertionError");
+  });
+
+  it("reads a hot banner with notes after the runtime, and a config-time decline", () => {
+    const suffixed =
+      "[vitest-native] engine: native — real react-native@0.86.3 · mocked: x (platform ios, hot runtime, experimental.ownershipModel: resolution)\n";
+    expect(bannerProblem("hot", suffixed)).toBeNull();
+    expect(bannerProblem("per-file", suffixed)).toContain("reports the hot runtime");
+    expect(
+      bannerProblem(
+        "hot",
+        `${suffixed}[vitest-native] hotRuntime:'auto' kept default isolation: user pool\n`,
+      ),
+    ).toContain("declined: user pool");
+  });
+});

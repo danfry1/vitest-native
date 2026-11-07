@@ -2386,11 +2386,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
    * with hotRuntime 'auto', whatever the project set, so one config is compared in both
    * modes. Keyed by a registered symbol and non-enumerable: not an option anyone writes.
    */
+  // 'auto' keeps the project's own recycling options, so the runtime compared is the one it
+  // would ship (allowUnboundedMemory does not combine with 'auto').
+  const { allowUnboundedMemory: _unbounded, mode: _mode, ...userRecycle } = hotRecycle;
   const setCompareHotRuntime = (value: false | "auto") => {
+    const auto = { ...userRecycle, mode: "auto" as const };
     hotRuntimeExplicit = true;
-    hotRuntimeOpt = value;
+    hotRuntimeOpt = value === "auto" ? auto : false;
     hotRuntimeRequested = value !== false;
-    hotRecycle = {};
+    hotRecycle = value === "auto" ? auto : {};
     hotRuntimeAuto = value === "auto";
   };
 

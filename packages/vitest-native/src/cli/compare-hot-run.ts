@@ -17,6 +17,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { analyzeJestConfig } from "./migrate.js";
 import {
+  testName,
   normaliseReport,
   sanitizeMessage,
   tmpSpellings,
@@ -94,10 +95,15 @@ export function bannerProblem(mode: HotMode, output: string): string | null {
   if (mode === "hot" && /'hotRuntime' only applies to engine:'native'/.test(output)) {
     return "the hot runtime runs only under the native engine, and this config resolves to the mock engine";
   }
-  const declined = /\[vitest-native\] hot runtime off: ([^\n]*)/.exec(output);
+  // A decline at configureVitest ("hot runtime off: …") or in any project's config()
+  // ("hotRuntime:'auto' kept default isolation: …"): that part of the run was per file.
+  const declined =
+    /\[vitest-native\] hot runtime off: ([^\n]*)/.exec(output) ??
+    /\[vitest-native\] hotRuntime:'auto' kept default isolation: ([^\n]*)/.exec(output);
   const engine = /\[vitest-native\] engine: [^\n]*/.exec(output)?.[0] ?? null;
   if (engine === null) return "the run printed no vitest-native engine banner";
-  const hot = /, hot runtime\)/.test(engine);
+  // The banner's parenthesis lists the platform, then ", hot runtime", then any other notes.
+  const hot = /, hot runtime[,)]/.test(engine);
   if (mode === "hot" && declined) return `hotRuntime 'auto' declined: ${declined[1].trim()}`;
   if (mode === "hot" && !hot) return "the hot run's engine banner does not report the hot runtime";
   if (mode === "per-file" && hot) return "the per-file run reports the hot runtime";
@@ -113,6 +119,31 @@ function snapshotsOf(report: unknown): { written: number; obsolete: number } | u
 // oxlint-disable-next-line no-control-regex -- ANSI escapes
 const ANSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
 const withoutAnsi = (text: string) => text.replace(ANSI, "");
+
+/** Records each test that passed only after a retry (Vitest 5 reporter API). */
+const RETRY_REPORTER = `import fs from "node:fs";
+export default class RetryReporter {
+  onTestCaseResult(testCase) {
+    const d = testCase.diagnostic?.();
+    if (!d || !d.retryCount || testCase.result().state !== "passed") return;
+    const names = [];
+    for (let s = testCase.parent; s && s.type === "suite"; s = s.parent) names.unshift(s.name);
+    fs.appendFileSync(process.env.VN_COMPARE_RETRIES, JSON.stringify({ file: testCase.module.moduleId, names, title: testCase.name }) + "\\n");
+  }
+}
+`;
+
+function readRetried(file: string, root: string): Set<string> {
+  const out = new Set<string>();
+  if (!fs.existsSync(file)) return out;
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    const r = JSON.parse(line) as { file: string; names: string[]; title: string };
+    const rel = path.relative(root, r.file).split(path.sep).join("/");
+    out.add(testName({ file: rel, ancestors: r.names, title: r.title }));
+  }
+  return out;
+}
 
 const fmtS = (ms: number | null) => (ms === null ? "–" : `${(ms / 1000).toFixed(1)} s`);
 
@@ -243,6 +274,10 @@ export async function runCompareHot(options: CompareHotOptions): Promise<number>
         ),
       );
     }
+    // A reporter of compare's own: Vitest's JSON report has no retry count.
+    const retryReporter = path.join(configDir, "retries-reporter.mjs");
+    fs.writeFileSync(retryReporter, RETRY_REPORTER);
+    const retriesFile = (n: number) => path.join(work, `retries-${n}.jsonl`);
     const sanitizeCtx = {
       roots: [root, fs.realpathSync(root)],
       tmp: tmpSpellings(),
@@ -269,13 +304,15 @@ export async function runCompareHot(options: CompareHotOptions): Promise<number>
           "--reporter=json",
           `--outputFile.json=${out}`,
           "--reporter=default",
+          `--reporter=${retryReporter}`,
           "--coverage.enabled=false",
-          ...planned.args,
           ...options.vitestArgs,
+          // Last, so the labelled runs keep their own settings.
+          ...planned.args,
         ],
         {
           cwd: root,
-          env: runnerEnv(),
+          env: { ...runnerEnv(), VN_COMPARE_RETRIES: retriesFile(index) },
           timeoutMs: options.timeoutMs,
           showOutput: options.showOutput,
           cleanup,
@@ -288,11 +325,6 @@ export async function runCompareHot(options: CompareHotOptions): Promise<number>
       const wallMs = Date.now() - started;
       const failure = runFailure("Vitest", run, options.timeoutMs);
       if (failure) return reportFailure(log, `${planned.label}: ${failure}`, run);
-      const banner = bannerProblem(planned.mode, withoutAnsi(output));
-      if (banner) {
-        log(`✗ ${planned.label}: ${banner}. No verdict: the two modes were not both run.`);
-        return 2;
-      }
       const report = readReport(out);
       if (report === null)
         return reportFailure(
@@ -300,10 +332,28 @@ export async function runCompareHot(options: CompareHotOptions): Promise<number>
           `${planned.label}: Vitest exited (${run.code}) without its JSON report.`,
           run,
         );
+      const banner = bannerProblem(planned.mode, withoutAnsi(output));
+      if (banner) {
+        return reportFailure(
+          log,
+          `${planned.label}: ${banner}. No verdict: the two modes were not both run.`,
+          run,
+        );
+      }
+      let results;
+      try {
+        results = normaliseReport(report, "vitest", normCtx);
+      } catch (error) {
+        log(
+          `✗ ${planned.label}: Vitest's JSON report could not be read: ${(error as Error).message}`,
+        );
+        return 2;
+      }
       done.push({
         mode: planned.mode,
         label: planned.label,
-        results: normaliseReport(report, "vitest", normCtx),
+        results,
+        retried: readRetried(retriesFile(index), root),
         wallMs,
         seed: planned.seed,
         untimed: planned.untimed,
@@ -355,7 +405,8 @@ export async function runCompareHot(options: CompareHotOptions): Promise<number>
               untimed: !!r.untimed,
               unhandledErrors: r.unhandledErrors ?? 0,
               snapshots: r.snapshots ?? null,
-              maxWorkers: r.label?.includes("--maxWorkers=2") ? 2 : "config",
+              retried: r.retried?.size ?? 0,
+              maxWorkers: r.untimed ? 2 : "config",
             })),
             verdict: { ...verdict, noDifference: verdict.noDifference },
           },

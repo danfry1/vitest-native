@@ -35,6 +35,8 @@ export interface HotRun {
   snapshots?: { written: number; obsolete: number };
   /** Compared, but left out of the speed-up (a run at another worker count). */
   untimed?: boolean;
+  /** Tests that passed only after a retry, as `file › describe › title` (compare's reporter). */
+  retried?: ReadonlySet<string>;
   /** A label for reports: "per-file 1", "hot 2", "hot shuffled", "hot maxWorkers=2". */
   label?: string;
 }
@@ -89,29 +91,32 @@ export function failureKind(message: string | null | undefined): string {
   if (!message) return "unknown";
   if (/\btimed out in \d+\s*ms\b|\bTest timed out\b/i.test(message)) return "timeout";
   if (/this worker cannot run this file/i.test(message)) return "hot-worker-refused";
-  const code = /\b((?:HOT|SOURCE|NATIVE|OWNERSHIP|ERR)_[A-Z0-9_]+|E[A-Z]{3,})\b/.exec(message);
-  if (code) return code[1];
+  const code = /\b((?:HOT|SOURCE|NATIVE|OWNERSHIP|ERR)_[A-Z0-9_]+)\b|\b(E[A-Z]{3,}):/.exec(message);
+  if (code) return code[1] ?? code[2];
   const name = /^\s*(?:[A-Za-z]+:\s*)?([A-Z][A-Za-z]*(?:Error|Exception))\b/.exec(message);
   return name ? name[1] : "Error";
 }
 
 /** Every test of one run, keyed by file › name (#occurrence for a repeated name). */
-export function testsOfRun(results: RunnerResults): Map<string, Observed> {
+export function testsOfRun(
+  results: RunnerResults,
+  retried: ReadonlySet<string> = new Set(),
+): Map<string, Observed> {
   const out = new Map<string, Observed>();
   for (const file of results.files.values()) {
-    if (file.tests.length === 0 && file.broken) {
+    // A file that failed outside any test: to load, or in a hook after its tests ran.
+    if (file.broken) {
       out.set(`${file.file} › (file failed outside any test)`, {
-        status: `load-failed:${failureKind(file.message)}`,
+        status: `${file.tests.length === 0 ? "load-failed" : "file-failed"}:${failureKind(file.message)}`,
         message: firstLineOf(file.message),
       });
-      continue;
+      if (file.tests.length === 0) continue;
     }
     const seen = new Map<string, number>();
     for (const t of file.tests) {
       const base = testName({ file: file.file, ancestors: t.ancestors, title: t.title });
       const n = (seen.get(base) ?? 0) + 1;
       seen.set(base, n);
-      const retried = (t as { retries?: number }).retries ?? 0;
       const status: TestStatus =
         t.rawStatus === "todo"
           ? "todo"
@@ -119,7 +124,7 @@ export function testsOfRun(results: RunnerResults): Map<string, Observed> {
             ? "skipped"
             : t.status === "failed"
               ? `failed:${failureKind(t.message)}`
-              : retried > 0
+              : retried.has(base)
                 ? "passed-after-retry"
                 : "passed";
       out.set(n === 1 ? base : `${base} #${n}`, { status, message: firstLineOf(t.message) });
@@ -150,7 +155,7 @@ export function compareHotRuns(runs: readonly HotRun[]): HotVerdict {
   const ordered = runs.filter((r) => r.seed === undefined);
   const shuffled = runs.filter((r) => r.seed !== undefined);
   const byMode: Record<HotMode, Map<string, Observed>[]> = { "per-file": [], hot: [] };
-  for (const r of ordered) byMode[r.mode].push(testsOfRun(r.results));
+  for (const r of ordered) byMode[r.mode].push(testsOfRun(r.results, r.retried));
 
   const keys = new Set<string>();
   for (const mode of ["per-file", "hot"] as const)
@@ -167,7 +172,9 @@ export function compareHotRuns(runs: readonly HotRun[]): HotVerdict {
     const pfStable = new Set(pf).size === 1;
     const hotStable = new Set(hot).size === 1;
     if (!pfStable) perFileFlakes.push({ test: key, mode: "per-file", statuses: pf });
-    if (!hotStable) hotFlakes.push({ test: key, mode: "hot", statuses: hot });
+    // A test flaky per file is judged by the subset rule only; hot varying within the
+    // per-file set is not a hot flake (pM review, Q1).
+    if (!hotStable && pfStable) hotFlakes.push({ test: key, mode: "hot", statuses: hot });
     if (!pfStable) {
       // Judged by the subset rule: hot may only produce outcomes per file also produced.
       judgedBySubset++;
@@ -202,13 +209,29 @@ export function compareHotRuns(runs: readonly HotRun[]): HotVerdict {
     });
   }
 
+  const listed = new Set(differences.map((d) => d.test));
   for (const run of shuffled) {
-    const tests = testsOfRun(run.results);
-    const all = new Set([...stablePerFile.keys(), ...tests.keys()]);
+    const tests = testsOfRun(run.results, run.retried);
+    const all = new Set([...stablePerFile.keys(), ...tests.keys(), ...keys]);
     for (const key of [...all].sort()) {
-      if (byMode["per-file"].length && !stablePerFile.has(key) && keys.has(key)) continue;
-      const expected = stablePerFile.get(key) ?? "absent";
+      if (listed.has(key)) continue;
       const got = tests.get(key)?.status ?? "absent";
+      if (!stablePerFile.has(key) && keys.has(key)) {
+        // Flaky per file: the shuffled result must be one the per-file runs produced.
+        const allowed = new Set(statusesOf(byMode["per-file"], key));
+        if (!allowed.has(got)) {
+          differences.push({
+            test: key,
+            kind: "order",
+            perFile: [...allowed].join(" | "),
+            hot: got,
+            message: tests.get(key)?.message ?? null,
+            seed: run.seed,
+          });
+        }
+        continue;
+      }
+      const expected = stablePerFile.get(key) ?? "absent";
       if (expected !== got) {
         differences.push({
           test: key,
@@ -271,6 +294,7 @@ export function compareHotRuns(runs: readonly HotRun[]): HotVerdict {
     noDifference:
       byMode["per-file"].length > 0 &&
       byMode.hot.length > 0 &&
+      keys.size > 0 &&
       differences.length === 0 &&
       hotFlakes.length === 0,
     testsCompared: keys.size,

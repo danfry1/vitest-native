@@ -690,9 +690,22 @@ function setHotRuntime(config) {
       else if (p && typeof p[HOOK] === "function") { p[HOOK](HOT_RUNTIME); found++; }
     }
   };
-  walk(config.plugins);
+  const refuse = (what) => {
+    throw new Error("[vitest-native compare --hot] " + what + " cannot be set to one mode by compare; compare each project's config with --vitest-config instead");
+  };
+  const walkChecked = (plugins) => {
+    for (const p of Array.isArray(plugins) ? plugins.flat(Infinity) : []) {
+      if (p && typeof p.then === "function") refuse("a plugin given as a Promise");
+    }
+    walk(plugins);
+  };
+  walkChecked(config.plugins);
   for (const project of Array.isArray(config.test?.projects) ? config.test.projects : []) {
-    if (project && typeof project === "object") walk(project.plugins);
+    if (typeof project === "string") refuse("a project given as a path or glob (" + project + ")");
+    else if (project && typeof project === "object") {
+      if (typeof project.extends === "string") refuse("a project that extends a config file (" + project.extends + ")");
+      walkChecked(project.plugins);
+    } else if (typeof project === "function") refuse("a project given as a function");
   }
   if (found === 0) throw new Error("[vitest-native compare --hot] no vitest-native plugin (reactNative()) in this config");
 }
