@@ -16,6 +16,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { jestMockInterop } from "./interop.mjs";
 import { installJestObject } from "./jest-object.mjs";
+import { docsUrl } from "../docs-url.mjs";
 import { callerFile } from "./caller.mjs";
 import { errorsWithMethodsEquality } from "./error-equality.mjs";
 import { VitestNativeError } from "../errors.mjs";
@@ -153,8 +154,7 @@ if (typeof vi.now !== "function") vi.now = () => Date.now();
 // "jest.isolateModules is not a function" TypeErrors deep in a migrated suite.
 // Give each one an error that names the API and states the closest migration,
 // so the failure is a signpost instead of a mystery.
-const UNSUPPORTED_DOCS =
-  "https://danfry1.github.io/vitest-native/guide/errors#JEST_API_UNSUPPORTED";
+const UNSUPPORTED_DOCS = docsUrl("/guide/errors#JEST_API_UNSUPPORTED");
 function unsupported(name, guidance) {
   if (typeof vi[name] === "function") return;
   vi[name] = () => {

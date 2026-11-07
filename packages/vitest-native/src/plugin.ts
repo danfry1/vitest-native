@@ -18,6 +18,7 @@ import {
   unsupportedExpoSdkMessage,
   unsupportedReactNativeMessage,
 } from "./peer-requirements.js";
+import { docsUrl } from "./docs-url.mjs";
 import { VitestNativeError, VitestNativeTypeError } from "./errors.mjs";
 import { assertSupportedNode } from "./node-range.js";
 import { presetFromModule } from "./preset-modules.mjs";
@@ -1913,9 +1914,7 @@ export class OwnershipSummaryReporter {
           ...(known ? [`    fix: ${known.fix}`] : []),
         );
       }
-      lines.push(
-        "  See https://danfry1.github.io/vitest-native/guide/errors#SOURCE_EVALUATED_TWICE.",
-      );
+      lines.push(`  See ${docsUrl("/guide/errors#SOURCE_EVALUATED_TWICE")}.`);
     }
     const unused = this.allow().filter((entry) => !this.used.has(entry.path));
     if (unused.length > 0) {
