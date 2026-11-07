@@ -25,6 +25,7 @@ import { parseJestScript } from "./jest-discovery.js";
 import { installedManifest } from "./manifest.js";
 import { analyzeJestConfig } from "./migrate.js";
 import { docsUrl } from "../docs-url.mjs";
+import { relativeToRoot, rootSpellings } from "../native/root-spelling.mjs";
 
 export interface CompareOptions {
   root: string;
@@ -1097,7 +1098,9 @@ export async function runCompare(options: CompareOptions): Promise<number> {
     // unhandled errors and errors during close appear.
     const vitestOut = path.join(work, "vitest.json");
     const sanitizeCtx = {
-      roots: [root, fs.realpathSync(root)],
+      // Every spelling of the root: Vitest's output names files as Vite does (the OS's
+      // spelling, no Windows 8.3 short names), which the root as given may not be.
+      roots: rootSpellings(root),
       tmp: tmpSpellings(),
       home: os.homedir(),
     };
@@ -1175,7 +1178,8 @@ export async function runCompare(options: CompareOptions): Promise<number> {
       for (const line of fs.readFileSync(manifest, "utf8").split("\n")) {
         if (!line.trim()) continue;
         const entry = JSON.parse(line) as ManifestEntry;
-        const rel = path.relative(root, entry.testPath).split(path.sep).join("/");
+        // In whichever spelling of the root the test path is under (root-spelling.mjs).
+        const rel = relativeToRoot(root, entry.testPath).split(path.sep).join("/");
         resolutions.set(rel, entry);
       }
     }
