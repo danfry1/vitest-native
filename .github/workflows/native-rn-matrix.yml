@@ -43,7 +43,7 @@ on:
   workflow_dispatch:
   schedule:
     # Weekly, to catch new Vitest releases and RN patch releases within range.
-    - cron: '0 9 * * 1'
+    - cron: "0 9 * * 1"
 
 permissions:
   contents: read
@@ -116,7 +116,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.22.3'
+          node-version: "22.22.3"
 
       # Package-download cache: bun still verifies against the frozen lockfile,
       # it just skips re-downloading unchanged tarballs.

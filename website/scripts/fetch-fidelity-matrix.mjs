@@ -6,9 +6,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repo = process.env.VERCEL_GIT_REPO_OWNER && process.env.VERCEL_GIT_REPO_SLUG
-  ? `${process.env.VERCEL_GIT_REPO_OWNER}/${process.env.VERCEL_GIT_REPO_SLUG}`
-  : "danfry1/vitest-native";
+const repo =
+  process.env.VERCEL_GIT_REPO_OWNER && process.env.VERCEL_GIT_REPO_SLUG
+    ? `${process.env.VERCEL_GIT_REPO_OWNER}/${process.env.VERCEL_GIT_REPO_SLUG}`
+    : "danfry1/vitest-native";
 const url = `https://raw.githubusercontent.com/${repo}/site-data/fidelity-matrix.md`;
 const out = path.join(path.dirname(fileURLToPath(import.meta.url)), "../guide/fidelity-matrix.md");
 // The page the matrix script writes starts with this marker; anything else is not ours.
