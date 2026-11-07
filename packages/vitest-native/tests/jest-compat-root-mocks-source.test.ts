@@ -7,7 +7,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { ignorePattern } from "../src/jest-compat/root-mocks.js";
-import { rootMocksSource } from "../src/jest-compat/transform.js";
+import { jestMockTransform, rootMocksSource } from "../src/jest-compat/transform.js";
 
 describe("ignorePattern", () => {
   it("replaces <rootDir> with the root as literal text", () => {
@@ -23,6 +23,14 @@ describe("ignorePattern", () => {
 
   it("is null for a pattern that is not a regular expression", () => {
     expect(ignorePattern("<rootDir>/(", "/work")).toBe(null);
+  });
+
+  it("fails the plugin's config with INVALID_OPTION for such a pattern", () => {
+    const plugin = jestMockTransform({ modulePathIgnorePatterns: ["<rootDir>/("] });
+    const config = plugin.config as (config: object) => unknown;
+    expect(() => config({ root: path.join(path.sep, "work") })).toThrow(
+      expect.objectContaining({ name: "VitestNativeError", code: "INVALID_OPTION" }),
+    );
   });
 });
 

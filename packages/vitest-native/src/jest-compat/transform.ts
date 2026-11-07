@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MagicString } from "magic-string";
+import { VitestNativeError } from "../errors.mjs";
 import { findNodeModuleMocks, ignorePattern, type ManualMocks } from "./root-mocks.js";
 
 // Hoistable jest mock methods (Vitest only hoists these on the vi/vitest object).
@@ -263,8 +264,9 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
       const ignore = (options.modulePathIgnorePatterns ?? []).map((pattern) => {
         const regex = ignorePattern(pattern, root);
         if (!regex) {
-          throw new Error(
-            `[vitest-native] jestMockTransform: modulePathIgnorePatterns entry ${JSON.stringify(pattern)} is not a valid regular expression`,
+          throw new VitestNativeError(
+            "INVALID_OPTION",
+            `jestMockTransform: modulePathIgnorePatterns entry ${JSON.stringify(pattern)} is not a valid regular expression`,
           );
         }
         return regex;
