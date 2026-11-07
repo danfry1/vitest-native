@@ -2,7 +2,7 @@ import type { Plugin, ResolvedConfig, UserConfig } from "vite";
 import type { PoolRunnerInitializer } from "vitest/node";
 import type { VitestNativeOptions, ResolvedOptions, Preset } from "./types.js";
 import { getConfiguredPlatformExtensions, getPlatformExtensions } from "./resolve.js";
-import { firstExact } from "./native/resolve.mjs";
+import { firstExact, platformSubpathFile } from "./native/resolve.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -2129,6 +2129,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Vite and Node must land on the same file for a package, or it exists twice with
   // separate module-level state. Cached: resolveId runs for every import.
   const alignedCache = new Map<string, string | null>();
+  // An extensionless React Native subpath, the only kind platformSubpathFile changes
+  // here. Another package's `exports` map may send a subpath to an ESM or CommonJS
+  // build by condition, which a platform variant beside it must not replace.
+  const mayHavePlatformSubpath = (source: string): boolean =>
+    source.startsWith("react-native/") && !source.includes("?") && path.extname(source) === "";
   // Extensionless relative imports, shared by both engines (see the comment inside).
   const resolveExtensionless = (source: string, importer?: string): string | undefined => {
     // Extensionless relative imports, resolved as Metro does: platform extensions in
@@ -3358,7 +3363,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           ) ??
           alignedResolution(source, importer);
         const entryOf = assetPattern ? unexportedPresetSubpath(source) : null;
-        if (entryOf === null) return resolveReal();
+        if (entryOf === null) {
+          const real = resolveReal();
+          if (real !== undefined || !mayHavePlatformSubpath(source)) return real;
+          // A package's extensionless subpath lands on its platform file, as React
+          // Native's own require of it does (platformSubpathFile, #573).
+          return this.resolve(source, importer, { skipSelf: true }).then((hit) => {
+            if (!hit || hit.external) return hit;
+            const file = stripFsPrefix(hit.id.split("?")[0]);
+            const variant = platformSubpathFile(source, file, platform, sourceExts);
+            return variant === null ? hit : { ...hit, id: variant };
+          });
+        }
         // A subpath that resolves to the package's own entry (pkg/src) is the package,
         // and gets the root mock on every route (isPackageEntryFile).
         return this.resolve(source, importer, { skipSelf: true }).then((hit) =>

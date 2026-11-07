@@ -369,6 +369,12 @@ function rewrite(
     // jest.<method> → vi.<method>
     s.overwrite(obj.start, obj.end, "vi");
     changed = true;
+    // A jest.mock / jest.unmock that is not a top-level statement (inside a helper the
+    // test calls, say) applies when it runs, under Jest as for vi.doMock: Vitest
+    // rejects a vi.mock it cannot hoist to the top of the module (#573).
+    if ((prop.name === "mock" || prop.name === "unmock") && !topLevel.has(node)) {
+      s.overwrite(prop.start, prop.end, prop.name === "mock" ? "doMock" : "doUnmock");
+    }
 
     // The module specifier, when it is a string literal or a variable: it is
     // repeated in the registration below, and repeating an arbitrary expression
