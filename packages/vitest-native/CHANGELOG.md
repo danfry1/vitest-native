@@ -8,9 +8,38 @@
 - **Vitest 5 and Vite 8.** Vitest 4, or Vite 6 or 7, stops at startup with `UNSUPPORTED_PEER`.
 - **React 19, React Native Testing Library 13 or 14, and React Native 0.86+ (Expo SDK 57+) for the
   native engine.** An older React or React Native stops at startup with `UNSUPPORTED_PEER`.
+- **Snapshots print in Jest's format.** Run `vitest -u` once to re-record existing snapshots,
+  then review the diff.
+- **`jestMockTransform()` applies Jest's manual mocks of installed packages** (`__mocks__/<pkg>`),
+  as Jest does. Pass `jestMockTransform({ rootMocks: false })` to keep the previous behaviour.
 - Run `npx vitest-native doctor` to check all of these. Each entry below has the details.
 
 ### Minor Changes
+
+- e4473ae: **A test stuck in synchronous code no longer hangs a hot-runtime run forever: the run fails and names the file and test.** Vitest's `testTimeout` can't interrupt a test that never yields, such as a loop that never ends, so such a run used to wait with nothing on screen. The new `hangTimeout` option fails a run when nothing has made progress for 60 s (or twice the longest test or hook timeout) and every running test is past its own timeout, retries included. It's on by default under the hot runtime and off otherwise. Add `reactNative({ hangTimeout: <ms> })` to turn it on everywhere, or `hangTimeout: false` to turn it off.
+- 1cb74f0: **Behaviour change: `jestMockTransform()` applies Jest's manual mocks of `node_modules` packages.** To keep the previous behaviour, pass `jestMockTransform({ rootMocks: false })`. A file such as `__mocks__/moti.ts` in a `__mocks__` folder under Jest's `roots` now replaces that package with no `jest.mock()` call, as under Jest, for imports and `require()` alike, `__mocks__/react-native.js` included. Before, the real package ran. A setup file's or test file's own `jest.mock()` or `jest.unmock()` still wins.
+
+  - `migrate` lists each such file and carries over Jest's `roots` and `modulePathIgnorePatterns`.
+  - A package a preset covers keeps its preset; the run warns that its manual mock is not applied.
+
+- 41959da: **Under jest-compat, `View.prototype` has the native methods, as React Native's Jest preset gives it.** `jest.spyOn(View.prototype, 'measure')` now reaches every `View` ref. It used to fail because React Native's `View` has no prototype. Under the native engine, each native view name now has one host class, so every `View` ref shares the methods a spy replaces.
+
+  No action needed. `Text` and `ScrollView` get no prototype.
+
+- 23275f8: **jest-compat supports `jest.replaceProperty()`.** `jest.replaceProperty(Platform, 'OS', 'android')` replaces the value in place, as Jest does. It used to throw. The returned handle has `replaceValue()` and `restore()`. `jest.restoreAllMocks()`, the `restoreMocks` setting and the end of the test file also restore it; `vi.restoreAllMocks()` does not. It throws Jest's errors for a getter, a function or a missing property.
+
+  No action needed.
+
+- ece53b3: **Files that need a plugin from your project's Babel config now compile with that config, as Metro and babel-jest compile them.** Legacy decorators (WatermelonDB models), macros, `react-native-dotenv`, the worklets plugin, custom plugins and Flow used to fail or behave differently. Remove any `babel()` entry you added only to run them; set [`projectBabel: 'never'`](https://danfry1.github.io/vitest-native/guide/plugin-options#projectbabel) for the previous behaviour.
+
+  - Only a file that uses such a plugin compiles with Babel; other files keep Oxc.
+  - `migrate` and `doctor` list these plugins as applied, and `doctor` calls a `babel()` entry that repeats one redundant.
+  - It needs `@babel/core` in the project. Without it, `migrate`, `doctor` and the mock engine's startup say so.
+
+- e517388: **Behaviour change: snapshots of React Native trees print in Jest's format.** Run `vitest -u` once to re-record existing vitest-native snapshots, then review the diff. vitest-native no longer registers its own serializer. Jest-written snapshots share the format, but ones inside a `describe`, or of components Jest's preset stubs, still need one re-record ([Snapshots](https://danfry1.github.io/vitest-native/guide/matchers#snapshots)).
+
+  - No host prints `ref`. A host ref, such as a `Text` ref under the native engine or any host ref under the mock engine, is now an instance with `measure`, `focus` and the other native methods, where it used to be the test renderer's node or `null`.
+  - `vitest-native/serializer` keeps the old format for one release; it is deprecated.
 
 - a107e3a: **New `vitest-native compare` runs your suite under your own Jest and under Vitest and lists every test whose result differs.** Use it while both runners are in place: `npx vitest-native compare` names each test that passes under Jest but not under Vitest, grouped by its first error, and exits 0 only when every one of them passes and `vitest run` exits 0. Neither run writes snapshots or changes project files, and `--json <file>` writes a report without stack traces or absolute paths, for attaching to an issue. See the [CLI reference](https://danfry1.github.io/vitest-native/guide/cli#compare).
 - 4271252: **Under the native engine, `react-native-gesture-handler` and `@shopify/flash-list` run as themselves, with the `jestSetup.js` each ships** before the project's setup files, as a Jest suite lists them. No action needed; to keep a preset, set `presets: { gestureHandler: true }` or `{ flashList: true }`.
@@ -98,6 +127,27 @@
   - Babel plugins your tests need go through `@rolldown/plugin-babel`; `@vitejs/plugin-react` 6 removed its `babel` option.
 
 ### Patch Changes
+
+- 3fbe353: **`vitest-native compare` no longer misses an error in `vitest run`'s output when stdout and stderr interleave.** The two streams were split into lines through one shared buffer, a chunk was decoded on its own, and an error header's message was taken from the next line of either stream. Depending on how the pipes delivered output, an `Uncaught Exception` or `Unhandled Rejection` could be dropped from the verdict. Each stream now has its own line buffer, UTF-8 decoder and pending header. No action needed.
+- 587167d: **A test file that fails because a module does not compile now names that module's file, line and column.** A decorator or other syntax that reached Node uncompiled failed the file with only `SyntaxError: Invalid or unexpected token`. The report now reads `SyntaxError: Invalid or unexpected token (src/model/Subscription.js:24:3)` and shows the source line, mapped through the module's sourcemap. No action needed. A project that sets its own `test.runner` keeps Vitest's message.
+- b9a5b67: **A `jest.mock` factory that `require`s your own source now gets the module the test imports.** With `jestMockTransform()`, a `require('<path>')` in a factory's body loads through Vite, as its `jest.requireActual` calls already do, or returns the mock where the file mocks that module. It used to load a second copy through Node, with its own module state, and a SOURCE_EVALUATED_TWICE warning was printed for every file that copy imported: thousands of lines on a large suite. No action needed.
+- b3ec366: **The `SOURCE_EVALUATED_TWICE` warning prints one entry per cause instead of one per file.** Files Node loaded through the same first `require()` are grouped: the first is printed in full, and the end-of-run summary gives each cause one line with its file count, its test files and the fix. On a large suite, one `jest.mock` factory's `require` could print thousands of warnings; it is now one summary line and one warning per worker. The fix line names `await vi.importActual(...)` in an async factory, or `experimental.ownershipModel: 'resolution'`. No action needed.
+- a1e57a8: **The `IMPORT_META_IN_NODE_OWNED` error now names the whole fix for a package published as an ES module.** For a `"type": "module"` or `.mjs` package, `transform: { exclude: [...] }` alone left the package to Node, uncompiled, where `import.meta.env` is undefined. The message and the [error reference](https://danfry1.github.io/vitest-native/guide/errors#IMPORT_META_IN_NODE_OWNED) now say so. Add such a package to `test.server.deps.inline` as well as to `transform.exclude`, so that Vite loads it.
+- 1effb20: **Under the native engine, checking whether Node compiles a file no longer grows with the number of React Native packages.** The check runs on every file Node resolves or loads. It used to test each file against two patterns per package, hundreds on an Expo project. It now looks the package name up after each `node_modules` segment, and checks the file's parent directories against the linked packages' directories. No action needed.
+- 8122180: **`projectBabel` no longer compiles a file with Babel because a comment in it holds an `@` tag.** A config with legacy decorators sent every file with a `// @ts-ignore` or a JSDoc `@param` through Babel. On one large app, 48 of 64 such files had no decorator. A tag after `//`, on a JSDoc line or inside a `/* … */` on the same line no longer counts. No action needed.
+- 5d45540: **A project whose Babel config lists `@babel/plugin-transform-dynamic-import`, or turns babel-preset-expo's native module transform back on, loads its files again.** Since `projectBabel`, every file that config applies to failed with `@babel/plugin-transform-dynamic-import depends on a modules transform plugin`, because the module transform is left out so the output stays an ES module. The dynamic-import transform is now left out with it, as `import()` runs as written, and babel-preset-expo's per-platform `disableImportExportTransform` is turned on too. No action needed.
+- 9bfa9bf: **`projectBabel` compiles your source when the project root is reached through another spelling of its path.** A root given through a symlinked or junctioned directory, or a Windows 8.3 short name such as `C:\Users\RUNNER~1\...`, did not match the real paths Vite gives files. Decorators and other syntax your Babel config handles then failed to parse, and `.babelrc` files were not read. No action needed.
+- 3a0143c: **`require('@jest/globals')` gets jest-compat's shim, as an import does.** A CommonJS `require` of it reached the installed package, which throws outside Jest, so a `.js` test that required it did not load. It now returns the same module as `import … from '@jest/globals'`, under both engines.
+
+  No action needed.
+
+- fde2449: **`vi.resetAllMocks()` no longer loops forever with a `jest.spyOn` spy under jest-compat.** A spy on an arrow function, or any function `new` cannot construct, put itself back in the set of mocks Vitest was resetting. The reset then never returned and the worker spun at full CPU, most often under the hot runtime, where a spy from an earlier file is still alive. Resetting now ends, and the spy still falls back to its original as before.
+
+  No action needed.
+
+- 63a2021: **A `jest.mock` of a `react-native/Libraries/...` path now replaces the module `import { … } from 'react-native'` returns, as under Jest.** A mock of a module with platform files, such as `react-native/Libraries/Utilities/BackHandler`, applied to `BackHandler.js` while React Native loads `BackHandler.ios.js`, so `BackHandler.mockPressBack` was undefined. It now lands on the platform file, cold and under the hot runtime, and so does `vi.mock` with `experimental.nodeMocks`. A `jest.mock` inside a helper the test calls now applies when the helper runs, instead of failing with "defined outside of the module's top level scope". Remove any workaround that mocked the `.ios.js` file directly.
+- a1e57a8: **On Windows, app source Node loads is compiled with your Babel config again when the project path has a short (8.3) spelling.** A root such as `C:\Users\RUNNER~1\...`, the default temporary directory on GitHub's Windows runners, did not match the long file names Vite gives, so `require()`d source skipped `babel.config.js` and its presets, macros and plugins, including `babel-preset-expo`. Asset locations had the same mismatch. No action needed.
+- d406ffe: **Under the native engine, each test worker works out which packages Node compiles once, from directories the plugin already resolved.** A worker used to resolve the directory of every package Node compiles twice per test file, once for its ES module loader and once for its `require` hooks. With per-file isolation every test file has a new worker, so the cost grew with the number of test files. The plugin now records those directories for its workers, and the two hooks share one answer per worker. No action needed.
 
 - a107e3a: **`vitest-native init`, `doctor` and `migrate` now refuse a flag they do not take, instead of ignoring it.** A typo such as `migrate --wirte` used to run a dry report without saying so; it now exits 1 with `✗ unknown option --wirte for migrate. Valid: --root, --help, --write, --force.` Check scripts that pass extra flags to these commands. Change any misspelled flag to one the error lists.
 - b388ce5: **`vitest-native doctor` now warns on Node 24.13.0, which can crash a test run at startup with a segmentation fault.** The crash is in V8's garbage collector on a worker thread and is intermittent. Use another Node 24 release, such as 24.14 or later; the troubleshooting guide has the details.
