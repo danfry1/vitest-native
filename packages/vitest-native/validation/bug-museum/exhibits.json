@@ -967,6 +967,38 @@
       "preFixRef": "0f2400e"
     },
     {
+      "id": "pfs-hot-fresh-library-mock-cost",
+      "class": "per-file-state",
+      "title": "Under hot with freshRuntime, every file re-resolves React through the registry",
+      "source": "#657 (hotRuntime.freshRuntime): the library-mock cost exhibit's count with the option on",
+      "fixedBy": "the resolution memo holding absolute requests",
+      "bugSignature": "^[bc]\\.test\\.tsx: AssertionError: a warm file's (Module\\._resolveFilename|fs\\.readFileSync) calls: expected \\d+ to be less than (60|150)",
+      "control": {
+        "why": "Without the libraries (a plain render), a warm file's cost is the RN-core baseline.",
+        "edits": [
+          {
+            "file": "a.test.tsx",
+            "find": "import { GestureDetector, GestureHandlerRootView, Gesture } from \"react-native-gesture-handler\";\nimport Animated, { useAnimatedStyle, useSharedValue } from \"react-native-reanimated\";",
+            "replace": "const GestureHandlerRootView = ({ children }: { children: React.ReactNode }) => <>{children}</>;\nconst GestureDetector = ({ children }: { children: React.ReactNode }) => <>{children}</>;\nconst Gesture = { Tap: () => null };\nconst Animated = { View: (props: { children: React.ReactNode }) => <>{props.children}</> };\nconst useSharedValue = (v: number) => ({ value: v });\nconst useAnimatedStyle = (f: () => object) => f();"
+          },
+          {
+            "file": "b.test.tsx",
+            "find": "import { GestureDetector, GestureHandlerRootView, Gesture } from \"react-native-gesture-handler\";\nimport Animated, { useAnimatedStyle, useSharedValue } from \"react-native-reanimated\";",
+            "replace": "const GestureHandlerRootView = ({ children }: { children: React.ReactNode }) => <>{children}</>;\nconst GestureDetector = ({ children }: { children: React.ReactNode }) => <>{children}</>;\nconst Gesture = { Tap: () => null };\nconst Animated = { View: (props: { children: React.ReactNode }) => <>{props.children}</> };\nconst useSharedValue = (v: number) => ({ value: v });\nconst useAnimatedStyle = (f: () => object) => f();"
+          },
+          {
+            "file": "c.test.tsx",
+            "find": "import { GestureDetector, GestureHandlerRootView, Gesture } from \"react-native-gesture-handler\";\nimport Animated, { useAnimatedStyle, useSharedValue } from \"react-native-reanimated\";",
+            "replace": "const GestureHandlerRootView = ({ children }: { children: React.ReactNode }) => <>{children}</>;\nconst GestureDetector = ({ children }: { children: React.ReactNode }) => <>{children}</>;\nconst Gesture = { Tap: () => null };\nconst Animated = { View: (props: { children: React.ReactNode }) => <>{props.children}</> };\nconst useSharedValue = (v: number) => ({ value: v });\nconst useAnimatedStyle = (f: () => object) => f();"
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS"
+      }
+    },
+    {
       "id": "pfs-hot-scheduler-fake-timers",
       "class": "per-file-state",
       "title": "Under hot, the scheduler keeps the fake timers it loaded under",
