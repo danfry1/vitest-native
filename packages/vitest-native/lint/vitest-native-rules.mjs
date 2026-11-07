@@ -21,17 +21,26 @@ function packagePath(filename) {
 }
 
 /**
- * Report through the baseline: a file listed for a rule may keep up to its listed
- * number of sites (counted in source order); any beyond that, and every site in an
- * unlisted file, is reported.
+ * Report through the baseline: a file listed for a rule may keep exactly its listed
+ * number of sites (counted in source order). Any beyond that, and every site in an
+ * unlisted file, is reported. So is a count above the file's sites once some are fixed:
+ * left in place, it would let a new site in unreported.
  */
 function baselined(context, ruleName) {
   const allowed = BASELINE[ruleName]?.[packagePath(context.filename)]?.count ?? 0;
   let seen = 0;
-  return (descriptor) => {
+  const report = (descriptor) => {
     seen++;
     if (seen > allowed) context.report(descriptor);
   };
+  report.exit = (program) => {
+    if (seen >= allowed) return;
+    context.report({
+      node: program,
+      message: `lint/baseline.json lists ${allowed} ${ruleName} site(s) for this file, and it has ${seen}: lower the count to ${seen}${seen === 0 ? " (remove the entry)" : ""}.`,
+    });
+  };
+  return report;
 }
 
 const memberName = (node) =>
@@ -77,6 +86,7 @@ const realpathSpelling = {
         );
     };
     return {
+      "Program:exit": report.exit,
       CallExpression(node) {
         const callee = node.callee;
         const isRealpath =
@@ -136,6 +146,7 @@ const rootContainment = {
       return false;
     };
     return {
+      "Program:exit": report.exit,
       CallExpression(node) {
         const callee = node.callee;
         if (memberName(callee) === "startsWith" && rootPrefix(node.arguments[0])) {
@@ -209,6 +220,7 @@ const noMonkeyPatching = {
       return null;
     };
     return {
+      "Program:exit": report.exit,
       AssignmentExpression(node) {
         const target = targetOf(node.left);
         if (target) report({ node, messageId: "patch", data: { target } });
@@ -256,7 +268,7 @@ const escapedRegExp = {
         return;
       report({ node, messageId: "unescaped" });
     };
-    return { NewExpression: check, CallExpression: check };
+    return { "Program:exit": report.exit, NewExpression: check, CallExpression: check };
   },
 };
 
@@ -279,6 +291,7 @@ const noDocUrlsInSrc = {
   create(context) {
     const report = baselined(context, "no-doc-urls-in-src");
     return {
+      "Program:exit": report.exit,
       Literal(node) {
         if (typeof node.value === "string" && DOC_LINK.test(node.value))
           report({ node, messageId: "link" });

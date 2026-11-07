@@ -79,6 +79,10 @@ tester.run("no-monkey-patching", rule("no-monkey-patching"), {
     { filename: src(), code: `const spy = vi.fn(); spy.mockReturnValue(1);` },
     { filename: src(), code: `options.mockReset = true;`.replace("mockReset", "reset") },
     { filename: src(), code: `globalThis.__vitest_native_state = {};` },
+    {
+      filename: src("src/jest-compat/jest-object.mjs"),
+      code: Array.from({ length: 11 }, () => "vi.fn = f;").join("\n"),
+    },
   ],
   invalid: [
     { filename: src(), code: `vi.fn = wrapped;`, errors: [{ messageId: "patch" }] },
@@ -90,6 +94,22 @@ tester.run("no-monkey-patching", rule("no-monkey-patching"), {
       filename: src("src/jest-compat/jest-object.mjs"),
       code: Array.from({ length: 12 }, () => "vi.fn = f;").join("\n"),
       errors: [{ messageId: "patch" }],
+    },
+    // A listed count above the file's sites is stale: it would let a new site in.
+    {
+      filename: src("src/jest-compat/jest-object.mjs"),
+      code: Array.from({ length: 10 }, () => "vi.fn = f;").join("\n"),
+      errors: [
+        {
+          message:
+            "lint/baseline.json lists 11 no-monkey-patching site(s) for this file, and it has 10: lower the count to 10.",
+        },
+      ],
+    },
+    {
+      filename: src("src/jest-compat/jest-object.mjs"),
+      code: "export {};",
+      errors: [{ message: /has 0: lower the count to 0 \(remove the entry\)/ }],
     },
   ],
 });
