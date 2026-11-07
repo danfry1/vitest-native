@@ -14,6 +14,8 @@
 //   cjs                   an unknown plugin writes CommonJS, and nothing else applies: Oxc
 //                         instead, warned once.
 //   cjslabel              the same beside another unknown plugin the file needs: fails.
+//   expoesm               babel-preset-expo with its native module transform on and a
+//                         dynamic-import plugin listed: a routed file with import() passes.
 //   cache                 after a warm run, the local plugin changes: the next warm run
 //                         recompiles the file it applies to.
 import { spawnSync } from "node:child_process";
@@ -115,6 +117,19 @@ for (const pass of ["cold", "warm"]) {
       (pass === "warm" ||
         routed(result.output).join(",") ===
           ["card.test.tsx", "src/Card.tsx", "src/Model.js"].sort().join(",")),
+    result.output,
+  );
+}
+
+// Bluesky's shape: babel-preset-expo with its native module transform on and a
+// dynamic-import plugin listed. A routed file with import() still compiles as ESM.
+for (const pass of ["cold", "warm"]) {
+  const result = run("expoesm", "native", "expoesm");
+  check(
+    `expoesm ${pass}: a routed file under babel-preset-expo with import() passes`,
+    result.status === 0 &&
+      /Tests\s+1 passed \(1\)/.test(result.output) &&
+      !/depends on a modules transform plugin/.test(result.output),
     result.output,
   );
 }

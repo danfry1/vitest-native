@@ -11,7 +11,9 @@
 //   wrapdec  project-babel-wrapdec/: an app preset wrapping React Native's and adding
 //         decorators: only the decorator file routes, and stays an ES module;
 //   cjslabel  project-babel-cjslabel/: a CommonJS-writing plugin beside another unknown one
-//         the file needs: fails by name instead of dropping it.
+//         the file needs: fails by name instead of dropping it;
+//   expoesm  project-babel-expoesm/: Bluesky's babel-preset-expo shape (its native module
+//         transform on, a dynamic-import plugin): a routed file still compiles as ESM.
 // --mode: native, hot, mock; never (Oxc only: the decorator file fails); babel-plugin (a
 // Babel Vite plugin is in the config, as @vitejs/plugin-react's or a babel() entry: the
 // engine still compiles what needs the project's config).
@@ -35,6 +37,7 @@ const FIXTURES: Record<string, string> = {
   cjs: "project-babel-cjs",
   wrapdec: "project-babel-wrapdec",
   cjslabel: "project-babel-cjslabel",
+  expoesm: "project-babel-expoesm",
 };
 
 // The Babel Vite plugins a migrated app can have: @vitejs/plugin-react's name, and a
@@ -71,7 +74,7 @@ const babelRuntime = path.dirname(
 export default defineConfig(({ mode }) => {
   if (!MODES.includes(mode)) throw new Error(`run with --mode ${MODES.join(", ")} (got '${mode}')`);
   const fixture = FIXTURES[process.env.VN_PROJECT_BABEL_FIXTURE ?? "main"];
-  if (!fixture) throw new Error("VN_PROJECT_BABEL_FIXTURE must be main, rn, expo, wrap, cjs, wrapdec or cjslabel");
+  if (!fixture) throw new Error("VN_PROJECT_BABEL_FIXTURE must be main, rn, expo, wrap, cjs, wrapdec, cjslabel or expoesm");
   return {
     root: path.join(here, fixture),
     plugins: [
