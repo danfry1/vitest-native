@@ -7,9 +7,10 @@
  * answered 404 for its tarball. These tests hold every place to the same number, and
  * fail when a script that installs from the registry does not apply it.
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // Imported here rather than at the top: the module sets npm_config_before and
@@ -163,6 +164,55 @@ describe("release cooldown", () => {
     expect(Date.parse(appliedEnv.npm_config_before as string)).toBeLessThan(
       Date.now() - (RELEASE_AGE_DAYS * 24 * 3600 - 60) * 1000,
     );
+  });
+
+  it("is left off by VN_CANARY_UNAGED=1, and only by exactly that", () => {
+    const applied = (value: string | undefined) => {
+      const env = { ...process.env, VN_CANARY_UNAGED: value };
+      for (const key of [...ENV_KEYS, ...(value === undefined ? ["VN_CANARY_UNAGED"] : [])])
+        delete env[key];
+      const out = execFileSync(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `await import(${JSON.stringify(pathToFileURL(path.join(packageRoot, "scripts/release-age.mjs")).href)}); process.stdout.write("\\n" + JSON.stringify([process.env.npm_config_before ?? null, process.env.npm_config_minimum_release_age ?? null]));`,
+        ],
+        { env, encoding: "utf8" },
+      );
+      return JSON.parse(out.trim().split("\n").at(-1)!) as [string | null, string | null];
+    };
+    expect(applied("1")).toEqual([null, null]);
+    for (const value of [undefined, "", "0", "true"]) {
+      expect(applied(value)[1]).toBe(String(RELEASE_AGE_DAYS * 24 * 60));
+    }
+  });
+
+  it("is turned off only in compat-check.yml's canary job, which can only read", () => {
+    // docs/upstream-policy.md §4: unaged releases are installed in the canary job only,
+    // and a job that installs them holds no write token.
+    const scripts = scriptFiles().filter(
+      (file) => file !== "scripts/release-age.mjs" && code(file).includes("VN_CANARY_UNAGED"),
+    );
+    expect(scripts).toEqual([]);
+    const workflows = path.join(repoRoot, ".github/workflows");
+    const setters: string[] = [];
+    for (const name of fs.readdirSync(workflows)) {
+      const text = read(path.join(workflows, name));
+      // Top-level jobs: two-space keys under `jobs:`.
+      const jobs = text
+        .slice(text.indexOf("\njobs:"))
+        .split(/\n(?=  [\w-]+:\s*\n)/)
+        .slice(1);
+      for (const job of jobs) {
+        if (!/VN_CANARY_UNAGED:\s*["']?1/.test(job)) continue;
+        const id = /^ {2}([\w-]+):/.exec(job)![1];
+        setters.push(`${name}#${id}`);
+        const permissions = /\n {4}permissions:\n((?: {6}.*\n)+)/.exec(job)?.[1].trim();
+        expect([id, permissions]).toEqual([id, "contents: read"]);
+      }
+    }
+    expect(setters).toEqual(["compat-check.yml#canary"]);
   });
 
   it("matches the repository's own install cooldown and Dependabot's", () => {

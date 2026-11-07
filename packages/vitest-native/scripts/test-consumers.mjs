@@ -232,14 +232,30 @@ function runExpoPnpmSuites(tarball) {
 // cooldown (scripts/release-age.mjs, imported above). Expo's CLI runs offline, so the
 // versions it aligns to are the installed expo release's own list (as old as that
 // release), not its online API's, which names releases younger than the gate allows.
+/** Each supported SDK's fixture, with `expo` following that SDK to its newest patch. */
 const EXPO_LATEST = [
-  { fixture: "expo", sdk: 58 },
-  { fixture: "expo-sdk57", sdk: 57 },
+  { fixture: "expo", expo: "~58.0.0" },
+  { fixture: "expo-sdk57", expo: "~57.0.0" },
 ];
 
-function runExpoLatest(tarball) {
-  for (const { fixture, sdk } of EXPO_LATEST) {
-    const fixtureRoot = path.join(tempRoot, `${fixture}-latest`);
+/**
+ * The newest SDK's fixture on the Expo prerelease in VN_EXPO_VERSION, which the canary
+ * job picks (.github/scripts/canary-version.mjs).
+ */
+function expoNext() {
+  const version = process.env.VN_EXPO_VERSION;
+  if (!version)
+    throw new Error("VN_CONSUMERS=expo-next needs VN_EXPO_VERSION, the expo prerelease to install");
+  return [{ fixture: "expo", expo: version }];
+}
+
+/**
+ * The Expo fixtures with `expo` set to each entry's version and `expo install --fix`
+ * aligning the rest (expo-*, react-native, the router), as an app upgrading would.
+ */
+function runExpoVersions(tarball, leg, entries) {
+  for (const { fixture, expo } of entries) {
+    const fixtureRoot = path.join(tempRoot, `${fixture}-${leg}`);
     fs.cpSync(path.join(fixturesRoot, fixture), fixtureRoot, { recursive: true });
     if (fixture === "expo-sdk57") {
       // As in the fixtures leg: the runtime-surface reader the SDK 57 test checks.
@@ -251,7 +267,7 @@ function runExpoLatest(tarball) {
     }
     const manifestPath = path.join(fixtureRoot, "package.json");
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-    manifest.dependencies.expo = `~${sdk}.0.0`;
+    manifest.dependencies.expo = expo;
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     addPackedDependency(fixtureRoot, tarball);
     runCaptured("npm", ["install"], fixtureRoot);
@@ -345,7 +361,7 @@ try {
   // docs-only pull request that changes a page carrying snippets).
   // Unset runs all of them, as prepublishOnly does.
   const only = process.env.VN_CONSUMERS;
-  const LEGS = ["fixtures", "doc-snippets", "expo-pnpm-suite", "expo-latest"];
+  const LEGS = ["fixtures", "doc-snippets", "expo-pnpm-suite", "expo-latest", "expo-next"];
   if (only && !LEGS.includes(only)) {
     throw new Error(`VN_CONSUMERS=${only} is not one of ${LEGS.join(", ")}`);
   }
@@ -503,9 +519,10 @@ try {
   }
   if (runs("doc-snippets")) runDocSnippets(tarball);
   if (runs("expo-pnpm-suite")) runExpoPnpmSuites(tarball);
-  // Only when asked for: it installs the newest Expo patches, so it runs on a schedule
-  // (compat-check.yml), never as part of a pull request's gate.
-  if (only === "expo-latest") runExpoLatest(tarball);
+  // Only when asked for: they install the newest Expo patches, or an Expo prerelease, so
+  // they run on a schedule (compat-check.yml), never as part of a pull request's gate.
+  if (only === "expo-latest") runExpoVersions(tarball, only, EXPO_LATEST);
+  if (only === "expo-next") runExpoVersions(tarball, only, expoNext());
 
   console.log("\nThe packed consumer fixtures passed.");
 } finally {

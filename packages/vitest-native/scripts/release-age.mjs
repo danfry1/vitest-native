@@ -16,6 +16,11 @@
 // npm and pnpm resolved 0.87.3, with them 0.87.2. pnpm does not read the
 // `pnpm_config_` spelling of this setting. tests/release-age.test.ts fails when a script
 // that installs from the registry does not import this module, or picks its own cutoff.
+//
+// The one exception is VN_CANARY_UNAGED=1, which leaves the cooldown off. A canary tests
+// a prerelease whose matching packages were published the same day, and the cooldown
+// would hold every one of them back. Only compat-check.yml's read-only canary job may set
+// it (docs/upstream-policy.md §4), which tests/release-age.test.ts checks.
 
 /** The cooldown in days. bunfig.toml's minimumReleaseAge must be the same, in seconds. */
 export const RELEASE_AGE_DAYS = 7;
@@ -30,4 +35,11 @@ export function releaseAgeEnv(now = Date.now()) {
   };
 }
 
-Object.assign(process.env, releaseAgeEnv());
+/** The variable that leaves the cooldown off, for the canary job only. */
+export const CANARY_UNAGED = "VN_CANARY_UNAGED";
+
+if (process.env[CANARY_UNAGED] === "1") {
+  console.log(`${CANARY_UNAGED}=1: no release cooldown for this canary run.`);
+} else {
+  Object.assign(process.env, releaseAgeEnv());
+}
