@@ -1,7 +1,7 @@
 # Upgrading to 0.15
 
-0.15 raises the supported versions and changes four things a suite can notice. Start with
-`doctor`, which checks your versions and your config:
+0.15 raises the supported versions and changes what some suites see. Start with `doctor`,
+which checks your versions and your config:
 
 ```bash
 npx vitest-native doctor
@@ -9,15 +9,15 @@ npx vitest-native doctor
 
 ## Supported versions
 
-| | 0.15 needs | An older one |
-|---|---|---|
-| Node | 22.22.3+ on Node 22, 24.12+ on Node 24, or 26+ | stops at startup with [`UNSUPPORTED_NODE`](/guide/errors#UNSUPPORTED_NODE) |
-| Vitest | 5 | stops with [`UNSUPPORTED_PEER`](/guide/errors#UNSUPPORTED_PEER) |
-| Vite | ^8.0.5 | stops with `UNSUPPORTED_PEER` |
-| React | 19 | stops with `UNSUPPORTED_PEER` |
-| React Native (native engine) | 0.86–0.88 | below 0.86 stops with `UNSUPPORTED_PEER`; above 0.88 warns |
-| Expo SDK | 57 and 58 | warns |
-| React Native Testing Library | 13 or 14 | warns |
+|                              | 0.15 needs                                     | An older one                                                               |
+| ---------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------- |
+| Node                         | 22.22.3+ on Node 22, 24.12+ on Node 24, or 26+ | stops at startup with [`UNSUPPORTED_NODE`](/guide/errors#UNSUPPORTED_NODE) |
+| Vitest                       | 5                                              | stops with [`UNSUPPORTED_PEER`](/guide/errors#UNSUPPORTED_PEER)            |
+| Vite                         | ^8.0.5                                         | stops with `UNSUPPORTED_PEER`                                              |
+| React                        | 19+                                            | stops with `UNSUPPORTED_PEER`                                              |
+| React Native (native engine) | 0.86–0.88                                      | below 0.86 stops with `UNSUPPORTED_PEER`; above 0.88 warns                 |
+| Expo SDK                     | 57 and 58                                      | warns                                                                      |
+| React Native Testing Library | 13–14                                          | warns                                                                      |
 
 1. Update Node in your machine, CI images and `.nvmrc` or `engines`.
 2. Install `vitest@^5` with matching `@vitest/*` packages, and `vite@^8.0.5`.
@@ -26,6 +26,9 @@ npx vitest-native doctor
    and `act` async: `await render(<App />)`.
 4. Vitest 5 clears mock calls before every test. A suite that asserts on calls made before the
    test started sets `test.clearMocks: false`.
+5. Babel plugins your tests need go through `babel()` from `@rolldown/plugin-babel`:
+   `@vitejs/plugin-react` 6 removed its `babel` option.
+6. Remove `VITEST_NATIVE_LOADER_THREAD` from scripts and CI. It no longer has an effect.
 
 ## Re-record snapshots once
 
@@ -36,15 +39,19 @@ no host prints a `ref`. Snapshots recorded by an earlier vitest-native fail once
 npx vitest run -u
 ```
 
-Review the diff before committing it. For one release, the old format is still available, and
-deprecated: `expect.addSnapshotSerializer(serializer)` with `serializer` from
+Review the diff before committing it. A host ref, such as a `Text` ref under the native engine
+or any host ref under the mock engine, is now an instance with `measure`, `focus` and the other
+native methods, where it used to be the test renderer's node or `null`; update assertions on
+`ref.current`.
+
+For one release, the old format is still available, and deprecated: `expect.addSnapshotSerializer(serializer)` with `serializer` from
 `vitest-native/serializer`, in a setup file. [Snapshots](/guide/matchers#snapshots) has the
 details, including which Jest-written snapshots need a re-record.
 
 ## Manual mocks of `node_modules` packages apply
 
 With `jestMockTransform()`, a file such as `__mocks__/moti.ts` in a `__mocks__` folder under Jest's
-`roots` now replaces that package with no `jest.mock()` call, as it does under Jest. Before, the
+`roots` (by default the Vite root) now replaces that package with no `jest.mock()` call, as it does under Jest. Before, the
 real package ran.
 
 If a test relied on the real package, delete or rename that mock, or keep the previous
@@ -65,6 +72,16 @@ as under Metro and babel-jest. Every other file keeps Vite's own compiler.
   startup say when it is not.
 - To keep the previous behaviour, set [`projectBabel: 'never'`](/guide/plugin-options#projectbabel).
 
+## Gesture Handler and FlashList run as themselves
+
+Under the native engine, `react-native-gesture-handler` and `@shopify/flash-list` now run as
+their installed packages, with the Jest setup each ships, as a Jest suite runs them.
+
+- `react-native-gesture-handler/Swipeable` and the other modules Gesture Handler 3 does not ship
+  no longer resolve.
+- A `FlashList` renders a window of rows, as under Jest, where it used to render every row.
+- To keep a preset, set `presets: { gestureHandler: true }` or `presets: { flashList: true }`.
+
 ## Also new
 
 - **The hot runtime fails a stuck run instead of waiting forever,** naming the file and test.
@@ -72,6 +89,10 @@ as under Metro and babel-jest. Every other file keeps Vite's own compiler.
 - **Several presets are now each library's own Jest mock** under the native engine
   (worklets, safe-area-context, keyboard-controller, bottom-sheet, netinfo), and Reanimated 4.7+
   is its own mock. Snapshots of the presets' own output may change.
+- **Reanimated's `interpolate`, `interpolateColor` and `clamp` return real values.** Snapshots of
+  interpolated styles may change.
+- **`init`, `doctor` and `migrate` exit 1 on a flag they do not take,** instead of ignoring it.
+  Check scripts that pass extra flags to them.
 
 The full list of changes is in the
 [changelog](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/CHANGELOG.md).
