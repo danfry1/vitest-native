@@ -218,3 +218,15 @@ describe("compare --hot: the per-test verdict", () => {
     ]);
   });
 });
+
+describe("compare --hot: the plugin hook", () => {
+  it("is on every reactNative() instance, under a registered symbol, and not enumerable", async () => {
+    const { reactNative } = await import("../src/plugin.js");
+    const plugin = reactNative() as unknown as Record<symbol, unknown>;
+    const key = Symbol.for("vitest-native.compare-hot-runtime");
+    expect(typeof plugin[key]).toBe("function");
+    expect(Object.keys(plugin)).not.toContain(key.toString());
+    expect(Object.getOwnPropertyDescriptor(plugin, key)?.enumerable).toBe(false);
+    expect(() => (plugin[key] as (v: false | "auto") => void)("auto")).not.toThrow();
+  });
+});
