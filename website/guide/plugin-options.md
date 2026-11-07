@@ -191,7 +191,7 @@ Reuses test workers across files instead of starting a fresh one for each, while
 | `memoryLimit` | retire a worker when its JS heap reaches this many bytes; `0` turns the threshold off; by default the memory plan picks it |
 | `preserveGlobals` | exact `globalThis` property names a resident library owns, kept between files (Storybook's preview registry is kept automatically) |
 | `esmGeneration` | `true` by default: re-run, for each file, the packages Node loads for a test file's `import`s (not the React Native packages vitest-native compiles), so their state does not carry over; `false` keeps them loaded |
-| `freshRuntime` | experimental, `false` by default: re-run React, its renderers, `scheduler` and React Native Testing Library for every file instead of keeping them loaded, so the first four [known differences](/guide/hot-runtime#known-differences) go away; costs about 5 ms per file at four workers and 20 ms at one. Needs `esmGeneration` |
+| `freshRuntime` | experimental, `false` by default: re-run React, its renderers, `scheduler` and React Native Testing Library for every file instead of keeping them loaded, so the first five [known differences](/guide/hot-runtime#known-differences) go away; costs about 5 ms per file at four workers and 17 ms at one, and some memory per worker. Needs `esmGeneration` |
 | `allowUnboundedMemory` | permit a run where recycling cannot be enforced, such as one worker; also turns off the automatic worker cap and memory hard stop. Only when something outside the run bounds its memory. Not with `mode: 'auto'` |
 
 ```ts

@@ -196,14 +196,26 @@ export function captureModuleBaseline(earlyResolutions) {
   // cache, #530); otherwise it starts here.
   const resolutions = earlyResolutions ?? trackCjsResolutions();
   return function resetModules() {
-    let dropped = 0;
+    const dropped = new Set();
     for (const id of Object.keys(Module._cache)) {
       if (baseline.has(id) || UNRESETTABLE.test(id) || isRuntimeResidentFile(id)) continue;
+      dropped.add(Module._cache[id]);
       delete Module._cache[id];
-      dropped++;
+    }
+    // A module that stays keeps every module it required in `children`, so a resident
+    // module requiring a dropped one (React Native's registry requiring React under
+    // hotRuntime.freshRuntime) would hold each file's copy, and its graph, for the
+    // worker's life.
+    if (dropped.size > 0) {
+      for (const module of Object.values(Module._cache)) {
+        const children = module?.children;
+        if (children?.some((child) => dropped.has(child))) {
+          module.children = children.filter((child) => !dropped.has(child));
+        }
+      }
     }
     resolutions.drain();
-    return dropped;
+    return dropped.size;
   };
 }
 
