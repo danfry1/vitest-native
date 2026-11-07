@@ -10,6 +10,7 @@ import { SUPPORTED_NODE } from "../src/node-range";
 // install page's requirements table, which is written by hand, to the same line.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const INSTALL = path.join(repoRoot, "website/guide/install.md");
+const UPGRADING = path.join(repoRoot, "website/migration/upgrading-to-0-15.md");
 
 describe("the landing page's supported versions", () => {
   it("lists one floor for each Node line the package accepts", () => {
@@ -36,6 +37,18 @@ describe("the landing page's supported versions", () => {
       "Vitest",
       "Node",
     ]);
+  });
+
+  it("agrees with the upgrade guide's table", () => {
+    const page = fs.readFileSync(UPGRADING, "utf8");
+    const row = (name: string) =>
+      new RegExp(`^\\|\\s*${name}[^|]*\\|([^|]+)\\|`, "m").exec(page)?.[1];
+    const items = new Map(supportItems().map((item) => [item.name, item.versions]));
+    expect(row("React Native")).toContain(items.get("React Native"));
+    expect(row("Expo SDK")).toContain(items.get("Expo SDK"));
+    expect(row("Vitest")).toContain(items.get("Vitest"));
+    for (const floor of nodeVersions().split(/, | or /))
+      expect(row("Node")).toContain(floor.replace(/\+$/, ""));
   });
 
   it("agrees with the install page's requirements table", () => {
