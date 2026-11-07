@@ -84,45 +84,75 @@ describe("workflow skills", () => {
 });
 
 // `bunx` and `npx` fetch the latest release of a tool missing from node_modules and run it,
-// unpinned, so the repository's tools run through `bun run` or ./node_modules/.bin/. No doc
-// or skill may tell anyone otherwise. User-facing pages keep `npx vitest-native` and
-// `npx vitest`: those run in the reader's own project, which installed them.
+// unpinned, so the repository's tools run through `bun run` or ./node_modules/.bin/. No doc,
+// skill, workflow or script message may tell anyone otherwise. Pages and messages for users
+// keep `npx vitest-native` and `npx vitest`: those run in the reader's own project, which
+// installed them.
 describe("tool commands in docs", () => {
-  const COMMAND = /\b(bunx|npx)\s+((?:--?[\w-]+\s+)*)([@\w][\w@/.:-]*)/g;
-  const USER_FACING = /^(website\/|README\.md$|packages\/vitest-native\/(README\.md$|docs\/))/;
-  // CONTRIBUTING.md explains why the build script runs tsdown under bun; that text quotes
-  // the script, so it may name it while the script does.
+  // A command where one starts: at a line's start (after `$`, `#`, `-` or `>`), or after a
+  // backtick, a quote, `(`, `run:` or `&&`. Prose such as "bunx would download it" is not one.
+  const COMMAND =
+    /(?:^[ \t]*(?:[$#>-][ \t]*)?|[`'"(][ \t]*|run:[ \t]*|&&[ \t]*)((bunx|bun[ \t]+x|npx)[ \t]+((?:--?[\w-]+(?:=\S+)?[ \t]+)*)([@\w][\w@/.:-]*))/gm;
+  const USER_FACING = new RegExp(
+    "^(" +
+      [
+        "website/",
+        "README\\.md$",
+        "packages/vitest-native/README\\.md$",
+        "packages/vitest-native/docs/(compare-mode|migrating-from-jest|migrating-from-vitest-react-native)\\.md$",
+        "packages/vitest-native/src/",
+        "packages/vitest-native/scripts/test-consumers\\.mjs$",
+      ].join("|") +
+      ")",
+  );
+  // CONTRIBUTING.md and the release workflow explain why the build script runs tsdown under
+  // bun; they quote the script, so they may name it while the script does.
   const buildScript: string = JSON.parse(
     fs.readFileSync(path.join(PACKAGE, "package.json"), "utf8"),
   ).scripts.build;
-  const quotesBuildScript = (file: string, command: string) =>
-    file === "CONTRIBUTING.md" && buildScript.includes(command);
+  const QUOTES_BUILD = new Set(["CONTRIBUTING.md", ".github/workflows/release.yml"]);
 
-  const docs = execFileSync("git", ["ls-files", "*.md", "*.vue"], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  })
+  const scanned = execFileSync(
+    "git",
+    [
+      "ls-files",
+      "*.md",
+      "*.mdx",
+      "*.vue",
+      "*.yml",
+      "*.yaml",
+      "packages/vitest-native/scripts/",
+      "packages/vitest-native/src/",
+    ],
+    { cwd: repoRoot, encoding: "utf8" },
+  )
     .split("\n")
-    .filter((file) => file && !file.endsWith("CHANGELOG.md"));
+    .filter(
+      (file) =>
+        file && !file.endsWith("CHANGELOG.md") && /\.(md|mdx|vue|ya?ml|[cm]?[jt]s)$/.test(file),
+    );
 
   function commands(file: string, text: string) {
-    return [...text.matchAll(COMMAND)].map(([command, runner, , tool]) => ({
+    return [...text.matchAll(COMMAND)].map(([, command, runner, flags, tool]) => ({
       file,
       command,
       allowed:
-        quotesBuildScript(file, command) ||
-        (runner === "npx" && /^vitest(-native)?$/.test(tool) && USER_FACING.test(file)),
+        (QUOTES_BUILD.has(file) && buildScript.includes(command)) ||
+        (runner === "npx" && !flags && /^vitest(-native)?$/.test(tool) && USER_FACING.test(file)),
     }));
   }
 
   it("tells no one to run a repository tool with bunx or npx", () => {
-    const found = docs.flatMap((file) =>
-      commands(file, fs.readFileSync(path.join(repoRoot, file), "utf8")),
+    const found = scanned.flatMap((file) =>
+      fs.existsSync(path.join(repoRoot, file))
+        ? commands(file, fs.readFileSync(path.join(repoRoot, file), "utf8"))
+        : [],
     );
     expect(found.filter((c) => !c.allowed).map((c) => `${c.file}: ${c.command}`)).toEqual([]);
-    // The scan sees the docs: the user pages' commands and the skills are in it.
+    // The scan sees what it should: the user pages' commands, the skills and the scripts.
     expect(found.filter((c) => c.allowed).length).toBeGreaterThan(20);
-    expect(docs).toContain(".claude/skills/release-rc/SKILL.md");
+    expect(scanned).toContain(".claude/skills/release-rc/SKILL.md");
+    expect(scanned).toContain("packages/vitest-native/scripts/check-changeset.mjs");
   });
 
   it("catches each form a doc could use", () => {
@@ -132,12 +162,24 @@ describe("tool commands in docs", () => {
         .map((c) => c.command);
     expect(flagged("CONTRIBUTING.md", "Run `bunx changeset`.")).toEqual(["bunx changeset"]);
     expect(flagged(".claude/skills/x/SKILL.md", "npx --yes oxfmt .")).toEqual(["npx --yes oxfmt"]);
+    expect(flagged("CONTRIBUTING.md", "  $ bun x oxfmt")).toEqual(["bun x oxfmt"]);
+    expect(flagged("CONTRIBUTING.md", "`npx --package=oxfmt oxfmt`")).toEqual([
+      "npx --package=oxfmt oxfmt",
+    ]);
+    expect(flagged("website/guide/x.md", "`npx -p oxfmt vitest-native`")).toEqual(["npx -p oxfmt"]);
+    expect(flagged("packages/vitest-native/scripts/x.mjs", '"  bunx changeset --empty"')).toEqual([
+      "bunx changeset",
+    ]);
     expect(flagged(".github/PULL_REQUEST_TEMPLATE.md", "`npx vitest-native init`")).toEqual([
       "npx vitest-native",
     ]);
-    expect(flagged("website/guide/x.md", "bunx vitest run")).toEqual(["bunx vitest"]);
+    expect(flagged("packages/vitest-native/docs/perf.md", "`npx vitest run`")).toEqual([
+      "npx vitest",
+    ]);
+    expect(flagged("website/guide/x.md", "`bunx vitest run`")).toEqual(["bunx vitest"]);
     expect(flagged("CONTRIBUTING.md", "`bunx --bun tsdown`")).toEqual([]);
     expect(flagged("CONTRIBUTING.md", "`bunx --bun tsc`")).toEqual(["bunx --bun tsc"]);
-    expect(flagged("website/guide/x.md", "npx vitest-native doctor")).toEqual([]);
+    expect(flagged("website/guide/x.md", "`npx vitest-native doctor`")).toEqual([]);
+    expect(flagged("CONTRIBUTING.md", "and bunx would download it")).toEqual([]);
   });
 });
