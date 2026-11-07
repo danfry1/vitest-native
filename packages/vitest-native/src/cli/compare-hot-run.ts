@@ -42,6 +42,7 @@ import {
   wrapperSource,
   type CompareOptions,
 } from "./compare-run.js";
+import { rootSpellings } from "../native/root-spelling.mjs";
 import { compareHotRuns, type HotMode, type HotRun, type HotVerdict } from "./compare-hot.js";
 
 export interface CompareHotOptions extends Pick<
@@ -283,9 +284,9 @@ export async function runCompareHot(options: CompareHotOptions): Promise<number>
     const retriesFile = (n: number) => path.join(work, `retries-${n}.jsonl`);
     const problemFile = (n: number) => path.join(work, `problem-${n}.txt`);
     const sanitizeCtx = {
-      // A path Vitest prints under either root is shortened: the root as given, and Node's
-      // spelling of it (fs.realpathSync), which the reports use.
-      roots: [root, fs.realpathSync(root)],
+      // Every spelling of the root (as given, Node's, the OS's), so a path Vitest prints
+      // under any of them is shortened.
+      roots: [...rootSpellings(root)],
       tmp: tmpSpellings(),
       home: os.homedir(),
     };
