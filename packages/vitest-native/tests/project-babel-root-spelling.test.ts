@@ -60,7 +60,11 @@ const id = file.split(path.sep).join("/");
 
 it.each([
   ["the root in Vite's spelling", real],
-  ["the root in another spelling", alias],
+  ["the root through a symlink or junction", alias],
+  // os.tmpdir() as given. The test run's temporary root comes from fs.realpathSync, which
+  // keeps a Windows 8.3 short name (RUNNER~1 on GitHub's runners), while `real` is the
+  // native, long spelling. Elsewhere the two are the same.
+  ["the root as the temporary directory spells it", path.join(os.tmpdir(), path.basename(real))],
 ])("compiles project source with the project's Babel config, %s", async (_, root) => {
   const compiled: string[] = [];
   const projectBabel = createProjectBabel(root, "auto", {
