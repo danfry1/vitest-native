@@ -10,10 +10,6 @@
     }
   },
   "realpath-spelling": {
-    "src/native/ownership-ledger.mjs": {
-      "count": 1,
-      "reason": "#592: realKey keys allow entries and preserve-symlinks lookups in Node's loader spelling; it is unified with identityKey under #592."
-    },
     "src/plugin.ts": {
       "count": 2,
       "reason": "#592: ownership.allow entries are keyed in Node's loader spelling (plugin.ts realpath of allow entries); and, for 0.16, hasSetupFile compares Node's spelling on both sides, which does not unify an 8.3 name with its long form: switch it to identityKey."
