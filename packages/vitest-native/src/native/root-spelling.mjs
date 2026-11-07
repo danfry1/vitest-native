@@ -52,7 +52,12 @@ export function rootSpellingOf(root, file) {
   return realpathOr(fs.realpathSync.native, own) === nativeRoot ? own : null;
 }
 
-function under(file, dir) {
+/**
+ * Whether `file` is `dir` or under it, comparing the strings as they are (without case on
+ * Windows). For a caller that spelled its directories once with `rootSpellings`, so each
+ * check costs no file-system call.
+ */
+export function under(file, dir) {
   const target = fold(file);
   const prefix = fold(dir);
   return (
