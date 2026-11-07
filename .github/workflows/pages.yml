@@ -4,7 +4,8 @@ name: Pages
 # every page sends the reader to the same page on the docs' own domain, anchor included
 # (website/scripts/redirect-site.mjs). Released versions print links to the old address,
 # so this site must stay up. A manual run with `full_site` deploys the whole site here
-# instead, for when the new domain is down.
+# instead, for when the new domain is down; the next push that runs this workflow puts the
+# redirects back.
 on:
   push:
     branches: [main]

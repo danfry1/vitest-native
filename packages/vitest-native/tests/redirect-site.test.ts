@@ -5,12 +5,7 @@ import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import {
-  OLD_BASE,
-  buildRedirectSite,
-  pagePath,
-  redirectScript,
-} from "../../../website/scripts/redirect-site.mjs";
+import { OLD_BASE, buildRedirectSite, pagePath } from "../../../website/scripts/redirect-site.mjs";
 import { SITE_URL } from "../src/docs-url.mjs";
 
 // The old address, danfry1.github.io/vitest-native, serves a redirect for every page of the
@@ -100,10 +95,6 @@ describe("the redirect site at the old address", () => {
     expect(landing("guide/index.html", `${old}/guide/`)).toBe(`${SITE_URL}/guide/`);
     expect(landing("404.html", `${old}/no/such/page#x`)).toBe(`${SITE_URL}/no/such/page#x`);
     expect(landing("404.html", `https://danfry1.github.io${OLD_BASE}`)).toBe(`${SITE_URL}/`);
-  });
-
-  it("sends any other address to the new site, path kept", () => {
-    expect(read("404.html")).toContain(redirectScript());
   });
 
   it("keeps the files that are not pages, and leaves out the site's scripts", () => {
