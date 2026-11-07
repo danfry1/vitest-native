@@ -566,16 +566,19 @@ export function installRequireHooks(
   // Counters, a stable contract for diagnostics and measurement (the tests assert the
   // work itself instead, Node's resolver calls and source reads, which a memo that
   // counted a hit and resolved anyway would not fake): `globalThis[Symbol.for("vitest-native.resolutionMemo")]`
-  // is `{ hits, misses, stale }`, one object per worker thread. `misses` counts the
-  // keyed requests this hook resolved itself (platform resolution, Node and the
-  // fallbacks), `hits` those the memo answered, and `stale` the held resolutions whose
-  // file was gone (each also a miss). Requests the memo does not key are in none of
-  // them. All only grow.
+  // is `{ hits, misses, stale, absoluteHits }`, one object per worker thread. `misses`
+  // counts the keyed relative and bare requests this hook resolved itself (platform
+  // resolution, Node and the fallbacks), `hits` those the memo answered, and `stale` the
+  // held resolutions whose file was gone (each also a miss). Absolute requests, which
+  // name their file, are in `absoluteHits` when the memo answered them and in none of
+  // the others, so those three still count the requests that need resolving. Requests
+  // the memo does not key are in none of them. All only grow.
   const resolutions = new Map();
   const resolutionStats = (globalThis[Symbol.for("vitest-native.resolutionMemo")] ??= {
     hits: 0,
     misses: 0,
     stale: 0,
+    absoluteHits: 0,
   });
   // Node's in-thread module hooks resolve a require with `{ conditions }` (Node 26 adds
   // `paths: undefined` to it); any other option that is set (`require.resolve`'s
@@ -658,9 +661,10 @@ export function installRequireHooks(
               path.isAbsolute(request) ||
               fs.statSync(held, { throwIfNoEntry: false })?.isFile())
           ) {
-            resolutionStats.hits++;
+            if (path.isAbsolute(request)) resolutionStats.absoluteHits++;
+            else resolutionStats.hits++;
             resolved = held;
-          } else {
+          } else if (!path.isAbsolute(request)) {
             if (held !== undefined) {
               resolutionStats.stale++;
               resolutions.delete(key);
