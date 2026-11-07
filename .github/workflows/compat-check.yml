@@ -154,3 +154,57 @@ jobs:
                 labels: ['compat-check'],
               });
             }
+
+  check-expo-latest-supported:
+    name: Supported Expo SDKs at their newest patch
+    runs-on: ubuntu-latest
+    # The latest-supported axis for Expo (docs/upstream-policy.md): the packed consumer
+    # fixtures for each supported SDK, with `expo` following its SDK and `expo install
+    # --fix` aligning the rest. Unlike the edge job above, nothing installed is younger
+    # than seven days (npm --before, set by scripts/test-consumers.mjs).
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          node-version: 22.22.3
+
+      - name: Use an npm without the arborist edgesOut bug
+        run: npm install -g npm@11.20.0
+
+      - name: Build
+        run: bun run build
+
+      - name: Expo SDKs at their newest patch
+        env:
+          VN_CONSUMERS: expo-latest
+        run: bun run test:consumers
+
+      - name: Create issue on failure
+        if: failure()
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
+        env:
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'compat-check',
+            });
+            const title = 'Compatibility: a supported Expo SDK fails at its newest patch';
+            if (!issues.some((issue) => issue.title === title)) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body: `The supported Expo SDKs, installed at their newest patch (at least seven days old), fail the packed consumer fixtures.\n\nRun: ${process.env.RUN_URL}`,
+                labels: ['compat-check'],
+              });
+            }
