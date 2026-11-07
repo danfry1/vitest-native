@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,5 +80,64 @@ describe("workflow skills", () => {
     expect(checked.filter((t) => !t.startsWith("CONTRIBUTING.md")).length).toBeGreaterThanOrEqual(
       12,
     );
+  });
+});
+
+// `bunx` and `npx` fetch the latest release of a tool missing from node_modules and run it,
+// unpinned, so the repository's tools run through `bun run` or ./node_modules/.bin/. No doc
+// or skill may tell anyone otherwise. User-facing pages keep `npx vitest-native` and
+// `npx vitest`: those run in the reader's own project, which installed them.
+describe("tool commands in docs", () => {
+  const COMMAND = /\b(bunx|npx)\s+((?:--?[\w-]+\s+)*)([@\w][\w@/.:-]*)/g;
+  const USER_FACING = /^(website\/|README\.md$|packages\/vitest-native\/(README\.md$|docs\/))/;
+  // CONTRIBUTING.md explains why the build script runs tsdown under bun; that text quotes
+  // the script, so it may name it while the script does.
+  const buildScript: string = JSON.parse(
+    fs.readFileSync(path.join(PACKAGE, "package.json"), "utf8"),
+  ).scripts.build;
+  const quotesBuildScript = (file: string, command: string) =>
+    file === "CONTRIBUTING.md" && buildScript.includes(command);
+
+  const docs = execFileSync("git", ["ls-files", "*.md", "*.vue"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter((file) => file && !file.endsWith("CHANGELOG.md"));
+
+  function commands(file: string, text: string) {
+    return [...text.matchAll(COMMAND)].map(([command, runner, , tool]) => ({
+      file,
+      command,
+      allowed:
+        quotesBuildScript(file, command) ||
+        (runner === "npx" && /^vitest(-native)?$/.test(tool) && USER_FACING.test(file)),
+    }));
+  }
+
+  it("tells no one to run a repository tool with bunx or npx", () => {
+    const found = docs.flatMap((file) =>
+      commands(file, fs.readFileSync(path.join(repoRoot, file), "utf8")),
+    );
+    expect(found.filter((c) => !c.allowed).map((c) => `${c.file}: ${c.command}`)).toEqual([]);
+    // The scan sees the docs: the user pages' commands and the skills are in it.
+    expect(found.filter((c) => c.allowed).length).toBeGreaterThan(20);
+    expect(docs).toContain(".claude/skills/release-rc/SKILL.md");
+  });
+
+  it("catches each form a doc could use", () => {
+    const flagged = (file: string, text: string) =>
+      commands(file, text)
+        .filter((c) => !c.allowed)
+        .map((c) => c.command);
+    expect(flagged("CONTRIBUTING.md", "Run `bunx changeset`.")).toEqual(["bunx changeset"]);
+    expect(flagged(".claude/skills/x/SKILL.md", "npx --yes oxfmt .")).toEqual(["npx --yes oxfmt"]);
+    expect(flagged(".github/PULL_REQUEST_TEMPLATE.md", "`npx vitest-native init`")).toEqual([
+      "npx vitest-native",
+    ]);
+    expect(flagged("website/guide/x.md", "bunx vitest run")).toEqual(["bunx vitest"]);
+    expect(flagged("CONTRIBUTING.md", "`bunx --bun tsdown`")).toEqual([]);
+    expect(flagged("CONTRIBUTING.md", "`bunx --bun tsc`")).toEqual(["bunx --bun tsc"]);
+    expect(flagged("website/guide/x.md", "npx vitest-native doctor")).toEqual([]);
   });
 });

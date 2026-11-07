@@ -40,6 +40,7 @@
     "test:example": "bun run build && bun run --filter '@vitest-native/example' test",
     "lint": "oxlint --deny-warnings packages/vitest-native/src/ packages/vitest-native/tests/ packages/vitest-native/tests-native/ packages/vitest-native/crosscheck/ packages/vitest-native/consumer-tests/ packages/vitest-native/scripts/ packages/vitest-native/lint/",
     "lint:deps": "syncpack lint",
+    "changeset": "changeset",
     "format": "oxfmt --write packages/vitest-native/src/ packages/vitest-native/tests/ packages/vitest-native/consumer-tests/ packages/vitest-native/scripts/ packages/vitest-native/lint/",
     "format:check": "oxfmt --check packages/vitest-native/src/ packages/vitest-native/tests/ packages/vitest-native/consumer-tests/ packages/vitest-native/scripts/ packages/vitest-native/lint/",
     "typecheck": "bun run --filter vitest-native typecheck",
