@@ -3,6 +3,8 @@
 // externalized package — into errors that name the package and say what to do.
 // Pure functions; used by transform.mjs and hooks.mjs, unit-tested directly.
 
+import { docsUrl } from "../docs-url.mjs";
+
 /** The npm package name owning `file`, from its deepest node_modules segment, or null. */
 export function packageNameFromPath(file) {
   const norm = String(file).replace(/\\/g, "/");
@@ -82,7 +84,7 @@ export function explainUntransformedSyntaxError(err, file) {
       `${cause} ` +
       `Ask vitest-native to transform it:\n\n` +
       `  reactNative({ transform: ['${pkg}'] })\n\n` +
-      `in your vitest config. See https://danfry1.github.io/vitest-native/guide/mocking#packages-that-ship-untranspiled-source`,
+      `in your vitest config. See ${docsUrl("/guide/mocking#packages-that-ship-untranspiled-source")}`,
     { cause: err },
   );
   return wrapped;

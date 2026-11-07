@@ -59,6 +59,9 @@ anyone:
 - In a new worktree, run `bun install --frozen-lockfile` first. Running `bunx` or `npx` before
   it fetches the latest release of a tool from the registry and runs it.
 - After moving fixtures around, check `bun.lock` for temporary `file:` paths before committing.
+- Don't use `git stash`. Every worktree of a repository shares one stash, so `git stash pop` can
+  apply someone else's changes. Commit work in progress to your own branch, or make a scratch
+  copy with `git worktree add`.
 
 **Code**
 - Compare paths in one spelling. `fs.realpathSync` keeps the spelling a path was given in (a
@@ -80,6 +83,13 @@ anyone:
   coverage report. Check `git status` after a debugging run.
 - Guard every `rm -rf` in a script: `rm -rf "${dir:?}"`, and refuse a target outside the
   scratch directory.
+
+**Commits and pull requests**
+- Use a closing keyword (`fixes`, `closes`, `resolves` and their forms) only for the issue the
+  change fixes. GitHub acts on it when the commit reaches main, and a squash-merge copies the
+  pull request's text into the commit, so "fix #566" written about another pull request closed
+  it. Refer to anything else as "see #566" or "(#566)". CI fails a pull request whose title or
+  body aims a closing keyword at another pull request.
 
 **Long runs**
 - Run one heavy suite at a time. To check for another, match the process, not text that your

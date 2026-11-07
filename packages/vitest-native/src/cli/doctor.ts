@@ -46,6 +46,7 @@ import {
 } from "../peer-requirements.js";
 import { SUPPORTED_NODE, satisfiesNodeRange, unsupportedNodeMessage } from "../node-range.js";
 import { installedViteVersion, ownVitestPackage, usesVitePlus } from "../host.js";
+import { docsUrl } from "../docs-url.mjs";
 import { escapeRegExp } from "../regexp.js";
 
 /**
@@ -270,7 +271,7 @@ export function resolutionRoot(start: string, exists = fs.existsSync): string {
 export const NODE_24_13_0_CRASH =
   "Node 24.13.0 can crash a test run at startup with a segmentation fault (an intermittent " +
   "V8 garbage-collection crash on worker threads). Use another Node 24 release, such as 24.14 or later. " +
-  "See https://danfry1.github.io/vitest-native/guide/troubleshooting#node-24-13-0-segmentation-fault-at-startup";
+  `See ${docsUrl("/guide/troubleshooting#node-24-13-0-segmentation-fault-at-startup")}`;
 
 export function runDoctor(root: string, nodeVersion: string = process.versions.node): DoctorResult {
   const lines: string[] = [];
@@ -511,7 +512,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
           `\`presets: { expo: true }\`, where the expo preset shadows ${PRESET_MODULES.expo.join(", ")}). `
         : `expo ${expo} detected. Under the mock engine the expo preset shadows ${PRESET_MODULES.expo.join(", ")}; ` +
           `other Expo modules load their real JavaScript. `) +
-        `Coming from jest-expo, run \`vitest-native migrate\`. See https://danfry1.github.io/vitest-native/guide/expo`,
+        `Coming from jest-expo, run \`vitest-native migrate\`. See ${docsUrl("/guide/expo")}`,
     );
   }
 
@@ -609,7 +610,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       if (model) {
         lines.push(
           `  · experimental.ownershipModel: '${model}' is on: Vite and Node's loaders ` +
-            "resolve bare imports through one shared resolver (https://danfry1.github.io/vitest-native/guide/plugin-options#experimental).",
+            `resolve bare imports through one shared resolver (${docsUrl("/guide/plugin-options#experimental")}).`,
         );
         if (model === "resolution") {
           lines.push(

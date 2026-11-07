@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 import { jestCompatAliases, jestMockTransform } from "../dist/jest-compat.mjs";
+import { OTHER_FIXTURES_MOCKS } from "./support/fixture-mocks.mts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -13,7 +14,7 @@ export default defineConfig(({ mode }) => {
     throw new Error(`run with --mode native or --mode mock (got '${mode}')`);
   }
   return {
-    plugins: [reactNative({ engine: mode, hotRuntime: false }), jestMockTransform()],
+    plugins: [reactNative({ engine: mode, hotRuntime: false }), jestMockTransform(OTHER_FIXTURES_MOCKS)],
     resolve: { alias: { ...jestCompatAliases() } },
     test: {
       globals: true,

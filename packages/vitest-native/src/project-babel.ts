@@ -27,6 +27,7 @@ import {
 import { rootBabelConfigFile } from "./fs-module-cache.js";
 import { installedManifest } from "./installed-manifest.js";
 import { projectBabelCaller } from "./native/babel-caller.mjs";
+import { relativeToRoot, rootSpellingOf } from "./native/root-spelling.mjs";
 import { VitestNativeError } from "./errors.mjs";
 import type { PresetName } from "./preset-map.js";
 
@@ -78,13 +79,34 @@ const unknownEntry = (
 
 // Source tests: cheap, and over-matching only costs a Babel compile, never a wrong one.
 const has = (re: RegExp) => (source: string) => re.test(source);
-// Run on the raw source, comments included: a decorator or a class mentioned in a comment
-// routes the file, which only costs a Babel compile. Missing a real one would compile the
-// file without the plugin it needs.
+// Run on the raw source: a decorator or a class mentioned in a comment can route the
+// file, which only costs a Babel compile, while missing a real one would compile the file
+// without the plugin it needs. Decorators skip the comment positions one line shows.
 // `@name` where an expression or declaration can start, wherever it is on the line
 // (`export default @observer class`, `@ field() name`), not inside a word (an e-mail
 // address), a path (`/@user`) or a string (`'@env'`).
-const DECORATOR = has(/(?:^|[^\w$@./'"`])@\s*[A-Za-z_$][\w$.]*/m);
+const DECORATOR_AT = /(?:^|[^\w$@./'"`])@\s*[A-Za-z_$][\w$.]*/gm;
+/**
+ * Whether the line before an `@` puts it in a comment a decorator can never be in: after
+ * `//`, on a JSDoc line (` * @param`), or after a `/*` the line does not close. Only that
+ * line is read, so nothing that spans lines or strings can hide a real decorator; a tag
+ * in a block comment whose lines do not start with `*` still counts (a Babel compile).
+ */
+function inLineComment(line: string): boolean {
+  // Strings on the line first, so a `//` in one (a URL) does not read as a comment.
+  const before = line.replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`/g, '""');
+  if (before.includes("//") || /^\s*\*/.test(before)) return true;
+  const open = before.lastIndexOf("/*");
+  return open !== -1 && !before.includes("*/", open + 2);
+}
+const DECORATOR = (source: string): boolean => {
+  for (const match of source.matchAll(DECORATOR_AT)) {
+    const at = match.index + match[0].indexOf("@");
+    const lineStart = source.lastIndexOf("\n", at - 1) + 1;
+    if (!inLineComment(source.slice(lineStart, at))) return true;
+  }
+  return false;
+};
 // A macro module: `x.macro`, `x.macro.js`, `lib/macro`, `lib/macro/index.js`.
 const MACRO_IMPORT = has(/['"][^'"\n]*[./]macro(?:\/index)?(?:\.[cm]?[jt]sx?)?['"]/);
 const WORKLET = has(
@@ -255,6 +277,10 @@ const STRIPPED = new Set([
   "@babel/plugin-transform-modules-umd",
   "@babel/plugin-transform-modules-systemjs",
   "babel-plugin-dynamic-import-node",
+  // Lowers import() only for a module transform, and refuses to run without one; the
+  // output keeps ES modules, where import() runs as written.
+  "@babel/plugin-transform-dynamic-import",
+  "@babel/plugin-proposal-dynamic-import",
   "babel-plugin-transform-import-meta",
   "babel-plugin-istanbul",
 ]);
@@ -401,6 +427,24 @@ export function pluginNameOfKey(key: string): string {
 const optionsKey = (options: unknown): string =>
   JSON.stringify(options ?? {}, (_, value) => (typeof value === "function" ? "[function]" : value));
 
+/**
+ * A React Native or Expo preset's options with its module transform off. Expo's preset
+ * also takes per-platform options (`native`, `web`) that override the top-level one, so
+ * those are set too: `native: { disableImportExportTransform: false }` would otherwise
+ * bring the CommonJS transform back.
+ */
+function esmPresetOptions(options: unknown): Record<string, unknown> {
+  const given = (options ?? {}) as Record<string, unknown>;
+  const result: Record<string, unknown> = { ...given, disableImportExportTransform: true };
+  for (const platform of ["native", "web"]) {
+    const nested = given[platform];
+    if (nested && typeof nested === "object") {
+      result[platform] = { ...(nested as object), disableImportExportTransform: true };
+    }
+  }
+  return result;
+}
+
 /** A Babel ConfigItem, as much of it as this reads. */
 interface ConfigItem {
   file?: { request?: string; resolved?: string };
@@ -465,7 +509,8 @@ const ESM_PRESETS = new Set([
   "babel-preset-expo",
 ]);
 // The module transforms, by the alias Babel gives their visitors.
-const MODULE_TRANSFORM = /^transform-modules-(?:commonjs|amd|umd|systemjs)$|dynamic-import-node/;
+const MODULE_TRANSFORM =
+  /^transform-modules-(?:commonjs|amd|umd|systemjs)$|^(?:transform|proposal)-dynamic-import$|dynamic-import-node/;
 // Output Vite's module runner cannot take, from a plugin the router did not take out.
 const COMMONJS_OUTPUT =
   /Object\.defineProperty\(exports,\s*["']__esModule["']|^\s*module\.exports\s*=/m;
@@ -554,8 +599,10 @@ export function createProjectBabel(
     platform: options.platform,
     esm: true,
   });
-  const partialFor = (filename: string) =>
-    babel.loadPartialConfig({ filename, cwd: root, root, caller });
+  // Babel's root in the spelling of `filename` (root-spelling.mjs): Babel looks for the
+  // .babelrc files above a file only under a root spelled as the file is.
+  const partialFor = (filename: string, babelRoot = root) =>
+    babel.loadPartialConfig({ filename, cwd: root, root: babelRoot, caller });
 
   // The plugins React Native's and Expo's presets expand to, under this caller, by key
   // (normalizePluginKey) with their options: a preset that expands to no others, with the
@@ -671,10 +718,7 @@ export function createProjectBabel(
       // ES modules out: the RN and Expo presets keep them when told to, preset-env when
       // its module transform is off.
       if (ESM_PRESETS.has(name) && item.value) {
-        plan.presets.push([
-          item.value,
-          { ...(item.options as object), disableImportExportTransform: true },
-        ]);
+        plan.presets.push([item.value, esmPresetOptions(item.options)]);
       } else if (name === "@babel/preset-env" && item.value) {
         plan.presets.push([item.value, { ...(item.options as object), modules: false }]);
       } else {
@@ -712,8 +756,12 @@ export function createProjectBabel(
     announce(fresh);
   };
   // Only files in the project: a project-wide Babel config applies to any file Babel is
-  // asked about, including a linked workspace package's and vitest-native's own.
-  const rootPrefix = root.split(path.sep).join("/").replace(/\/?$/, "/");
+  // asked about, including a linked workspace package's and vitest-native's own. Vite's ids
+  // are native real paths with forward slashes, so a root given in another spelling (a
+  // Windows 8.3 short name, a symlinked directory) is matched through root-spelling.mjs;
+  // the result is the root as the file spells it, or null outside the project.
+  const projectRootOf = (id: string): string | null =>
+    isProjectSourceFile(id) ? rootSpellingOf(root, path.normalize(id)) : null;
   // A package plugin by its version; a local plugin file by its content, read each time
   // (one small file), so an edit counts however coarse the file system's timestamps are.
   const versionOf = (item: ConfigItem): string => {
@@ -738,8 +786,9 @@ export function createProjectBabel(
     },
 
     cacheKey(id, source) {
-      if (!isProjectSourceFile(id) || !id.startsWith(rootPrefix)) return "";
-      const partial = partialFor(id);
+      const babelRoot = projectRootOf(id);
+      if (babelRoot === null) return "";
+      const partial = partialFor(id, babelRoot);
       if (!partial?.hasFilesystemConfig()) return "";
       const presets = partial.options.presets ?? [];
       const plugins = partial.options.plugins ?? [];
@@ -778,9 +827,10 @@ export function createProjectBabel(
     },
 
     async load(id, chain) {
-      if (!isProjectSourceFile(id) || !id.startsWith(rootPrefix)) return undefined;
+      const babelRoot = projectRootOf(id);
+      if (babelRoot === null) return undefined;
       if (asking.getStore() === id) return undefined;
-      const partial = partialFor(id);
+      const partial = partialFor(id, babelRoot);
       // Babel ignores the file (`ignore`/`only`), or no project config applies to it.
       if (!partial?.hasFilesystemConfig()) return undefined;
       const plan = planOf(partial.options);
@@ -797,12 +847,12 @@ export function createProjectBabel(
       if (reasons.length === 0 && JS_FILE(id) && hasFlowPragma(code)) reasons.push("Flow syntax");
       if (reasons.length === 0) return undefined;
       announceOnce(reasons);
-      options.onCompile?.(path.relative(root, id).split(path.sep).join("/"), reasons);
+      const file = relativeToRoot(root, path.normalize(id));
+      options.onCompile?.(file.split(path.sep).join("/"), reasons);
       if (chain) {
         const other = await asking.run(id, () => chain.load(id));
         if (other != null) return other;
       }
-      const file = path.relative(root, id);
       // This config's CommonJS writer is known and applies to the file: fall back without
       // compiling when it is the file's only need, else fail as the first file did.
       const knownWriter = matched.find((need) => need.unknown && need.key === plan.commonjsWriter);

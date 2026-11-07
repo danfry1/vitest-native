@@ -9,6 +9,32 @@
       "reason": "jest-compat's setup installs the `jest` global and Jest-only members on `vi`/`expect` for suites migrated from Jest; it runs only when the project adds jestCompatSetup."
     }
   },
+  "realpath-spelling": {
+    "src/native/ownership-ledger.mjs": {
+      "count": 1,
+      "reason": "#592: realKey keys allow entries and preserve-symlinks lookups in Node's loader spelling; it is unified with identityKey under #592."
+    },
+    "src/plugin.ts": {
+      "count": 2,
+      "reason": "#592: ownership.allow entries are keyed in Node's loader spelling (plugin.ts realpath of allow entries); and, for 0.16, hasSetupFile compares Node's spelling on both sides, which does not unify an 8.3 name with its long form: switch it to identityKey."
+    },
+    "src/native/shared-resolver.mjs": {
+      "count": 1,
+      "reason": "Not a spelling choice: the call exists so the file system raises ELOOP on a symlink loop before resolution continues."
+    },
+    "src/jest-compat/transform.ts": {
+      "count": 1,
+      "reason": "0.16 (#592 class): a native-spelled Vite id is checked against ownership policy directories spelled as given, which can differ under an 8.3 root."
+    },
+    "src/native/native-modules.mjs": {
+      "count": 1,
+      "reason": "0.16 (#592 class): React Native roots in Node's spelling become the ownership policy's roots and are compared with Vite ids; review together with ownership.mjs's root check."
+    },
+    "src/cli/compare-run.ts": {
+      "count": 1,
+      "reason": "0.16: the compare sanitizer gets the root as given and in Node's spelling but not the OS's, so long-name paths in Vitest's output are not sanitized under an 8.3 root; use rootSpellings."
+    }
+  },
   "escaped-regexp": {
     "src/babel-plugins.ts": {
       "count": 3,
@@ -17,6 +43,10 @@
     "src/cli/compare.ts": {
       "count": 3,
       "reason": "Each is escaped inline with its own copy of the escape replace; move it onto src/regexp.ts's escapeRegExp. (alternatives map through escapeRegex; sameValue and the %p match escape before adding their wildcards)."
+    },
+    "src/jest-compat/root-mocks.ts": {
+      "count": 1,
+      "reason": "A pattern by design: Jest's modulePathIgnorePatterns entries are regular expressions the user wrote. Only <rootDir> is replaced, by the root escaped inline with its own copy of the escape replace; move it onto src/regexp.ts's escapeRegExp."
     },
     "src/native/match.mjs": {
       "count": 1,
