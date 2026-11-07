@@ -118,4 +118,18 @@ describe("option validation", () => {
     expect(() => reactNative({ hotRuntime: { esmGeneration: true } })).not.toThrow();
     expect(() => reactNative({ hotRuntime: { allowUnboundedMemory: true } })).not.toThrow();
   });
+
+  it("takes freshRuntime as a boolean, and only with ESM generations", () => {
+    expect(() => reactNative({ hotRuntime: { freshRuntime: true } })).not.toThrow();
+    expect(() => reactNative({ hotRuntime: { mode: "auto", freshRuntime: true } })).not.toThrow();
+    expect(() => reactNative({ hotRuntime: { freshRuntime: "yes" } } as any)).toThrow(
+      /freshRuntime.*boolean/,
+    );
+    expect(() => reactNative({ hotRuntime: { freshRuntime: true, esmGeneration: false } })).toThrow(
+      /freshRuntime.*needs.*esmGeneration/,
+    );
+    expect(() =>
+      reactNative({ hotRuntime: { freshRuntime: false, esmGeneration: false } }),
+    ).not.toThrow();
+  });
 });

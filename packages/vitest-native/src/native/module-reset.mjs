@@ -10,7 +10,7 @@
 // to load is dropped and runs again on the next file.
 import Module from "node:module";
 import { nodeDispatch } from "../node-dispatch.mjs";
-import { isRuntimeResidentFile } from "./ownership.mjs";
+import { RUNTIME_RESIDENT_PATH, isFreshRuntime, isRuntimeResidentFile } from "./ownership.mjs";
 import { VitestNativeError } from "../errors.mjs";
 
 // Capture before the worker installs registry/preset _load interceptors.
@@ -182,9 +182,19 @@ const UNRESETTABLE = /\.node$/;
  * app-shaped rendering); `test:native:hot` is the only one that sees the
  * react-test-renderer regression (it is engine mechanics).
  */
-export function captureModuleBaseline() {
-  const baseline = new Set(Object.keys(Module._cache));
-  const resolutions = trackCjsResolutions();
+export function captureModuleBaseline(earlyResolutions) {
+  // Under hotRuntime.freshRuntime the runtime packages the boot preload loaded (React,
+  // scheduler) are not part of the baseline: they re-run per file, as React Native does.
+  const fresh = isFreshRuntime();
+  const baseline = new Set(
+    Object.keys(Module._cache).filter(
+      (id) => !(fresh && RUNTIME_RESIDENT_PATH.test(id.replace(/\\/g, "/"))),
+    ),
+  );
+  // Tracking that started before the boot preload (worker.mjs), so the preload's own
+  // lookups into those packages are drained with them (Node's stale relative-resolve
+  // cache, #530); otherwise it starts here.
+  const resolutions = earlyResolutions ?? trackCjsResolutions();
   return function resetModules() {
     let dropped = 0;
     for (const id of Object.keys(Module._cache)) {
