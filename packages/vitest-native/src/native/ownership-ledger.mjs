@@ -94,10 +94,11 @@ function realpathOr(file, fallback) {
 function realDir(dir) {
   // Keyed by the resolved path: on Windows, Vite's ids say `D:/a` and Node's file names
   // `D:\a`, which would otherwise cost each directory two realpaths.
+  // A directory not on disk keeps the spelling it was given.
   const at = path.resolve(dir);
   let real = realDirs.get(at);
   if (real === undefined) {
-    real = realpathOr(at, at);
+    real = realpathOr(at, dir);
     realDirs.set(at, real);
   }
   return real;
