@@ -539,8 +539,18 @@ describe("a jest-expo app's package.json#jest", () => {
     expect(report.automatic.join("\n")).not.toContain("are covered by");
   });
 
+  // projectBabel runs where @babel/core resolves from the project.
+  const babelCore = {
+    "node_modules/@babel/core/package.json": {
+      name: "@babel/core",
+      version: "7.29.0",
+      main: "index.js",
+    },
+    "node_modules/@babel/core/index.js": "module.exports = {};",
+  };
+
   it("classifies the project's Babel plugins", () => {
-    const root = blueskyLike();
+    const root = blueskyLike(babelCore);
     const report = analyzeJestConfig(root);
     const all = [...report.automatic, ...report.attention, ...report.dropped].join("\n");
     // The engine applies the macro plugin to the project source that needs it (projectBabel
@@ -580,8 +590,21 @@ describe("a jest-expo app's package.json#jest", () => {
     expect(doctor).not.toContain("⚠ @lingui/babel-plugin-lingui-macro");
   });
 
+  it("says @babel/core is needed when the engine would apply plugins but cannot", () => {
+    const root = blueskyLike();
+    const report = analyzeJestConfig(root);
+    expect(report.attention.join("\n")).toContain(
+      "which needs @babel/core installed in the project",
+    );
+    expect(report.automatic.join("\n")).not.toContain("applied by the engine");
+    const doctor = runDoctor(root).lines.join("\n");
+    expect(doctor).toContain("needs projectBabel");
+    expect(doctor).not.toContain("applied by the engine where needed");
+  });
+
   it("doctor calls a babel() entry that repeats an engine-applied plugin redundant", () => {
     const root = blueskyLike({
+      ...babelCore,
       "vitest.config.mts": `import { defineConfig } from 'vitest/config'
 import babel from '@rolldown/plugin-babel'
 import { reactNative } from 'vitest-native'
@@ -592,6 +615,17 @@ export default defineConfig({ plugins: [reactNative(), babel({ plugins: ['@lingu
     expect(doctor).toContain(
       "babel() lists @lingui/babel-plugin-lingui-macro, which the engine already applies",
     );
+    // A mention in a comment is not an entry.
+    const commented = blueskyLike({
+      ...babelCore,
+      "vitest.config.mts": `import { defineConfig } from 'vitest/config'
+import babel from '@rolldown/plugin-babel'
+import { reactNative } from 'vitest-native'
+// we used to list '@lingui/babel-plugin-lingui-macro' here
+export default defineConfig({ plugins: [reactNative(), babel({ plugins: [] })] })
+`,
+    });
+    expect(runDoctor(commented).lines.join("\n")).not.toContain("which the engine already applies");
   });
 
   it("does not emit babel() for a plugin the engine applies, even with @rolldown/plugin-babel installed", () => {

@@ -974,7 +974,19 @@ export function analyzeJestConfig(root: string): MigrationReport {
       );
       if (reason) engineApplied.set(`preset:${p.name}`, reason);
     }
-    for (const [key, reason] of engineApplied) {
+    // projectBabel runs only where @babel/core resolves from the project (createProjectBabel);
+    // without it the engine applies nothing, so say so instead of "nothing to add".
+    const babelCore = installed(root, "@babel/core");
+    if (engineApplied.size && !babelCore) {
+      const names = [...engineApplied.keys()].map((k) => k.slice(k.indexOf(":") + 1));
+      attention.push(
+        `${babel.source}: ${list(names)} must reach your own source, and the engine applies ` +
+          `${names.length === 1 ? "it" : "them"} with your Babel config (projectBabel 'auto'), which needs ` +
+          `@babel/core installed in the project. It does not resolve from here (often it came only with ` +
+          `babel-jest). Add @babel/core as a devDependency.`,
+      );
+    }
+    for (const [key, reason] of babelCore ? engineApplied : new Map<string, string>()) {
       const [kind, name] = [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)];
       automatic.push(
         `${babel.source}: ${kind} ${name} → applied by the engine to the project source that needs it ` +

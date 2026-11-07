@@ -203,7 +203,7 @@ Under Jest, babel-jest ran your `babel.config.js` on every file. vitest-native c
 | `babel-plugin-module-resolver` (`'module-resolver'`) | Its `alias` entries become `resolve.alias` (same exact-or-`key/` prefix rule). `migrate` writes them. |
 | `babel-plugin-react-compiler` | Not needed: it only adds memoization, and components render the same without it. |
 
-A startup line names the plugins that send files through Babel, and `diagnostics: true` names each file. You do not need `@rolldown/plugin-babel` for any of these. If your config already has a `babel()` entry for one of them, `doctor` reports it as redundant; it can be removed.
+This uses `@babel/core` from your project, so keep it installed as a devDependency. It often came only with babel-jest, and `migrate` and `doctor` say when it does not resolve. A startup line names the plugins that send files through Babel, and `diagnostics: true` names each file. You do not need `@rolldown/plugin-babel` for any of these. If your config already has a `babel()` entry for one of them, `doctor` reports it as redundant; it can be removed.
 
 ### Other Jest config options
 

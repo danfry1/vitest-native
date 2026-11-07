@@ -24,7 +24,12 @@ import {
   autoDetectedPresetApplies,
   type PresetName,
 } from "../preset-map.js";
-import { babelRecipe, classifyBabelPlugins, readBabelConfig } from "./babel-config.js";
+import {
+  babelRecipe,
+  classifyBabelPlugins,
+  normalizeBabelName,
+  readBabelConfig,
+} from "./babel-config.js";
 import { projectBabelTrigger } from "../project-babel.js";
 import {
   activePresets,
@@ -514,17 +519,29 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     // 'auto'), so they need nothing from the project.
     const byEngine = (name: string, kind: "plugin" | "preset", options: unknown) =>
       projectBabelTrigger({ name, kind, options }, root, active);
+    // projectBabel runs only where @babel/core resolves from the project.
+    const babelCore = installedManifest(root, "@babel/core") !== null;
     for (const p of babel.presetEntries ?? []) {
       const reason = byEngine(p.name, "preset", p.options);
-      if (reason)
+      if (reason && !babelCore) {
+        warn(
+          `preset ${p.name} needs projectBabel (${reason}), which needs @babel/core installed in the project.`,
+        );
+      } else if (reason) {
         lines.push(`  · preset ${p.name}: applied by the engine where needed (${reason}).`);
+      }
     }
     const required = classified.filter(
       (p) => p.verdict === "required" && !byEngine(p.name, "plugin", p.options),
     );
     for (const p of classified) {
       const reason = byEngine(p.name, "plugin", p.options);
-      if (reason) {
+      if (reason && !babelCore) {
+        warn(
+          `${p.written} needs projectBabel (${reason}), which needs @babel/core installed in the project; ` +
+            `it does not resolve from here. Add @babel/core as a devDependency.`,
+        );
+      } else if (reason) {
         lines.push(`  · ${p.written}: applied by the engine where needed (${reason}).`);
         engineAppliedPlugins.push(p.name);
       } else if (p.verdict === "required") {
@@ -558,8 +575,13 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     const usage = analyzeConfigUsage(content);
     // A Babel Vite plugin that repeats what the engine already applies: redundant, not a
     // conflict (the engine never steps aside for it; the worklets plugin run twice is a no-op).
-    if (/@rolldown\/plugin-babel|vite-plugin-babel/.test(content)) {
-      const repeated = engineAppliedPlugins.filter((name) => content.includes(name));
+    const code = withoutComments(content);
+    if (/@rolldown\/plugin-babel|vite-plugin-babel/.test(code)) {
+      // The config's string literals, read as Babel names (`macros` → babel-plugin-macros).
+      const listed = new Set(
+        [...code.matchAll(/["'`]([^"'`\s]+)["'`]/g)].map((m) => normalizeBabelName(m[1])),
+      );
+      const repeated = engineAppliedPlugins.filter((name) => listed.has(name));
       if (repeated.length) {
         warn(
           `${configFile}'s babel() lists ${repeated.join(", ")}, which the engine already applies to the ` +
