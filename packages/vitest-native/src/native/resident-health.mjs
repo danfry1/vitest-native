@@ -26,6 +26,7 @@ import path from "node:path";
 function cachedModule(file) {
   if (Module._cache[file]) return Module._cache[file];
   try {
+    // Node's spelling (fs.realpathSync): the key Module._cache holds the file under.
     return Module._cache[fs.realpathSync(file)] ?? null;
   } catch {
     return null;

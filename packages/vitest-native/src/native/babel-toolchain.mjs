@@ -22,8 +22,9 @@ function babelFor(root) {
 function loadPartial(request) {
   return babelFor(request.root).loadPartialConfig({
     filename: request.file,
-    cwd: request.root,
-    root: request.root,
+    // Spelled as the file is (root-spelling.mjs), so Babel finds the .babelrc files above it.
+    cwd: request.babelRoot ?? request.root,
+    root: request.babelRoot ?? request.root,
     caller: request.caller,
   });
 }
@@ -117,9 +118,15 @@ function importMetaUnsupported(file, root, name, at) {
   const shown = shownPath.split(path.sep).join("/");
   const where = at ? `${shown}:${at.line}:${at.column + 1}` : shown;
   const pkg = owningPackage(file, root);
+  // Vitest leaves a package Node can run as published (an ES module) to Node, so
+  // excluding it from compiling is not enough for Vite to load it: it must be inlined too.
+  const inline = runsAsModule(file)
+    ? ` and to \`test: { server: { deps: { inline: [...] } } }\`, since Node otherwise ` +
+      `runs it as the ES module it is published as`
+    : "";
   const fix = pkg
     ? `To fix it, let Vite load '${pkg}': add it to \`transform: { exclude: [...] }\` in ` +
-      `reactNative()'s options. Or do not use ${what} in code Node loads.`
+      `reactNative()'s options${inline}. Or do not use ${what} in code Node loads.`
     : `To fix it, import the file from the test so Vite loads it, rather than requiring it ` +
       `(require(), jest.requireActual). Or do not use ${what} in code Node loads.`;
   return new VitestNativeError(
@@ -143,6 +150,22 @@ function owningPackage(file, root) {
   return null;
 }
 
+/**
+ * Whether Node runs `file` as an ES module as published: `.mjs`, or `.js` under the
+ * nearest package.json's `"type": "module"`. Vitest's own check (isValidNodeImport)
+ * externalizes such a file; one Node cannot run (TypeScript, or ESM syntax in a
+ * CommonJS package) it inlines.
+ */
+function runsAsModule(file) {
+  if (file.endsWith(".mjs")) return true;
+  if (!file.endsWith(".js")) return false;
+  for (let dir = path.dirname(file); path.dirname(dir) !== dir; dir = path.dirname(dir)) {
+    const manifest = readManifest(dir);
+    if (manifest) return manifest.type === "module";
+  }
+  return false;
+}
+
 /** `dir`'s package.json, or null when it has none it can read. */
 function readManifest(dir) {
   try {
@@ -154,6 +177,7 @@ function readManifest(dir) {
 
 function realPath(dir) {
   try {
+    // The OS's spelling (realpathSync.native), on both sides of owningPackage's comparison.
     return fs.realpathSync.native(dir);
   } catch {
     return path.resolve(dir);

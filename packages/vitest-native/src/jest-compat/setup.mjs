@@ -370,6 +370,18 @@ if (typeof globalThis.__vnInteropMock !== "function") globalThis.__vnInteropMock
   // A factory's `jest.requireActual` of project source that jestMockTransform moved to
   // `vi.importActual` (transform.ts) gets its result in the shape requireActual gives.
   globalThis.__vnActualExports = actualExports;
+  // A factory's own `require` of project source, moved to Vite the same way: the value of
+  // the jest.mock factory registered for that file if there is one, as Jest's registry
+  // serves it, else the module as the factory's own `import()` loads it (`load`, so the
+  // specifier resolves from the test file and Vitest's other mocks apply), in the shape
+  // `require` gives.
+  globalThis.__vnFactoryRequire = async (from, spec, load) => {
+    const filename = registry.resolveFrom(spec, from);
+    const entry =
+      filename !== null ? registry.entries.get(filename) : registry.unresolved.get(spec);
+    if (entry) return registry.valueForImport(entry);
+    return actualExports(await load());
+  };
   globalThis.__vnJestUnmock = (from, spec) => registry.unregister(from, spec);
   // Registrations are per test file, as in Jest. This file evaluates before each test
   // file, so a worker reused without the hot runtime (`isolate: false`, or a watch
@@ -451,3 +463,51 @@ nodeDispatch().load.add(
       return next(file ?? request, parent, ...rest);
     },
 );
+
+// `View.prototype`, as React Native's Jest preset has it: its stand-in for View is a
+// class with the native methods (measure, measureInWindow, measureLayout, setNativeProps,
+// focus, blur) on the prototype, so suites spy on them there
+// (`jest.spyOn(View.prototype, 'measure')`) and read them at load
+// (`Object.getOwnPropertyDescriptor(View.prototype, ...)`). React Native's own View has no
+// prototype.
+//
+// The prototype given is the native methods object of the native engine's host class for
+// RCTView (src/native/boundary.mjs): one class per view name, whose methods delegate to
+// that object, so a spy on it reaches every View ref. A plain object, not the class's
+// prototype, which would make React construct the component as a class. Under the mock
+// engine, whose registry has no such class, nothing is set. Only here, in the
+// Jest-semantics layer: the engine itself keeps React Native's View as it is.
+//
+// View only: every test that renders React Native loads View anyway, while setting Text's
+// and ScrollView's here would load them, and their graphs, in every test file (63 and 142
+// React Native modules against View's 19; tests-native/rn-facade-cost.test.ts). Exposing
+// those lazily, once something loads them, is a follow-up.
+function exposeNativeMethods() {
+  const reactNative = require("react-native");
+  const { get } = require("react-native/Libraries/NativeComponent/NativeComponentRegistry");
+  for (const [component, viewName] of [["View", "RCTView"]]) {
+    const target = reactNative[component];
+    if (target == null) continue;
+    // No prototype (a forwardRef object, an arrow function), or an ordinary function's
+    // untouched one; never a class's or one someone has already filled.
+    const own = target.prototype;
+    const replaceable =
+      own === undefined ||
+      (!own.isReactComponent &&
+        Object.getOwnPropertyNames(own).every((key) => key === "constructor"));
+    if (!replaceable) continue;
+    const methods = typeof get === "function" ? get(viewName)?.nativeMethods : undefined;
+    if (methods == null || typeof methods.measure !== "function") continue;
+    // An ordinary function's own prototype is writable but not configurable.
+    if (own === undefined) {
+      Object.defineProperty(target, "prototype", {
+        value: methods,
+        configurable: true,
+        writable: true,
+      });
+    } else {
+      target.prototype = methods;
+    }
+  }
+}
+exposeNativeMethods();

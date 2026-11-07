@@ -41,6 +41,7 @@ export default defineConfig({
 | `import { jest } from '@jest/globals'` or `require('@jest/globals')` | resolves to the `vi`-backed `jest` (aliased), the same module either way, also when the real `@jest/globals` is installed |
 | top-level `jest.mock('m', factory)` | hoisted + applied, with Jest's factory interop |
 | `jest.replaceProperty(Platform, 'OS', 'android')` | replaced in place and restored by the handle's `restore()`, `jest.restoreAllMocks()`, the `restoreMocks` setting, or the end of the test file, with Jest's errors. A bare `vi.restoreAllMocks()` leaves it: that is Vitest's own |
+| `jest.spyOn(View.prototype, 'measure')` | reaches every `View` ref, as with the Jest preset's `View` stand-in: under the native engine, jest-compat gives `View` a prototype holding the native methods its refs call. `Text` and `ScrollView` keep React Native's own shape, without one |
 | `describe` / `it` / `expect` / `beforeEach` | same names, available as globals |
 
 ## Fake timers
@@ -68,6 +69,7 @@ Jest keeps one module registry per test file, so a `jest.mock(spec, factory)` ap
 | `jest.mock('a', () => jest.requireActual('a/index.web'))` while `jest.mock('#/storage', …)` | the module `requireActual` loads gets the mocked `#/storage`: only the requested module is unmocked, as in Jest |
 | `jest.requireActual('#/x')` of a mocked module | the real module; everything else still gets the mock |
 | `jest.mock('#/x', () => ({ ...jest.requireActual('#/x'), y: jest.fn() }))` of your own source | the real members load through Vite, so they share module state (a store, a cache) with the code the test imports. A `requireActual` inside a function the factory returns, or a `require()` of the module that runs before any import, still loads a separate copy through Node |
+| `jest.mock('#/a', () => { const { defaults } = require('#/b'); … })` of your own source | `#/b` loads through Vite too, so it is the instance the test imports, or the mock if the file mocks `#/b`. A `require` inside a function the factory returns still goes through Node |
 | `const { Sentry } = jest.requireMock('#/sentry')` | the registered mock, the same objects the file's imports see |
 | `jest.mock('react-native/Libraries/AppState/AppState', factory)` | applies to React Native's own `require` of that module, so `import { AppState } from 'react-native'` and `require('react-native').AppState` see the mock |
 | `jest.mock('virtual', factory, { virtual: true })` | `require('virtual')` returns the mock |

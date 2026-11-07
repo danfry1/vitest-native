@@ -8,30 +8,13 @@
 // (resident-library lazy init — must be preserved across files, it never
 // re-runs) and test-phase state (pollution the next file's reset removes).
 // See reset.mjs for the full attribution model.
-// vitest >=4.1 exports TestRunner from the main entry; 4.0.x only exposes it as
-// VitestTestRunner via the "vitest/runners" subpath, which vitest 5 REMOVED.
-// Prefer the main entry, and reach for the old subpath only when the main export
-// is absent.
-//
-// The fallback specifier is computed rather than written literally, because a
-// literal is resolved when this module is TRANSFORMED, not when the branch runs.
-// Against vitest 5 that resolution fails ("./runners" is not exported), and the
-// failure is silent in the worst way: the run reports unhandled errors, executes
-// no tests, and still exits 0. A computed specifier keeps the branch invisible to
-// the resolver, so 4.0.x keeps its fallback and 5 never looks for it.
 import { setTimeout as delay } from "node:timers/promises";
-import * as vitest from "vitest";
 import { requireProjectContext } from "../context.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { describeProblems, residentProblems } from "./resident-health.mjs";
+import NativeTestRunner from "./test-runner.mjs";
 
-let TestRunner = vitest.TestRunner;
-if (!TestRunner) {
-  const legacyRunners = ["vitest", "runners"].join("/");
-  ({ VitestTestRunner: TestRunner } = await import(/* @vite-ignore */ legacyRunners));
-}
-
-export default class NativeHotRunner extends TestRunner {
+export default class NativeHotRunner extends NativeTestRunner {
   // Fires once per test file, before its setup files and its own modules are
   // imported — the point where Vitest resets the module graph when isolation is on.
   // The hot pool runs with isolation off so the worker survives, so the reset happens

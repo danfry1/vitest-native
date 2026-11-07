@@ -68,7 +68,8 @@ function deviceConstants(platform, reactNativeVersion) {
   };
 }
 
-// A reusable mock-native-component factory, inlined into each source string that needs it.
+// The mock-native-component factory, inlined into NativeComponentRegistry's source, which
+// memoizes one class per view name for the other routes to host components.
 //
 // For RCTScrollView we drop the scroll-responder negotiation props that real
 // ScrollView attaches to its host (onStartShouldSetResponder &co). On a device
@@ -97,6 +98,14 @@ const MOCK_NATIVE_COMPONENT = `
   ]);
   const mockNativeComponent = (viewName) => {
     const hostName = __TEXT_INPUT_VIEWS.has(viewName) ? "TextInput" : viewName;
+    // The native methods a ref has, on a plain object the class delegates to: a spy that
+    // replaces one there reaches every ref of this view. jest-compat gives it to View,
+    // Text and ScrollView as their prototype, as React Native's Jest preset has one. It
+    // is not the class's own prototype, which would make React construct those function
+    // components as classes.
+    const nativeMethods = {
+      blur() {}, focus() {}, measure() {}, measureInWindow() {}, measureLayout() {}, setNativeProps() {},
+    };
     const C = class extends React.Component {
       constructor(p) { super(p); this._nativeTag = __tag++; }
       render() {
@@ -107,9 +116,15 @@ const MOCK_NATIVE_COMPONENT = `
         }
         return React.createElement(hostName, props, props.children);
       }
-      blur() {} focus() {} measure() {} measureInWindow() {} measureLayout() {} setNativeProps() {}
+      blur(...a) { return nativeMethods.blur.apply(this, a); }
+      focus(...a) { return nativeMethods.focus.apply(this, a); }
+      measure(...a) { return nativeMethods.measure.apply(this, a); }
+      measureInWindow(...a) { return nativeMethods.measureInWindow.apply(this, a); }
+      measureLayout(...a) { return nativeMethods.measureLayout.apply(this, a); }
+      setNativeProps(...a) { return nativeMethods.setNativeProps.apply(this, a); }
     };
     C.displayName = viewName === "RCTView" ? "View" : hostName;
+    C.nativeMethods = nativeMethods;
     return C;
   };
 `;
@@ -296,15 +311,26 @@ export const BOUNDARY_SOURCES = {
       has: (_t, n) => typeof n === "string" && isKnownModule(n),
     }) };
   `,
+  // The one place the boundary's host component classes are made, one per native view
+  // name: requireNativeComponent, ViewNativeComponent and createReactNativeComponentClass
+  // all ask it. Every RCTView host is then an instance of the same class, whichever path
+  // rendered it, so a host ref's methods live on one prototype (jest-compat exposes it as
+  // View.prototype, as React Native's Jest preset has one; jest-compat/setup.mjs).
   "Libraries/NativeComponent/NativeComponentRegistry.js": `
     ${MOCK_NATIVE_COMPONENT}
-    exports.get = (n) => mockNativeComponent(n);
-    exports.getWithFallback_DEPRECATED = (n) => mockNativeComponent(n);
+    const __classes = new Map();
+    const get = (n) => {
+      let C = __classes.get(n);
+      if (!C) __classes.set(n, (C = mockNativeComponent(n)));
+      return C;
+    };
+    exports.get = get;
+    exports.getWithFallback_DEPRECATED = get;
     exports.setRuntimeConfigProvider = () => {};
   `,
   "Libraries/ReactNative/requireNativeComponent.js": `
-    ${MOCK_NATIVE_COMPONENT}
-    module.exports = { __esModule: true, default: (n) => mockNativeComponent(n) };
+    const { get } = require("react-native/Libraries/NativeComponent/NativeComponentRegistry");
+    module.exports = { __esModule: true, default: get };
   `,
   // The last route to a host component that bypassed the boundary: Text's RCTText,
   // RCTVirtualText and RCTSelectableText (TextNativeComponent.js). The real shim only
@@ -314,12 +340,12 @@ export const BOUNDARY_SOURCES = {
   // ref has. Through the boundary class, as View's host is, the ref is an instance with
   // those methods, and \`ref\` is not among the host's props.
   "Libraries/Renderer/shims/createReactNativeComponentClass.js": `
-    ${MOCK_NATIVE_COMPONENT}
-    module.exports = { __esModule: true, default: (n) => mockNativeComponent(n) };
+    const { get } = require("react-native/Libraries/NativeComponent/NativeComponentRegistry");
+    module.exports = { __esModule: true, default: get };
   `,
   "Libraries/Components/View/ViewNativeComponent.js": `
-    ${MOCK_NATIVE_COMPONENT}
-    module.exports = { __esModule: true, default: mockNativeComponent("RCTView"), __INTERNAL_VIEW_CONFIG: {}, Commands: {} };
+    const { get } = require("react-native/Libraries/NativeComponent/NativeComponentRegistry");
+    module.exports = { __esModule: true, default: get("RCTView"), __INTERNAL_VIEW_CONFIG: {}, Commands: {} };
   `,
   // TextInput: mirror react-native/jest/setup.js, which replaces the real TextInput
   // with a passthrough host component (jest/mocks/TextInput, via mockComponent).

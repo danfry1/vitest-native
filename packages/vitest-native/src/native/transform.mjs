@@ -23,6 +23,7 @@ import crypto from "node:crypto";
 import vm from "node:vm";
 import { MessageChannel, receiveMessageOnPort, SHARE_ENV, Worker } from "node:worker_threads";
 import { decorateTransformError } from "./explain.mjs";
+import { relativeToRoot, rootSpellingOf } from "./root-spelling.mjs";
 import {
   handleToolchainRequest,
   IMPORT_META_LOWERING,
@@ -53,6 +54,7 @@ function canonicalRoot(projectRoot) {
   if (hit) return hit;
   let root;
   try {
+    // Node's spelling (fs.realpathSync): the transform cache's key, so it must stay stable.
     root = fs.realpathSync(projectRoot);
   } catch {
     root = path.resolve(projectRoot);
@@ -241,12 +243,17 @@ function babelJestCaller(ctx, platform) {
  * (p95 0.3 ms), after a first call that loads the config's presets and plugins.
  */
 function projectBabelOptions(ctx, file, platform) {
-  if (!file.startsWith(ctx.root + path.sep) || NODE_MODULES.test(file)) return null;
+  if (NODE_MODULES.test(file)) return null;
+  // In whichever spelling of the root the file is under (root-spelling.mjs), which is
+  // also the one Babel gets as its root, so it finds the .babelrc files above the file.
+  const babelRoot = rootSpellingOf(ctx.root, file);
+  if (babelRoot === null || babelRoot === file) return null;
   let partial;
   try {
     partial = callToolchain({
       kind: "config",
       root: ctx.root,
+      babelRoot,
       file,
       caller: babelJestCaller(ctx, platform),
     });
@@ -259,7 +266,7 @@ function projectBabelOptions(ctx, file, platform) {
     // compiles that way.
     throw new VitestNativeError(
       "BABEL_IGNORES_FILE",
-      `Babel ignores ${path.relative(ctx.root, file).split(path.sep).join("/")}: the ` +
+      `Babel ignores ${relativeToRoot(ctx.root, file).split(path.sep).join("/")}: the ` +
         `project's Babel config excludes it through \`ignore\` or \`only\`, so it cannot ` +
         `be compiled for Node's require(). babel-jest fails the same way under Jest. ` +
         `Remove it from the config's \`ignore\`, or add it to \`only\`.`,
@@ -267,6 +274,7 @@ function projectBabelOptions(ctx, file, platform) {
   }
   if (partial.kind === "none") return null;
   return {
+    babelRoot,
     // babel-jest keys its cache on the loaded options (getCacheKeyFromConfig,
     // build/index.js:135-165): a function config's output can depend on the
     // environment or the caller, which no file's bytes show. The config files' own
@@ -947,6 +955,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
         ? {
             kind: "transform",
             root: ctx.root,
+            babelRoot: projectConfig.babelRoot,
             file,
             src,
             project: true,

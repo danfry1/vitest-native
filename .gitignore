@@ -2,6 +2,8 @@ node_modules/
 dist/
 *.tgz
 .tmp/
+# Vitest reporter output (--reporter=json writes .vitest/json/output.json by default).
+.vitest/
 .turbo
 .DS_Store
 

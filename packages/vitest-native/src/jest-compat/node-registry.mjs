@@ -77,6 +77,7 @@ function canonical(file) {
   let real = realpathCache.get(file);
   if (real === undefined) {
     try {
+      // Node's spelling (fs.realpathSync): the key Module._cache holds the file under.
       real = fs.realpathSync(file);
     } catch {
       real = file;
