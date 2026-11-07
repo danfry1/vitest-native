@@ -80,10 +80,15 @@ describe("transformRN", () => {
 import { boundarySourceFor, isBoundary } from "../src/native/boundary.mjs";
 import Module from "node:module";
 
-function evalCjs(source: string): any {
+function evalCjs(source: string, deps: Record<string, unknown> = {}): any {
   const filename = path.join(projectRoot, "boundary-test.js");
   const m = new Module(filename, null);
   m.filename = filename;
+  // Another boundary module a source requires by relative path, supplied evaluated.
+  if (Object.keys(deps).length > 0) {
+    const own = m.require.bind(m);
+    m.require = ((id: string) => (id in deps ? deps[id] : own(id))) as typeof m.require;
+  }
   // Give the virtual module real resolution paths so `require("react")` (used by
   // the host-component mocks) resolves, mirroring how RN modules compile in prod.
   // @ts-expect-error internal
@@ -138,11 +143,19 @@ describe("native boundary", () => {
   });
 
   it("requireNativeComponent mock returns a host component factory", () => {
+    // It asks NativeComponentRegistry, which makes one class per view name.
+    const registry = evalCjs(
+      boundarySourceFor("/x/react-native/Libraries/NativeComponent/NativeComponentRegistry.js")!,
+    );
     const src = boundarySourceFor(
       "/x/react-native/Libraries/ReactNative/requireNativeComponent.js",
     );
-    const mod = evalCjs(src!);
+    const mod = evalCjs(src!, {
+      "react-native/Libraries/NativeComponent/NativeComponentRegistry": registry,
+    });
     expect(typeof mod.default).toBe("function");
+    expect(mod.default("RCTView")).toBe(registry.get("RCTView"));
+    expect(registry.get("RCTView")).toBe(registry.get("RCTView"));
   });
 
   it("turboStubs are identity-stable and spy-able", () => {

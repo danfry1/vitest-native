@@ -5,10 +5,16 @@
  * a require and an import of it in one worker evaluate it twice, once by each module
  * system, which the ownership guard reports (SOURCE_EVALUATED_TWICE).
  */
-import { expect, it } from "vitest";
+import { beforeAll, expect, it } from "vitest";
+import { COLD_IMPORT_BUDGET_MS } from "./support/cold-import";
 
-it("an ESM import of a subpath whose leaf the mock does not export gets the real module's exports", async () => {
-  const mod = await import("react-native-reanimated/src/common/style/propsBuilder");
+// The import compiles reanimated's TypeScript source graph: cold on a fresh runner.
+let mod: Record<string, unknown>;
+beforeAll(async () => {
+  mod = await import("react-native-reanimated/src/common/style/propsBuilder");
+}, COLD_IMPORT_BUDGET_MS);
+
+it("an ESM import of a subpath whose leaf the mock does not export gets the real module's exports", () => {
   expect(mod.stylePropsBuilder).toBeDefined();
-  expect((mod as Record<string, unknown>).useSharedValue).toBeUndefined();
+  expect(mod.useSharedValue).toBeUndefined();
 });

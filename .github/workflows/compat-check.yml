@@ -13,10 +13,9 @@ jobs:
   expo-module-table:
     name: Expo module tables match the newest jest-expo of each SDK
     runs-on: ubuntu-latest
-    # github-script opens a tracking issue when a table needs adopting.
+    # Read-only: compat-report (below) files the issue.
     permissions:
       contents: read
-      issues: write
     # The native engine answers Expo native modules from jest-expo's table for the
     # installed SDK (packages/vitest-native/src/native/expo-module-table-<sdk>.mjs). A new
     # jest-expo of a committed SDK, or a new SDK on npm's latest tag, fails this job so the
@@ -31,41 +30,13 @@ jobs:
       - name: Compare with the newest jest-expo of each SDK
         run: node packages/vitest-native/scripts/sync-expo-module-table.mjs --check
 
-      - name: Create issue on failure
-        if: failure()
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
-        env:
-          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-        with:
-          script: |
-            const title = 'Expo module table differs from the newest jest-expo';
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'compat-check',
-            });
-            if (!issues.some((issue) => issue.title === title)) {
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title,
-                body: [
-                  'The weekly check found a jest-expo whose table of the native modules differs from the committed one, or a new Expo SDK without a table.',
-                  '',
-                  `See the [failed run](${process.env.RUN_URL}) for the command to regenerate it, and review the diff.`,
-                ].join('\n'),
-                labels: ['compat-check'],
-              });
-            }
 
   check-latest-rn:
     name: Check against current React Native edge
     runs-on: ubuntu-latest
-    # github-script opens a tracking issue when the edge build breaks.
+    # Read-only: it installs and runs unaged releases. compat-report (below) files the issue.
     permissions:
       contents: read
-      issues: write
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,7 +58,7 @@ jobs:
         # while the PR gate stays pinned and deterministic.
         run: |
           bun install --frozen-lockfile
-          bun add -d react-native@latest @react-native/babel-preset@latest metro-resolver@latest --minimum-release-age=0 --cwd packages/vitest-native
+          bun add -d react-native@latest @react-native/babel-preset@latest metro-resolver@latest --minimum-release-age=0 --ignore-scripts --cwd packages/vitest-native
 
       - name: Resolved versions
         run: |
@@ -126,31 +97,135 @@ jobs:
           expected=$(node -p "require('./packages/vitest-native/node_modules/react-native/package.json').version")
           VITEST_NATIVE_EXPECTED_RN_VERSION="$expected" bun run --filter vitest-native check-compat
 
-      - name: Create issue on failure
-        if: failure()
+
+  canary:
+    name: Canary (${{ matrix.channel }})
+    runs-on: ubuntu-latest
+    # Upstream's next releases, before they ship (docs/upstream-policy.md): the newest of
+    # each package's `next`/`beta`/`rc` channels ahead of `latest`
+    # (.github/scripts/canary-version.mjs). A channel with nothing ahead is skipped. Like the
+    # edge job above, this installs releases younger than the seven-day gate, in this job
+    # only; the pull-request gates stay pinned.
+    # Read-only: it installs and runs unaged prereleases. compat-report (below) files the issue.
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - channel: vitest
+            node: 22.22.3
+          - channel: react-native
+            node: 22.22.3
+          - channel: node-next
+            # setup-node's newest line, prereleases included (v27 alpha at the time of writing).
+            node: current
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Pick and install the prerelease
+        id: pick
+        env:
+          CHANNEL: ${{ matrix.channel }}
+        run: |
+          case "$CHANNEL" in
+            vitest)
+              v=$(node .github/scripts/canary-version.mjs vitest)
+              if [ -z "$v" ]; then echo "No Vitest prerelease ahead of latest."; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+              vite=$(node .github/scripts/canary-version.mjs vite); vite=${vite:-latest}
+              # A next major is refused at startup by design; this job asks whether it would work.
+              node .github/scripts/raise-peer-ceiling.mjs vitest "$v"
+              [ "$vite" != latest ] && node .github/scripts/raise-peer-ceiling.mjs vite "$vite"
+              bun add -d "vitest@$v" "@vitest/coverage-v8@$v" "vite@$vite" --minimum-release-age=0 --ignore-scripts --cwd packages/vitest-native
+              ;;
+            react-native)
+              v=$(node .github/scripts/canary-version.mjs react-native)
+              if [ -z "$v" ]; then echo "No React Native prerelease ahead of latest."; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+              bun add -d "react-native@$v" "@react-native/babel-preset@$v" metro-resolver@latest --minimum-release-age=0 --ignore-scripts --cwd packages/vitest-native
+              ;;
+            node-next)
+              echo "Node $(node -v), the newest line setup-node offers."
+              ;;
+          esac
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        if: steps.pick.outputs.skip != 'true'
+        run: bun run build
+
+      - name: Unit tests
+        if: steps.pick.outputs.skip != 'true'
+        run: bun run test
+
+      - name: Native engine tests
+        if: steps.pick.outputs.skip != 'true'
+        run: bun run test:native
+
+      - name: Native hot-runtime tests
+        if: steps.pick.outputs.skip != 'true'
+        run: bun run test:native:hot
+
+  check-expo-latest-supported:
+    name: Supported Expo SDKs at their newest patch
+    runs-on: ubuntu-latest
+    # The latest-supported axis for Expo (docs/upstream-policy.md): the packed consumer
+    # fixtures for each supported SDK, with `expo` following its SDK and `expo install
+    # --fix` aligning the rest. Unlike the edge job above, nothing installed is younger
+    # than seven days (scripts/release-age.mjs). Read-only: compat-report files the issue.
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          node-version: 22.22.3
+
+      - name: Use an npm without the arborist edgesOut bug
+        run: npm install -g npm@11.20.0
+
+      - name: Build
+        run: bun run build
+
+      - name: Expo SDKs at their newest patch
+        env:
+          VN_CONSUMERS: expo-latest
+        run: bun run test:consumers
+
+  compat-report:
+    name: File issues for failed checks
+    # The only job that can write issues, and it runs no package code: it checks out one
+    # file of this repository (the report script) and installs nothing. It reads this run's
+    # job results and failed jobs' log tails through the API, so a compromised release
+    # installed by a check above never holds a write token.
+    needs: [expo-module-table, check-latest-rn, check-expo-latest-supported, canary]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts/compat-report.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: File or update an issue per failed check
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
         env:
           RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
         with:
           script: |
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: 'compat-check',
-            });
-            if (issues.length === 0) {
-              await github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: 'Compatibility gap detected with latest react-native',
-                body: [
-                  'The weekly compatibility check found new React Native exports that are not mocked.',
-                  '',
-                  `See the [failed run](${process.env.RUN_URL}) for details.`,
-                  '',
-                  'Run `bun run --filter vitest-native check-compat` locally to see the gaps.',
-                ].join('\n'),
-                labels: ['compat-check'],
-              });
-            }
+            const { report } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/compat-report.mjs`);
+            await report({ github, context, runUrl: process.env.RUN_URL });

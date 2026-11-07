@@ -41,6 +41,7 @@ export default defineConfig({
 | `import { jest } from '@jest/globals'` or `require('@jest/globals')` | resolves to the `vi`-backed `jest` (aliased), the same module either way, also when the real `@jest/globals` is installed |
 | top-level `jest.mock('m', factory)` | hoisted + applied, with Jest's factory interop |
 | `jest.replaceProperty(Platform, 'OS', 'android')` | replaced in place and restored by the handle's `restore()`, `jest.restoreAllMocks()`, the `restoreMocks` setting, or the end of the test file, with Jest's errors. A bare `vi.restoreAllMocks()` leaves it: that is Vitest's own |
+| `jest.spyOn(View.prototype, 'measure')` | reaches every `View` ref, as with the Jest preset's `View` stand-in: under the native engine, jest-compat gives `View` a prototype holding the native methods its refs call. `Text` and `ScrollView` keep React Native's own shape, without one |
 | `describe` / `it` / `expect` / `beforeEach` | same names, available as globals |
 
 ## Fake timers
