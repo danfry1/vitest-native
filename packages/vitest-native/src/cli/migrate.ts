@@ -1011,8 +1011,9 @@ export function analyzeJestConfig(root: string): MigrationReport {
       `${factoryReads.length} jest.mock() ${factoryReads.length === 1 ? "factory reads" : "factories read"} a ` +
         `const, let or class from the test file's module body while it runs: ${shown.join("; ")}` +
         `${factoryReads.length > 5 ? `; and ${factoryReads.length - 5} more` : ""}. Mock factories run before ` +
-        `the module body, so under Vitest this throws "Cannot access '…' before initialization". Under Jest ` +
-        `it read undefined instead, because React Native's Babel preset compiles const to var. Move the value ` +
+        `the module body, so when the mocked module is imported at the top of the test file (the usual case) ` +
+        `this throws "Cannot access '…' before initialization" under Vitest. Under babel-jest with React ` +
+        `Native's preset it read undefined instead, because the preset compiles const to var. Move the value ` +
         `into the factory, or create it with vi.hoisted().`,
     );
   }

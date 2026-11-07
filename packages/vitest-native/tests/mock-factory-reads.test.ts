@@ -47,4 +47,25 @@ const typed: number = 1;
       { line: 3, module: "./store", names: ["Store"] },
     ]);
   });
+
+  it("does not report methods, getters, class methods and fields, optional chains, catch params or types", () => {
+    const code = `const TODAY = 'x';
+const config = 1;
+const err = 2;
+type T = typeof TODAY;
+jest.mock('a', () => ({ getDate() { return TODAY; }, get now() { return TODAY; } }));
+jest.mock('b', () => { class C { m() { return TODAY; } field = TODAY; } return { C }; });
+jest.mock('c', () => { const o: { config?: number } = {}; return { v: o?.config }; });
+jest.mock('d', () => { try { return {}; } catch (err) { return { err }; } });
+jest.mock('e', () => { const t: typeof TODAY = 'y'; return { t }; });
+`;
+    expect(factoryReadsInFile(parse, code)).toEqual([]);
+  });
+
+  it("still reports a static class field, which runs while the factory runs", () => {
+    const code = `const TODAY = 'x';
+jest.mock('a', () => { class C { static at = TODAY; } return { C }; });
+`;
+    expect(factoryReadsInFile(parse, code)).toEqual([{ line: 2, module: "a", names: ["TODAY"] }]);
+  });
 });

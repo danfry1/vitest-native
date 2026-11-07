@@ -39,6 +39,23 @@ const isFunction = (n: Node) =>
   n.type === "ArrowFunctionExpression" ||
   n.type === "FunctionExpression" ||
   n.type === "FunctionDeclaration";
+/** Code that runs later, not while the factory runs: functions, methods, instance fields. */
+const runsLater = (n: Node) =>
+  isFunction(n) ||
+  n.type === "ObjectMethod" ||
+  n.type === "ClassMethod" ||
+  n.type === "ClassPrivateMethod" ||
+  ((n.type === "ClassProperty" || n.type === "ClassPrivateProperty") && !n.static);
+/** Keys and member names that name rather than read. */
+const KEY_PARENTS = new Set([
+  "ObjectProperty",
+  "Property",
+  "ObjectMethod",
+  "ClassMethod",
+  "ClassProperty",
+  "ClassPrivateMethod",
+  "ClassPrivateProperty",
+]);
 
 /** Names a pattern declares (`a`, `{ a, b: c }`, `[a, ...b]`). */
 function patternNames(p: unknown, out: string[] = []): string[] {
@@ -62,15 +79,24 @@ function eagerReads(fn: Node): Set<string> {
   const visit = (n: unknown, parentKey?: string, parent?: Node) => {
     if (Array.isArray(n)) return n.forEach((c) => visit(c, parentKey, parent));
     if (!isNode(n)) return;
-    if (n !== fn && isFunction(n)) return; // runs later, if at all
+    if (n.type.startsWith("TS")) return; // types: nothing runs
+    if (n.type === "ClassDeclaration" && isNode(n.id)) locals.add(n.id.name as string);
+    if (n.type === "CatchClause") patternNames(n.param).forEach((x) => locals.add(x));
+    if (n !== fn && runsLater(n)) {
+      // Runs later, if at all; only a computed key runs now.
+      if (n.computed) visit(n.key, "key", n);
+      return;
+    }
     if (n.type === "VariableDeclarator") patternNames(n.id).forEach((x) => locals.add(x));
     if (n.type === "Identifier") {
       const notARead =
-        (parent?.type === "MemberExpression" && parentKey === "property" && !parent.computed) ||
-        ((parent?.type === "ObjectProperty" || parent?.type === "Property") &&
-          parentKey === "key" &&
+        ((parent?.type === "MemberExpression" || parent?.type === "OptionalMemberExpression") &&
+          parentKey === "property" &&
           !parent.computed) ||
-        (parent?.type === "VariableDeclarator" && parentKey === "id");
+        (KEY_PARENTS.has(parent?.type ?? "") && parentKey === "key" && !parent?.computed) ||
+        (parent?.type === "VariableDeclarator" && parentKey === "id") ||
+        (parent?.type === "ClassDeclaration" && parentKey === "id") ||
+        (parent?.type === "CatchClause" && parentKey === "param");
       if (!notARead) reads.add(n.name as string);
       return;
     }
@@ -140,6 +166,15 @@ export function factoryReadsInFile(
   return found;
 }
 
+/** A file's text, or null when it cannot be read (a broken link, a directory, permissions). */
+function readText(file: string): string | null {
+  try {
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+}
+
 /** Test files under `root` whose jest.mock factories read module-level bindings. */
 export function mockFactoryForwardReads(root: string): FactoryRead[] {
   const parse = babelParser(root);
@@ -165,8 +200,8 @@ export function mockFactoryForwardReads(root: string): FactoryRead[] {
       const rel = path.relative(root, full).split(path.sep).join("/");
       if (!TEST_FILE.test(rel)) continue;
       budget--;
-      const code = fs.readFileSync(full, "utf8");
-      if (!code.includes("jest.mock(")) continue;
+      const code = readText(full);
+      if (code === null || !code.includes("jest.mock(")) continue;
       for (const f of factoryReadsInFile(parse, code)) out.push({ file: rel, ...f });
     }
   };

@@ -861,6 +861,8 @@ jest.mock('a', () => ({ get: () => LATER }));
 `,
     });
     withBabelParser(root);
+    // A broken link named like a test file is skipped, not fatal.
+    fs.symlinkSync(path.join(root, "missing.ts"), path.join(root, "src", "broken.test.ts"));
     const attention = analyzeJestConfig(root).attention.join("\n");
     expect(attention).toContain(
       "1 jest.mock() factory reads a const, let or class from the test file's module body while it runs: " +
