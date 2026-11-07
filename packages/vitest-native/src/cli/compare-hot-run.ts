@@ -260,9 +260,9 @@ export async function runCompareHot(options: CompareHotOptions): Promise<number>
         analysis.suggestedConfig.replaceAll("import.meta.url", JSON.stringify(rootUrl)),
       );
     }
-    // One wrapper per run, each with its own isolated snapshot directory: a directory shared
-    // by a mode's runs would hold the first run's new snapshots, so later runs would write
-    // none and the snapshot comparison would see N, then 0 (pM review).
+    // One wrapper per run, each with its own isolated snapshot directory, so each run's
+    // snapshot reads and its obsolete count are its own, not shaped by the runs before it.
+    // (compare writes no snapshot: update is false and CI is set.)
     const wrapperFor = (n: number, mode: HotMode) => {
       const file = path.join(configDir, `vitest.compare-${n}.config.mjs`);
       fs.writeFileSync(

@@ -5,14 +5,14 @@
  * Tests are identified by file, full name and occurrence among tests sharing that name
  * (`it.each` twins), so a differing duplicate cannot hide behind its twin. A file that failed
  * outside any test (to load, or in a hook) counts as one pseudo-test. The rules
- * (docs: hot-default-0.16, the corpus equivalence proof) are:
+ * (documented in website/guide/cli.md#compare-hot) are:
  * - a test's outcome is its status plus, for a failure, its KIND (timeout, an error code
  *   such as a hot-runtime code, or the error name), not the message text;
  * - hot-only difference: stable within each mode, different between them;
  * - one-mode: present in one mode's runs only;
  * - hot flake: differs between hot runs;
  * - per-file flake: differs between per-file runs; a suite problem, reported apart, and still
- *   judged: every hot outcome must be one per-file also produced (pM review, Q1);
+ *   judged: every hot outcome must be one per-file also produced;
  * - order: a shuffled hot run differs from the stable per-file result;
  * - run-level: hot runs with more unhandled errors, or different snapshot written/obsolete
  *   counts, than per-file.
@@ -173,7 +173,7 @@ export function compareHotRuns(runs: readonly HotRun[]): HotVerdict {
     const hotStable = new Set(hot).size === 1;
     if (!pfStable) perFileFlakes.push({ test: key, mode: "per-file", statuses: pf });
     // A test flaky per file is judged by the subset rule only; hot varying within the
-    // per-file set is not a hot flake (pM review, Q1).
+    // per-file set is not a hot flake.
     if (!hotStable && pfStable) hotFlakes.push({ test: key, mode: "hot", statuses: hot });
     if (!pfStable) {
       // Judged by the subset rule: hot may only produce outcomes per file also produced.
