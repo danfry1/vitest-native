@@ -43,7 +43,11 @@ import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { JSX_TRANSFORM, nativeEngineConfig } from "./native/apply.js";
 import { isProjectJsFile, loadProjectJsx, projectJsxOptions } from "./project-jsx.js";
-import { createProjectBabel, isProjectSourceFile } from "./project-babel.js";
+import {
+  createProjectBabel,
+  isProjectSourceFile,
+  missingBabelCoreNotice,
+} from "./project-babel.js";
 import { installedManifest } from "./installed-manifest.js";
 import type { ProjectBabel } from "./project-babel.js";
 import type { LoadChain } from "./project-jsx.js";
@@ -3295,6 +3299,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       );
       if (babelRoute) projectBabels.set(path.resolve(config.root), babelRoute);
       else projectBabels.delete(path.resolve(config.root));
+      // The native engine requires @babel/core; the mock engine does not, and without it
+      // the project's Babel config cannot be read (missingBabelCoreNotice).
+      if (!babelRoute) {
+        const notice = missingBabelCoreNotice(config.root, options?.projectBabel ?? "auto");
+        if (notice) console.warn(notice);
+      }
       babelRoute?.announceRoot();
 
       // Read the facade's export list from React Native's own index.
