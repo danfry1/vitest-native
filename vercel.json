@@ -4,6 +4,5 @@
   "buildCommand": "SITE_BASE=/ bun run build:website",
   "outputDirectory": "website/.vitepress/dist",
   "framework": null,
-  "cleanUrls": true,
-  "trailingSlash": false
+  "cleanUrls": true
 }

@@ -14,7 +14,11 @@ export default defineConfig({
   lastUpdated: true,
   sitemap: { hostname: `${SITE_URL}/` },
   // One canonical URL per page, on the published address, whichever host serves the build.
-  transformHead: ({ pageData }) => [['link', { rel: 'canonical', href: canonicalUrl(pageData.relativePath) }]],
+  // The not-found page has none: a host serves it for every missing address.
+  transformHead: ({ pageData }) =>
+    pageData.isNotFound || pageData.relativePath === '404.md'
+      ? []
+      : [['link', { rel: 'canonical', href: canonicalUrl(pageData.relativePath) }]],
   head: [
     ['link', { rel: 'icon', href: `${BASE}favicon.svg`, type: 'image/svg+xml' }],
     ['meta', { name: 'theme-color', content: '#ffffff', media: '(prefers-color-scheme: light)' }],

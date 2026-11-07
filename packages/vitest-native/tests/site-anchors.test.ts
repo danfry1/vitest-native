@@ -163,6 +163,15 @@ describe("site anchors", () => {
   it("finds the links to check", () => {
     expect(all.length).toBeGreaterThan(50);
     expect(fromSource.length).toBeGreaterThanOrEqual(12);
+    // Every docsUrl() call has a literal path this test can read. One built from a variable
+    // or a template would link a page nothing checks.
+    const calls = sourceFiles(SOURCE)
+      .filter((file) => !/docs-url\.(mjs|d\.mts)$/.test(file))
+      .flatMap((file) => fs.readFileSync(file, "utf8").match(/docsUrl\(/g) ?? []).length;
+    const checked = sourceFiles(SOURCE)
+      .filter((file) => !/docs-url\.(mjs|d\.mts)$/.test(file))
+      .flatMap((file) => [...fs.readFileSync(file, "utf8").matchAll(DOCS_CALL)]).length;
+    expect(checked).toBe(calls);
   });
 
   it("spells the site's address in src/ only in docs-url.mjs, or in a doc comment", () => {
