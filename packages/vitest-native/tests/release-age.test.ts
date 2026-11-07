@@ -177,18 +177,19 @@ describe("release cooldown", () => {
         [
           "--input-type=module",
           "-e",
-          `await import(${JSON.stringify(pathToFileURL(path.join(packageRoot, "scripts/release-age.mjs")).href)}); process.stdout.write("\\n" + JSON.stringify([process.env.npm_config_before ?? null, process.env.npm_config_minimum_release_age ?? null, process.env.npm_config_ignore_scripts ?? null]));`,
+          `const { CANARY_INSTALL_FLAGS } = await import(${JSON.stringify(pathToFileURL(path.join(packageRoot, "scripts/release-age.mjs")).href)}); process.stdout.write("\\n" + JSON.stringify([process.env.npm_config_before ?? null, process.env.npm_config_minimum_release_age ?? null, process.env.npm_config_ignore_scripts ?? null, CANARY_INSTALL_FLAGS.join(" ")]));`,
         ],
         { env, encoding: "utf8" },
       );
       return JSON.parse(out.trim().split("\n").at(-1)!) as (string | null)[];
     };
     // Off, and never without install scripts off too: every npm a script starts inherits it.
-    expect(applied("1")).toEqual([null, null, "true"]);
+    expect(applied("1")).toEqual([null, null, "true", "--ignore-scripts"]);
     for (const value of [undefined, "", "0", "true"]) {
-      const [, minimumAge, ignoreScripts] = applied(value);
+      const [, minimumAge, ignoreScripts, flags] = applied(value);
       expect(minimumAge).toBe(String(RELEASE_AGE_DAYS * 24 * 60));
       expect(ignoreScripts).toBeNull();
+      expect(flags).toBe("");
     }
   });
 
