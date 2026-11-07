@@ -34,6 +34,7 @@ import {
   type JestScriptFlags,
 } from "./jest-discovery.js";
 import { resolveJestPreset, withPresetSettings } from "./jest-preset.js";
+import { projectBabelTrigger } from "../project-babel.js";
 import { libraryResolver, onlyCallsSetUpTests, stripsOnlyReanimatedProps } from "./superseded.js";
 import {
   babelRecipe,
@@ -1002,7 +1003,46 @@ export function analyzeJestConfig(root: string): MigrationReport {
   const babel = readBabelConfig(root);
   if (babel.source) {
     const classified = classifyBabelPlugins(babel, root, active);
-    const required = classified.filter((p) => p.verdict === "required");
+    // What the engine applies itself to the project source that needs it (projectBabel
+    // 'auto', the generated config's default): one mechanism, so nothing is wired twice.
+    const engineApplied = new Map<string, string>();
+    for (const p of classified) {
+      const reason = projectBabelTrigger(
+        { name: p.name, kind: "plugin", options: p.options },
+        root,
+        active,
+      );
+      if (reason) engineApplied.set(`plugin:${p.name}`, reason);
+    }
+    for (const p of babel.presetEntries ?? []) {
+      const reason = projectBabelTrigger(
+        { name: p.name, kind: "preset", options: p.options },
+        root,
+        active,
+      );
+      if (reason) engineApplied.set(`preset:${p.name}`, reason);
+    }
+    // projectBabel runs only where @babel/core resolves from the project (createProjectBabel);
+    // without it the engine applies nothing, so say so instead of "nothing to add".
+    const babelCore = installed(root, "@babel/core");
+    if (engineApplied.size && !babelCore) {
+      const names = [...engineApplied.keys()].map((k) => k.slice(k.indexOf(":") + 1));
+      attention.push(
+        `${babel.source}: ${list(names)} must reach your own source, and the engine applies ` +
+          `${names.length === 1 ? "it" : "them"} with your Babel config (projectBabel 'auto'), which needs ` +
+          `@babel/core installed in the project. It does not resolve from here (often it came only with ` +
+          `babel-jest). Add @babel/core as a devDependency.`,
+      );
+    }
+    for (const [key, reason] of babelCore ? engineApplied : new Map<string, string>()) {
+      const [kind, name] = [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)];
+      automatic.push(
+        `${babel.source}: ${kind} ${name} → applied by the engine to the project source that needs it ` +
+          `(projectBabel 'auto'; ${reason}); nothing to add.`,
+      );
+    }
+    const byEngine = (p: { name: string }) => engineApplied.has(`plugin:${p.name}`);
+    const required = classified.filter((p) => p.verdict === "required" && !byEngine(p));
     if (required.length) {
       // Emitted only when it can be done exactly: @rolldown/plugin-babel and @babel/core
       // installed, and plugin options that are plain data. Otherwise a config that
@@ -1055,7 +1095,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
     for (const p of classified.filter((c) => c.verdict === "unneeded")) {
       dropped.push(`${babel.source}: ${p.written} — ${p.reason}`);
     }
-    for (const p of classified.filter((c) => c.verdict === "unknown")) {
+    for (const p of classified.filter((c) => c.verdict === "unknown" && !byEngine(c))) {
       attention.push(`${babel.source}: ${p.reason}`);
     }
     if (babel.lazyImports.length) {

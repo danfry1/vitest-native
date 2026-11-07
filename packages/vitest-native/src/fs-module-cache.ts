@@ -104,6 +104,17 @@ const CONFIG_FILES = [
   ".babelrc.json",
 ];
 
+/** The project's root Babel config, by file name (or `package.json#babel`), or null. */
+export function rootBabelConfigFile(root: string): string | null {
+  const found = CONFIG_FILES.find((name) => fs.existsSync(path.join(root, name)));
+  if (found) return found;
+  const manifestFile = path.join(root, "package.json");
+  if (!fs.existsSync(manifestFile)) return null;
+  return JSON.parse(fs.readFileSync(manifestFile, "utf8")).babel !== undefined
+    ? "package.json#babel"
+    : null;
+}
+
 /**
  * A digest of the project's root Babel config (its files, and package.json's `babel`
  * field), so editing it invalidates Vitest's transform cache. A `.babelrc` in a
