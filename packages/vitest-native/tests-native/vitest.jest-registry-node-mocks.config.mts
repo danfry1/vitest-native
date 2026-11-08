@@ -7,6 +7,7 @@ import { defineConfig } from "vitest/config";
 import base from "./vitest.config.mts";
 import { reactNative } from "../dist/index.mjs";
 import { jestMockTransform } from "../dist/jest-compat.mjs";
+import { OTHER_FIXTURES_MOCKS } from "./support/fixture-mocks.mts";
 
 export default defineConfig({
   ...base,
@@ -17,7 +18,7 @@ export default defineConfig({
       presets: { expo: true },
       experimental: { nodeMocks: true },
     }),
-    jestMockTransform(),
+    jestMockTransform(OTHER_FIXTURES_MOCKS),
   ],
   test: { ...base.test, include: ["tests-native/jest-registry-*.test.ts"] },
 });

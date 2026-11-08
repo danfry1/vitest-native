@@ -40,9 +40,27 @@ export default defineConfig({
 | `new` on a `jest.fn(() => ({ ... }))` | returns the implementation's object, as in Jest — Vitest's own `vi.fn` requires a `function` or `class` implementation for `new`, and `jest.fn` does not |
 | `import { jest } from '@jest/globals'` or `require('@jest/globals')` | resolves to the `vi`-backed `jest` (aliased), the same module either way, also when the real `@jest/globals` is installed |
 | top-level `jest.mock('m', factory)` | hoisted + applied, with Jest's factory interop |
+| `__mocks__/<package>` beside `node_modules` | applied with no `jest.mock()` call — see [Manual mocks of `node_modules` packages](#manual-mocks-of-node-modules-packages) |
 | `jest.replaceProperty(Platform, 'OS', 'android')` | replaced in place and restored by the handle's `restore()`, `jest.restoreAllMocks()`, the `restoreMocks` setting, or the end of the test file, with Jest's errors. A bare `vi.restoreAllMocks()` leaves it: that is Vitest's own |
 | `jest.spyOn(View.prototype, 'measure')` | reaches every `View` ref, as with the Jest preset's `View` stand-in: under the native engine, jest-compat gives `View` a prototype holding the native methods its refs call. `Text` and `ScrollView` keep React Native's own shape, without one |
 | `describe` / `it` / `expect` / `beforeEach` | same names, available as globals |
+
+## Manual mocks of `node_modules` packages
+
+Jest applies a file in a `__mocks__` folder to the `node_modules` package of the same name, with no `jest.mock()` call: `__mocks__/moti.ts` replaces `moti`, and `__mocks__/@scope/pkg.js` replaces `@scope/pkg`. `jestMockTransform()` does the same, following Jest's rules:
+
+- **Which files count.** Every `__mocks__` folder under Jest's `roots`, at any depth (`src/api/__mocks__/axios.ts` mocks `axios` too). A file is named by its path inside `__mocks__`, and `__mocks__/pkg/index.js` also answers `pkg`. Files that `modulePathIgnorePatterns` match do not count, and neither do `node_modules`, `ios`, `android`, `Pods`, `build`, `dist`, `.expo` and `.tmp`, which Jest crawls but where no manual mock lives. Pass Jest's settings as `jestMockTransform({ roots: ['src'], modulePathIgnorePatterns: [...] })`, relative to the Vite root. The default is the root. `migrate` carries them over.
+- **Which one wins.** A `jest.mock(name, factory)` or `jest.unmock(name)` in a setup file or test file wins over the manual mock, as in Jest. A factory-less `jest.mock(name)` gets the manual mock, wherever under the roots it lives. The manual mocks are registered by a generated setup module that runs straight after the jest-compat setup, whether `test.setupFiles` lists it or the project's own setup file imports it.
+- **Every load.** The manual mock replaces the package for the test's imports, for `require()` and for the modules Node loads. A manual mock that loads its own package (`jest.requireActual('pkg')`, or `require('pkg')` while it runs) gets the real module, as in Jest.
+- **`__mocks__/react-native.js`.** It applies too, as in Jest: write it as the real module with your changes, `{ ...jest.requireActual('react-native'), Platform: { … } }`. Spreading `requireActual('react-native')` loads the whole React Native graph, so every test file that uses the mock also logs React Native's deprecation warnings, as under Jest. Mock only what you need.
+- **Two files with one name.** Jest warns `duplicate manual mock found` and uses one of them. `jestMockTransform()` prints the same warning and uses the one it reads last, in name order. Delete the others.
+- **What is left alone.** A Node core module (`fs`, `path`) still needs an explicit `jest.mock()`, as in Jest. A package that `reactNative()` already stands in for keeps that: a preset shadows it, or the library runs with its own Jest setup. The run warns once that its manual mock is not applied, and `migrate` lists these mocks to delete.
+
+This is a change for a suite whose manual mocks were not applied before 0.15. To keep the previous behaviour, pass `jestMockTransform({ rootMocks: false })`; each mock then needs a `jest.mock('<package>')`.
+
+::: tip Watch mode
+The `__mocks__` folders are read when the run starts. After adding, renaming or deleting a manual mock, restart `vitest --watch`.
+:::
 
 ## Fake timers
 

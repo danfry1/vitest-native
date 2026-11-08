@@ -57,6 +57,25 @@ const resolverAliases =
     : null;
 const requireAliases = context?.requireAliases ?? [];
 
+/** The name of the factory that loads a manual mock (see `manual` in state.register). */
+export const MANUAL_MOCK_FACTORY = "__vnManualMock";
+
+/**
+ * Whether `entry` is a manual mock still executing: its factory running, or its async
+ * variant pending. A request for the module it mocks is then the real module, as under
+ * Jest (`_isCurrentlyExecutingManualMock`), through Node's loader and through the
+ * precompiled React Native registry alike.
+ */
+function isExecutingManualMock(entry) {
+  return (
+    entry !== undefined &&
+    typeof entry === "object" &&
+    entry.manual === true &&
+    !entry.has &&
+    (entry.evaluating || entry.pending !== null)
+  );
+}
+
 export const config = {
   projectRoot: context?.projectRoot ?? process.cwd(),
   platform: context?.platform === "android" ? "android" : "ios",
@@ -347,6 +366,10 @@ function createState() {
       spec,
       factory,
       asyncFactory,
+      // A manual mock (a __mocks__ file, jest-compat/root-mocks.ts): while it executes, a
+      // request for the module it mocks is the real module, as jest-runtime's
+      // `_isCurrentlyExecutingManualMock` has it, not a cycle.
+      manual: factory?.name === MANUAL_MOCK_FACTORY,
       has: false,
       value: undefined,
       pending: null,
@@ -1172,7 +1195,7 @@ function installLoadHook(state) {
         const entry = state.lookup(filename, request);
         // R8: requireActual's load is the real module, past a vi.mock too; it may still
         // share Vite's instance of a project file below, as before.
-        const bypassed = entry === BYPASSED;
+        const bypassed = entry === BYPASSED || isExecutingManualMock(entry);
         // A package reaching its own entry relatively, mocked for the whole package, is
         // the real module, as under Jest (isPackageOwnRelativeLoad): no mock serves it.
         const ownRelative =
@@ -1226,7 +1249,7 @@ function installLoadHook(state) {
    */
   function nodeMockForRegistry(filename, request, parentFile) {
     const entry = state.lookup(canonical(filename), filename);
-    if (entry === BYPASSED) return NONE;
+    if (entry === BYPASSED || isExecutingManualMock(entry)) return NONE;
     if (entry !== undefined) {
       // The package's own relative load of its entry is the real module (as above).
       return isPackageOwnRelativeLoad(entry, request, filename, parentFile)

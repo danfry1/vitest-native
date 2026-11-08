@@ -30,6 +30,30 @@ tester.run("realpath-spelling", rule("realpath-spelling"), {
       code: `const real = fs.realpathSync.native(dir); // OS spelling: expands 8.3 names`,
     },
     { filename: src(), code: `fs.existsSync(file);` },
+    {
+      filename: src(),
+      code: `// Keyed the way Node's loader keys require.cache,\n// so this is its spelling, not the OS's.\nconst key = cache.get(\n  fs.realpathSync(file),\n);`,
+    },
+    {
+      filename: src(),
+      code: `/**\n * The directory in Node's spelling (what Module._cache uses).\n */\nfunction canonical(dir) {\n  const x = 1;\n  return fs.realpathSync(dir);\n}`,
+    },
+    {
+      filename: src(),
+      code: `/**\n * Node's spelling, as require.cache keys it.\n */\nexport function identityKey(file) {\n  return fs.realpathSync(file);\n}`,
+    },
+    {
+      filename: src(),
+      code: `// OS spelling for the disk identity.\nexport const real = (p) => fs.realpathSync.native(p);`,
+    },
+    {
+      filename: src(),
+      code: `// Node's spelling: what the loader resolves mocks under.\nif (!index.has(k)) index.set(k, fs.realpathSync(p));`,
+    },
+    {
+      filename: src(),
+      code: `// Native spelling: the OS's canonical form.\nconst real = (p) => {\n  return fs.realpathSync.native(p);\n};`,
+    },
   ],
   invalid: [
     { filename: src(), code: `fs.realpathSync(file);`, errors: [{ messageId: "spelling" }] },
@@ -37,6 +61,12 @@ tester.run("realpath-spelling", rule("realpath-spelling"), {
     {
       filename: src(),
       code: `// resolve the link\n\nrealpathSync(file);`,
+      errors: [{ messageId: "spelling" }],
+    },
+    {
+      // A comment above an outer statement does not explain every call inside it.
+      filename: src(),
+      code: `// Node's spelling throughout.\nif (ok) {\n  run();\n  fs.realpathSync(file);\n}`,
       errors: [{ messageId: "spelling" }],
     },
   ],
@@ -79,6 +109,10 @@ tester.run("no-monkey-patching", rule("no-monkey-patching"), {
     { filename: src(), code: `const spy = vi.fn(); spy.mockReturnValue(1);` },
     { filename: src(), code: `options.mockReset = true;`.replace("mockReset", "reset") },
     { filename: src(), code: `globalThis.__vitest_native_state = {};` },
+    {
+      filename: src("src/jest-compat/jest-object.mjs"),
+      code: Array.from({ length: 11 }, () => "vi.fn = f;").join("\n"),
+    },
   ],
   invalid: [
     { filename: src(), code: `vi.fn = wrapped;`, errors: [{ messageId: "patch" }] },
@@ -90,6 +124,22 @@ tester.run("no-monkey-patching", rule("no-monkey-patching"), {
       filename: src("src/jest-compat/jest-object.mjs"),
       code: Array.from({ length: 12 }, () => "vi.fn = f;").join("\n"),
       errors: [{ messageId: "patch" }],
+    },
+    // A listed count above the file's sites is stale: it would let a new site in.
+    {
+      filename: src("src/jest-compat/jest-object.mjs"),
+      code: Array.from({ length: 10 }, () => "vi.fn = f;").join("\n"),
+      errors: [
+        {
+          message:
+            "lint/baseline.json lists 11 no-monkey-patching site(s) for this file, and it has 10: lower the count to 10.",
+        },
+      ],
+    },
+    {
+      filename: src("src/jest-compat/jest-object.mjs"),
+      code: "export {};",
+      errors: [{ message: /has 0: lower the count to 0 \(remove the entry\)/ }],
     },
   ],
 });

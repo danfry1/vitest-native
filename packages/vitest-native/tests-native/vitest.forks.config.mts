@@ -15,6 +15,7 @@ import { reactNative } from "../dist/index.mjs";
 import { jestMockTransform } from "../dist/jest-compat.mjs";
 import { NATIVE_SUITE_SETUP_FILES } from "./support/setup-files.mjs";
 import { NATIVE_SUITE_OWNERSHIP } from "./support/ownership-allow.mjs";
+import { OTHER_FIXTURES_MOCKS } from "./support/fixture-mocks.mts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -32,7 +33,7 @@ export default defineConfig({
       registryBuild: "wait",
       ownership: NATIVE_SUITE_OWNERSHIP,
     }),
-    jestMockTransform(),
+    jestMockTransform(OTHER_FIXTURES_MOCKS),
   ],
   // The tsconfig-paths-style alias requireactual-alias.test.tsx exercises.
   resolve: { alias: { "@vn-app": path.resolve(here, "fixtures/alias-app") } },

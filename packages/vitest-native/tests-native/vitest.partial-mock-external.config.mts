@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 import { jestMockTransform } from "../dist/jest-compat.mjs";
+import { OTHER_FIXTURES_MOCKS } from "./support/fixture-mocks.mts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Vitest externalizes what server.deps.external names, so the test's own import of the
@@ -16,7 +17,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const nodeRunsTypeScript = Boolean((process.features as { typescript?: unknown }).typescript);
 
 export default defineConfig({
-  plugins: [reactNative({ engine: "native", hotRuntime: false, ownership: "error" }), jestMockTransform()],
+  plugins: [reactNative({ engine: "native", hotRuntime: false, ownership: "error" }), jestMockTransform(OTHER_FIXTURES_MOCKS)],
   test: {
     environment: "node",
     globals: true,

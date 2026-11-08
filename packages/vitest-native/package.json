@@ -1,6 +1,6 @@
 {
   "name": "vitest-native",
-  "version": "0.15.0-rc.1",
+  "version": "0.15.0-rc.2",
   "description": "Run real React Native tests under Vitest. One install, zero config.",
   "keywords": [
     "expo",
@@ -120,8 +120,9 @@
     "build": "bunx --bun tsdown && node scripts/copy-static-types.mjs",
     "test": "node scripts/ci/vitest.mjs run",
     "test:cli-compare-e2e": "node scripts/ci/vitest.mjs run --config vitest.e2e.config.ts",
-    "test:native": "node scripts/run-scripts.mjs test:native:no-globals test:native:main test:native:per-file test:native:rntl-timers test:native:one-instance test:native:context test:native:shared-root test:native:preset-modules test:native:permissive test:native:reanimated-fallback test:native:partial-mock-external test:native:tsconfig-paths test:native:regex-alias test:native:dispatch-alias test:native:jest-registry-node-mocks test:native:jest-compat-restore-mocks test:native:node-mocks test:native:ownership test:native:project-js-jsx test:native:jest-globals-require test:native:compile-error test:native:project-babel test:native:rn-deep-mock",
+    "test:native": "node scripts/run-scripts.mjs test:native:no-globals test:native:main test:native:per-file test:native:rntl-timers test:native:one-instance test:native:context test:native:shared-root test:native:preset-modules test:native:permissive test:native:reanimated-fallback test:native:partial-mock-external test:native:tsconfig-paths test:native:regex-alias test:native:dispatch-alias test:native:jest-registry-node-mocks test:native:jest-compat-restore-mocks test:native:node-mocks test:native:ownership test:native:project-js-jsx test:native:jest-globals-require test:native:compile-error test:native:project-babel test:native:rn-deep-mock test:native:root-mocks",
     "test:native:main": "node scripts/ci/vitest.mjs run --config tests-native/vitest.config.mts",
+    "test:native:root-mocks": "node scripts/test-root-mocks-registry.mjs && node scripts/ci/vitest.mjs run --config tests-native/vitest.root-mocks-projects.config.mts && node scripts/ci/vitest.mjs run --config tests-native/vitest.root-mocks.config.mts --mode user-setup",
     "test:native:jest-globals-require": "node scripts/ci/vitest.mjs run --config tests-native/vitest.jest-globals-require.config.mts --mode native && node scripts/ci/vitest.mjs run --config tests-native/vitest.jest-globals-require.config.mts --mode mock",
     "test:native:per-file": "node scripts/ci/vitest.mjs run --config tests-native/vitest.per-file.config.mts",
     "test:native:background": "node scripts/ci/vitest.mjs run --config tests-native/vitest.background.config.mts",
