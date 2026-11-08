@@ -1068,6 +1068,28 @@
       }
     },
     {
+      "id": "pfs-hot-resident-mock",
+      "class": "per-file-state",
+      "title": "Under hot, RNTL keeps a file's partial react-native mock for the worker's life",
+      "source": "#670 (Rocket.Chat, cold hot runs only)",
+      "fixedBy": "#670's fix: a require from a package the hot worker keeps resident is not served a file's mock",
+      "bugSignature": "^b\\.test\\.tsx: TypeError: Cannot read properties of undefined \\(reading 'flatten'\\)",
+      "control": {
+        "why": "The stock runtime (hotRuntime: false) loads RNTL again in every file, as Jest does: the mock stays in its file.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "hotRuntime: { allowUnboundedMemory: true }",
+            "replace": "hotRuntime: false"
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS"
+      }
+    },
+    {
       "id": "pfs-hot-warning-dedupe",
       "class": "per-file-state",
       "title": "Under hot, React's warning dedupe hides a warning the file asserts",
