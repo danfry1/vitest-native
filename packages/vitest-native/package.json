@@ -1,6 +1,6 @@
 {
   "name": "vitest-native",
-  "version": "0.15.0-rc.1",
+  "version": "0.15.0-rc.2",
   "description": "Run real React Native tests under Vitest. One install, zero config.",
   "keywords": [
     "expo",
@@ -12,7 +12,7 @@
     "vite",
     "vitest"
   ],
-  "homepage": "https://github.com/danfry1/vitest-native#readme",
+  "homepage": "https://vitest-native.danfry.dev",
   "bugs": {
     "url": "https://github.com/danfry1/vitest-native/issues"
   },
