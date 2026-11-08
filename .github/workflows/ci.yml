@@ -295,14 +295,14 @@ jobs:
         shell: bash
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 900 -- bun run test
 
-      - name: compare end-to-end tests
-        # `vitest-native compare`'s end-to-end tests run Vitest for real, seconds per test
-        # (about half a minute each on Windows). Inside the unit suite they starved its
-        # fast tests of CPU until those timed out, so they run here, after it, on one leg
-        # per OS.
+      - name: End-to-end tests
+        # Test files that run Vitest for real (vitest.e2e.config.ts), seconds per test and
+        # about half a minute or more per file on Windows. Inside the unit suite they
+        # starved its fast tests of CPU until those timed out, so they run here, after it,
+        # on one leg per OS.
         if: ${{ !matrix.rntl && matrix.part != 'native' && matrix.node-version == '22.22.3' }}
         shell: bash
-        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run --filter vitest-native test:cli-compare-e2e
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 600 -- bun run --filter vitest-native test:e2e
 
       - name: Docs checks selection
         # The docs job runs this only on docs-only pull requests, and a change to the
