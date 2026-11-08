@@ -10,10 +10,11 @@
 //   node scripts/fidelity-matrix.mjs --reports <dir>   # <dir>/**/report.json
 //   node scripts/fidelity-matrix.mjs                   # placeholder page
 //
-// The page is rendered at DEPLOY time by pages.yml from the latest successful
-// matrix run's artifacts; the committed website/guide/fidelity-matrix.md is a
-// placeholder that keeps local site builds (and VitePress dead-link checks)
-// working and is overwritten in the deploy workspace before the build.
+// The RN matrix workflow (.github/workflows/native-rn-matrix.yml) renders the page
+// from its own run's reports on main and pushes it to the site-data branch; the
+// site's build fetches it from there (website/scripts/fetch-fidelity-matrix.mjs).
+// The committed website/guide/fidelity-matrix.md is a placeholder that keeps local
+// site builds (and VitePress dead-link checks) working.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -111,9 +112,9 @@ function matrixKey({ rn, flavor }) {
 
 const HEADER = `<!--
   GENERATED FILE — do not edit by hand.
-  The committed version is a placeholder; pages.yml regenerates this page at
-  deploy time from the latest CI matrix run's cross-check reports
-  (scripts/fidelity-matrix.mjs).
+  The committed version is a placeholder. The RN matrix workflow renders this
+  page from its cross-check reports (scripts/fidelity-matrix.mjs) and publishes it
+  to the site-data branch, which the site's build fetches.
 -->
 # Fidelity matrix
 

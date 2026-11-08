@@ -54,7 +54,7 @@ only be off: `--watchAll=false`, `--coverage=false`, `--coverage.enabled=false` 
 Measured with Vitest 5.0.5: under `CI=true`, which makes Vitest's snapshot mode `none`, Vitest still
 rewrote the header of every Jest `.snap` file it read to `// Vitest Snapshot v1`, which Jest then
 refuses to read. The keys differ too (`a > b 1` against `a b 1`; see
-[snapshots](https://danfry1.github.io/vitest-native/migration/from-jest#snapshots)). And a project's own settings can ask for writes: `test.update: true`, the `UPDATE_SNAPSHOT`
+[snapshots](https://vitest-native.danfry.dev/migration/from-jest#snapshots)). And a project's own settings can ask for writes: `test.update: true`, the `UPDATE_SNAPSHOT`
 environment variable, or a `resolveSnapshotPath` that points at Jest's `__snapshots__/`. So:
 
 - Both runs set `CI=true` without `UPDATE_SNAPSHOT`. Jest gets `--ci` last.
