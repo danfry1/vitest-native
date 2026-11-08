@@ -110,7 +110,8 @@ const dirSpellings = new Map();
 function spellingsOf(dir) {
   let spellings = dirSpellings.get(dir);
   if (spellings === undefined) {
-    spellings = rootSpellings(dir);
+    // The directory as given too: the paths a caller compares may be spelled that way.
+    spellings = [...new Set([dir, ...rootSpellings(dir)])];
     dirSpellings.set(dir, spellings);
   }
   return spellings;

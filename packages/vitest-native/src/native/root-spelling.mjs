@@ -58,12 +58,13 @@ export function rootSpellingOf(root, file) {
  * check costs no file-system call.
  */
 export function under(file, dir) {
-  const target = fold(file);
-  const prefix = fold(dir);
-  return (
-    target === prefix || target.startsWith(prefix.endsWith(path.sep) ? prefix : prefix + path.sep)
-  );
+  const target = slashes(fold(file));
+  const prefix = slashes(fold(dir)).replace(/\/+$/, "");
+  return target === prefix || target.startsWith(`${prefix}/`);
 }
+
+// On Windows `/` and `\` are both separators, and paths arrive with either.
+const slashes = process.platform === "win32" ? (p) => p.replace(/\\/g, "/") : (p) => p;
 
 /** `file` relative to `root`, in whichever spelling of the root it is under. */
 export function relativeToRoot(root, file) {
