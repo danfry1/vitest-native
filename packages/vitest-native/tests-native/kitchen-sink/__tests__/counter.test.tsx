@@ -1,6 +1,6 @@
 import * as React from "react";
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import NetInfo from "@react-native-community/netinfo";
+import { fetch as fetchNetInfo } from "@react-native-community/netinfo";
 import { Counter } from "../src/components/Counter";
 import { track } from "../src/services/analytics";
 
@@ -13,6 +13,6 @@ test("renders, presses, and reaches every kind of mock", async () => {
   // The mock beside the module.
   expect(jest.mocked(track)).toHaveBeenCalledWith("press 1");
   // The library's own Jest mock, from the setup file.
-  expect(jest.isMockFunction(NetInfo.fetch)).toBe(true);
+  expect(jest.isMockFunction(fetchNetInfo)).toBe(true);
   expect((globalThis as Record<string, unknown>).__kitchenSinkSetup).toBe(true);
 });
