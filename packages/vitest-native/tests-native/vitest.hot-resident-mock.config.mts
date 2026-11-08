@@ -6,6 +6,7 @@ import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 import { reactNative } from "../dist/index.mjs";
 import { jestCompatAliases, jestCompatSetup, jestMockTransform } from "../dist/jest-compat.mjs";
+import { OTHER_FIXTURES_MOCKS } from "./support/fixture-mocks.mts";
 
 class ByName extends BaseSequencer {
   override async sort(files: TestSpecification[]) {
@@ -23,7 +24,7 @@ export default defineConfig(({ mode }) => {
         engine: "native",
         hotRuntime: mode === "hot" ? { allowUnboundedMemory: true } : false,
       }),
-      jestMockTransform(),
+      jestMockTransform(OTHER_FIXTURES_MOCKS),
     ],
     resolve: { alias: jestCompatAliases() },
     test: {
