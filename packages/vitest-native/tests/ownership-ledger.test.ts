@@ -425,6 +425,33 @@ describe("the installed ledger", () => {
     console.warn = () => {};
   `;
 
+  it("reads the hot generation from the counter setup stores, for an ES module record (#669)", () => {
+    // Under the hot runtime, setup.mjs stores the generation channel as { counter } (an
+    // Int32Array on a SharedArrayBuffer), and Node's ES module loads carry the generation
+    // they ran in (?vnhot=). Checking such a record's liveness read the wrapper as if it
+    // were the array, and threw "is not an integer typed array" (#669).
+    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-ledger-hot-")));
+    fs.writeFileSync(path.join(dir, "a.mjs"), "export const a = 1;\n");
+    const out = node(`
+      import { pathToFileURL } from "node:url";
+      ${prelude}
+      const counter = new Int32Array(new SharedArrayBuffer(4));
+      counter[0] = 3;
+      globalThis.__vitest_native_hot_generation = { counter };
+      const file = fs.realpathSync("a.mjs");
+      const channel = globalThis[Symbol.for("vitest-native.node-dispatch")].channel(L.OWNERSHIP_CHANNEL);
+      channel.nodeEsm(pathToFileURL(file).href + "?vnhot=3");
+      // Generation 3 is the live one: Vite's copy of the same file is a twin.
+      viteEvaluates(file);
+      const live = ledger.conflicts.length;
+      // The next file's generation: the record from generation 3 can never be live again.
+      Atomics.store(counter, 0, 4);
+      viteEvaluates(file);
+      console.log(JSON.stringify({ live, after: ledger.conflicts.length }));
+    `);
+    expect(JSON.parse(out)).toEqual({ live: 1, after: 1 });
+  });
+
   it("treats a Node copy as live only while Node's cache holds that module", () => {
     dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-ledger-live-")));
     fs.writeFileSync(path.join(dir, "m.js"), "exports.store = {};\n");
