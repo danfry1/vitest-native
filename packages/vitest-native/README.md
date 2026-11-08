@@ -2,7 +2,7 @@
 
 [![npm](https://img.shields.io/npm/v/vitest-native)](https://www.npmjs.com/package/vitest-native)
 [![npm downloads](https://img.shields.io/npm/dm/vitest-native)](https://npmcharts.com/compare/vitest-native?interval=30)
-[![RN fidelity](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdanfry1%2Fvitest-native%2Fmain%2Fpackages%2Fvitest-native%2Fcrosscheck%2Ffidelity-badge.json)](https://danfry1.github.io/vitest-native/guide/fidelity)
+[![RN fidelity](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fdanfry1%2Fvitest-native%2Fmain%2Fpackages%2Fvitest-native%2Fcrosscheck%2Ffidelity-badge.json)](https://vitest-native.danfry.dev/guide/fidelity)
 [![license](https://img.shields.io/npm/l/vitest-native)](https://github.com/danfry1/vitest-native/blob/main/LICENSE)
 
 **Test React Native with Vitest, against real React Native.**
@@ -11,7 +11,7 @@ vitest-native is a Vitest plugin. Your tests run React Native's real JavaScript,
 that ships in your app, and only the native modules and native host components are mocked.
 It works the same for bare React Native and Expo apps.
 
-**📖 Documentation: [danfry1.github.io/vitest-native](https://danfry1.github.io/vitest-native/)**
+**📖 Documentation: [vitest-native.danfry.dev](https://vitest-native.danfry.dev/)**
 
 ## Why not Jest's preset?
 
@@ -26,8 +26,8 @@ mock boundary sits lower, so your tests run React Native's real component code.
 | Rendered host names | `View`, `Text` | `RCTView`, `RCTText` |
 
 A lightweight pure-JS mock engine is also available (`engine: 'mock'`) for tests that need no React
-Native at all. See the [comparison with Jest](https://danfry1.github.io/vitest-native/guide/comparison) and
-[choosing an engine](https://danfry1.github.io/vitest-native/guide/engines).
+Native at all. See the [comparison with Jest](https://vitest-native.danfry.dev/guide/comparison) and
+[choosing an engine](https://vitest-native.danfry.dev/guide/engines).
 
 ## Who it's for
 
@@ -43,13 +43,13 @@ Migrating a large Jest suite is incremental, not turnkey.
 
 - **Behavioral cross-check.** The same probes run under the mock engine and under real React
   Native, across every React Native version CI supports, and any difference fails the build. The
-  badge above shows the current count; the [fidelity report](https://danfry1.github.io/vitest-native/guide/fidelity) lists every probe.
+  badge above shows the current count; the [fidelity report](https://vitest-native.danfry.dev/guide/fidelity) lists every probe.
 - **Packed consumers in CI.** The release tarball is installed into bare React Native, Expo SDK 57
   and 58 apps (with expo-router), and npm and pnpm workspace monorepos, and their tests run in CI.
 - **Real apps, as observations.** Public apps are run in the
   [bake-offs repository](https://github.com/danfry1/vitest-native-bakeoffs), with each app's setup
   in the repository. Their results are not capability claims; see the
-  [validation model](https://danfry1.github.io/vitest-native/guide/validation-model).
+  [validation model](https://vitest-native.danfry.dev/guide/validation-model).
 - **Performance.** vitest-native is not a speed play. Each test file gets a fresh worker by
   default; the opt-in hot runtime reuses workers, and whether that is faster depends on your suite,
   so measure it.
@@ -97,8 +97,8 @@ Run it with `npx vitest`, or add `"test": "vitest"` to your scripts. If somethin
 
 `npx vitest-native migrate` reads your Jest config and reports what maps over; `--write` saves the
 suggested Vitest config. Existing `jest.fn`, `jest.mock` and `jest.useFakeTimers` calls keep working
-through the jest-compat layer. See [migrating from Jest](https://danfry1.github.io/vitest-native/migration/from-jest) and the
-[Expo guide](https://danfry1.github.io/vitest-native/guide/expo).
+through the jest-compat layer. See [migrating from Jest](https://vitest-native.danfry.dev/migration/from-jest) and the
+[Expo guide](https://vitest-native.danfry.dev/guide/expo).
 
 ## Requirements
 
@@ -118,11 +118,11 @@ module hooks work; on an older Node the plugin stops at startup with `UNSUPPORTE
 
 ## Learn more
 
-- [Choosing an engine](https://danfry1.github.io/vitest-native/guide/engines) and the [hot runtime](https://danfry1.github.io/vitest-native/guide/hot-runtime)
-- [Third-party presets](https://danfry1.github.io/vitest-native/guide/presets) (Reanimated, Gesture Handler, Navigation, …)
-- [Expo](https://danfry1.github.io/vitest-native/guide/expo) · [Plugin options](https://danfry1.github.io/vitest-native/guide/plugin-options) · [Test helpers](https://danfry1.github.io/vitest-native/guide/helpers)
-- [Coverage](https://danfry1.github.io/vitest-native/guide/coverage) · [CLI](https://danfry1.github.io/vitest-native/guide/cli) · [Troubleshooting](https://danfry1.github.io/vitest-native/guide/troubleshooting)
-- [Release notes for 0.14](https://danfry1.github.io/vitest-native/releases/0.14) · [Changelog](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/CHANGELOG.md)
+- [Choosing an engine](https://vitest-native.danfry.dev/guide/engines) and the [hot runtime](https://vitest-native.danfry.dev/guide/hot-runtime)
+- [Third-party presets](https://vitest-native.danfry.dev/guide/presets) (Reanimated, Gesture Handler, Navigation, …)
+- [Expo](https://vitest-native.danfry.dev/guide/expo) · [Plugin options](https://vitest-native.danfry.dev/guide/plugin-options) · [Test helpers](https://vitest-native.danfry.dev/guide/helpers)
+- [Coverage](https://vitest-native.danfry.dev/guide/coverage) · [CLI](https://vitest-native.danfry.dev/guide/cli) · [Troubleshooting](https://vitest-native.danfry.dev/guide/troubleshooting)
+- [Release notes for 0.14](https://vitest-native.danfry.dev/releases/0.14) · [Changelog](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/CHANGELOG.md)
 
 ## Status
 
@@ -130,7 +130,7 @@ Beta. What is covered by semver, what is experimental and what 1.0 will mean are
 [versioning and stability](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/docs/versioning.md).
 vitest-native is the maintained successor to
 [`vitest-community/vitest-react-native`](https://github.com/vitest-community/vitest-react-native),
-rebuilt for Vitest 5; see [migrating from it](https://danfry1.github.io/vitest-native/migration/from-vitest-react-native).
+rebuilt for Vitest 5; see [migrating from it](https://vitest-native.danfry.dev/migration/from-vitest-react-native).
 
 ## Contributing
 

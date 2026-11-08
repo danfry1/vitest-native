@@ -458,9 +458,11 @@ export function installOwnershipLedger({ projectRoot = process.cwd() } = {}) {
     }
     return policy?.decideFile(file) ?? null;
   };
+  // The hot runtime's current ES module generation: setup.mjs stores the channel as
+  // { counter }, an Int32Array on a SharedArrayBuffer that the worker advances per file.
   const generation = () => {
-    const view = globalThis.__vitest_native_hot_generation;
-    return view ? Atomics.load(view, 0) : 0;
+    const counter = globalThis.__vitest_native_hot_generation?.counter;
+    return counter ? Atomics.load(counter, 0) : 0;
   };
   const graph = () => globalThis.__vitest_worker__?.evaluatedModules;
   // Plus the `mock:<id>` node vi.mock(path, { spy: true }) runs the original under.
