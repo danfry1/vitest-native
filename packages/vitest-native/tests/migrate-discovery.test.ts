@@ -598,7 +598,14 @@ describe("a jest-expo app's package.json#jest", () => {
     );
     expect(report.automatic.join("\n")).not.toContain("applied by the engine");
     const doctor = runDoctor(root).lines.join("\n");
-    expect(doctor).toContain("needs projectBabel");
+    // The engine's own notice, once, then each entry it leaves unapplied.
+    expect(doctor).toContain(
+      "projectBabel: babel.config.js is not applied, because @babel/core is not installed",
+    );
+    expect(doctor.match(/is not applied, because @babel\/core/g)).toHaveLength(1);
+    expect(doctor).toContain(
+      "· @lingui/babel-plugin-lingui-macro: not applied without @babel/core",
+    );
     expect(doctor).not.toContain("applied by the engine where needed");
   });
 
