@@ -114,3 +114,28 @@ Neither run writes snapshots, and compare fails if a run changes a file in the p
 | `--timeout <seconds>` | The time limit for each runner (default 1800). |
 | `--show-output` | Stream both runners' output. |
 | `--strict` | Confirm a parametrised test whose title Vitest printed as `%p` only by its title, never by its row position. |
+| `--hot` | Compare the suite per file with `hotRuntime: 'auto'` instead of Jest with Vitest. See [below](#compare-hot). |
+| `--runs <n>` | With `--hot`: runs per mode (default 2; the first warms caches and is not timed). |
+| `--seed <n>` | With `--hot`: the seed for the shuffled hot run (random by default, always printed). |
+| `--no-shuffle` | With `--hot`: skip the shuffled hot run. |
+
+### `compare --hot` {#compare-hot}
+
+```sh
+npx vitest-native compare --hot
+```
+
+Runs your Vitest config per file and with `hotRuntime: 'auto'`, then compares every test's result. Jest is not run. The runs are, in order:
+- per file twice;
+- hot twice;
+- one hot run with files shuffled (`--seed`, printed);
+- one hot run at `--maxWorkers=2`, where more files share a worker.
+
+Tests are matched by file, full name and occurrence. A failure compares by its kind (an assertion error, a timeout, an error code), not its message. Also compared: errors outside tests, and snapshots written or left obsolete.
+
+- **No difference:** it prints `No difference in N per-file and M hot runs`, with the median wall times, and exits 0. When hot is faster it says so, and you can add `hotRuntime: 'auto'` to `reactNative({ … })`.
+- **Differences:** it lists each test that differs, or that varies between hot runs, and exits 1. A test that already varies between per-file runs is reported separately, and hot may only produce results the per-file runs also produced.
+- **No verdict (exit 2):** a hot run did not actually run hot, because `'auto'` declined and printed `hot runtime off: …`; or a run failed to start or timed out; or the runs changed project files.
+
+Two runs cannot rule out a rare flake: raise `--runs` for more confidence. `--json` records every run's results, the versions and the worker counts.
+

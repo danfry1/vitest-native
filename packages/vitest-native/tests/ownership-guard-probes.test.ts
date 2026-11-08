@@ -75,6 +75,22 @@ beforeAll(() => {
     exports: "./index.js",
   });
   write("node_modules/esm-dep/index.js", 'export { store } from "../../src/fx/e2.mjs";\n');
+  // Two installed ES modules for the hot runtime's generation stamp (#669): Vite inlines
+  // esm-pure, and esm-ext re-exports it, so a Node import of esm-ext loads it stamped.
+  write("node_modules/esm-pure/package.json", {
+    name: "esm-pure",
+    version: "1.0.0",
+    type: "module",
+    exports: "./index.js",
+  });
+  write("node_modules/esm-pure/index.js", "export const store = { value: null };\n");
+  write("node_modules/esm-ext/package.json", {
+    name: "esm-ext",
+    version: "1.0.0",
+    type: "module",
+    exports: "./index.js",
+  });
+  write("node_modules/esm-ext/index.js", 'export { store } from "esm-pure";\n');
 
   write("package.json", { name: "probe-app", private: true, type: "module" });
   write(
@@ -257,7 +273,12 @@ it("reqactual", async () => {
   // Two files that share one worker: the first requires a store, the second imports it.
   // Under the hot runtime the per-file reset drops Node's copy in between; under plain
   // `isolate: false` it stays live (docs/ownership-guard.md, "isolate: false").
-  const sharedWorker = (name: string, options: string, test: string) =>
+  const sharedWorker = (
+    name: string,
+    options: string,
+    test: string,
+    include = "src/cross/*.test.ts",
+  ) =>
     write(
       `vitest.${name}.config.mts`,
       `import { defineConfig } from "vitest/config";
@@ -278,7 +299,7 @@ export default defineConfig({
   ],
   test: {
     environment: "node",
-    include: ["src/cross/*.test.ts"],
+    include: ["${include}"],
     maxWorkers: 1,
     fileParallelism: false,
     sequence: { sequencer: ByName },
@@ -289,6 +310,27 @@ export default defineConfig({
     );
   sharedWorker("hot", "hotRuntime: { allowUnboundedMemory: true }", "");
   sharedWorker("noiso", "hotRuntime: false", "isolate: false,");
+  // An installed ES module Node loads under the hot runtime carries its generation
+  // (?vnhot=), and the guard checks that record's liveness when Vite evaluates the same
+  // file (#669). The first file only advances the generation.
+  sharedWorker(
+    "hotesm",
+    "hotRuntime: { allowUnboundedMemory: true }",
+    'server: { deps: { inline: ["esm-pure"] } },',
+    "src/hotesm/*.test.ts",
+  );
+  write("src/hotesm/a.test.ts", `import { it } from "vitest";\nit("a", () => {});\n`);
+  write(
+    "src/hotesm/b.test.ts",
+    `import { it } from "vitest";
+import { out } from "../h";
+it("b", async () => {
+  const viaNode: any = await import("esm-ext");
+  const viaVite: any = await import("esm-pure");
+  out("hotesm", viaVite.store !== viaNode.store, /esm-pure/);
+});
+`,
+  );
   write(
     "src/cross/a.test.ts",
     `import { it } from "vitest";
@@ -471,6 +513,14 @@ describe.runIf(distExists)("the ownership guard on the review's shapes", () => {
     const { status, output, probe } = run("error", {}, ["--config", "vitest.hot.config.mts"]);
     expect(output).toContain("hot runtime");
     expect(probe("cross"), output).toContain("split=false reported=false");
+    expect(status, output).toBe(0);
+  }, 200_000);
+
+  it("hot runtime: an ES module record stamped with its generation is checked, not thrown on", () => {
+    const { status, output, probe } = run("warn", {}, ["--config", "vitest.hotesm.config.mts"]);
+    expect(output).toContain("hot runtime");
+    expect(output).not.toContain("is not an integer typed array");
+    expect(probe("hotesm"), output).toContain("split=true reported=true node>vite:vite-inline:esm");
     expect(status, output).toBe(0);
   }, 200_000);
 

@@ -17,10 +17,10 @@
  * engine's Babel transform, or the mock engine's Flow strip and Vite's pipeline).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
-import fs from "node:fs";
 import path from "node:path";
 import { transformWithOxc } from "vite";
 import type { ResolvedConfig, Rollup } from "vite";
+import { readProjectSource } from "./project-source-file.js";
 
 type OxcOptions = NonNullable<Parameters<typeof transformWithOxc>[2]>;
 
@@ -84,8 +84,9 @@ export async function loadProjectJsx(
   log?: (message: string) => void,
 ): Promise<Rollup.LoadResult> {
   if (!options || !isProjectJsFile(id) || asking.getStore() === id) return undefined;
-  const code = await fs.promises.readFile(id, "utf8");
-  if (!MAY_HAVE_JSX.test(code)) return undefined;
+  // No file: a virtual module a later plugin serves (src/project-source-file.ts).
+  const code = await readProjectSource(id);
+  if (code === null || !MAY_HAVE_JSX.test(code)) return undefined;
   if (chain) {
     const other = await asking.run(id, () => chain.load(id));
     if (other != null) return other;
