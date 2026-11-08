@@ -789,10 +789,10 @@ export function createProjectBabel(
     cacheKey(id, source) {
       const babelRoot = projectRootOf(id);
       if (babelRoot === null) return "";
-      const partial = partialFor(id, babelRoot);
-      if (!partial?.hasFilesystemConfig()) return "";
       // An id with no file is a virtual module the load hook leaves to its plugin.
       if (!isProjectSourceOnDisk(id)) return "";
+      const partial = partialFor(id, babelRoot);
+      if (!partial?.hasFilesystemConfig()) return "";
       const presets = partial.options.presets ?? [];
       const plugins = partial.options.plugins ?? [];
       const names = [
