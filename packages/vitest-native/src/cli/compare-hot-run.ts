@@ -140,9 +140,10 @@ function readRetried(file: string, root: string): Set<string> {
   for (const line of fs.readFileSync(file, "utf8").split("\n")) {
     if (!line.trim()) continue;
     const r = JSON.parse(line) as { file: string; names: string[]; title: string };
-    // The worker reports the file under whichever spelling of the root it loaded it by
-    // (Windows: long name, 8.3 name, drive-letter case), which a plain relative() misses.
-    const rel = relativeToRoot(root, r.file).split(/[\\/]/).join("/");
+    // The worker reports the file as Vite spells it (forward slashes, on Windows too) and
+    // under whichever spelling of the root it loaded it by (long name, 8.3 name, drive-letter
+    // case). The root spellings use the platform separator, so normalise first.
+    const rel = relativeToRoot(root, path.normalize(r.file)).split(/[\\/]/).join("/");
     out.add(testName({ file: rel, ancestors: r.names, title: r.title }));
   }
   return out;
