@@ -21,6 +21,9 @@ const vitest = path.join(packageRoot, "scripts/ci/vitest.mjs");
 const FIXTURES = [
   { config: "tests-native/vitest.root-mocks.config.mts", root: "tests-native/root-mocks" },
   { config: "tests-native/vitest.root-mocks-rn.config.mts", root: "tests-native/root-mocks-rn" },
+  // Root mocks combined with a babel.config.js, presets, a setup file and RNTL, as a
+  // Jest-migrated app has them (#666 broke only the combination).
+  { config: "tests-native/vitest.kitchen-sink.config.mts", root: "tests-native/kitchen-sink" },
 ];
 
 // The engine's diagnostics (src/native/registry-process.mjs, registry.mjs): a compile in

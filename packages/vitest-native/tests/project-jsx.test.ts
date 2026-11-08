@@ -71,6 +71,16 @@ describe("project .js files compiled as JSX (#561)", () => {
     );
   });
 
+  it("leaves an id under the root that names no file to the plugin that serves it", async () => {
+    // A virtual module spelled as a project path (jest-compat's root-mocks module, a
+    // third-party plugin's): reading it from disk would fail the load (#666).
+    const dir = path.dirname(tempFile("src/real.js", ""));
+    const virtual = `${dir}/virtual-view.js`;
+    expect(await loadProjectJsx(virtual, OPTIONS, undefined, undefined)).toBeUndefined();
+    const chain = { load: async () => "export const a = 'plugin';" };
+    expect(await loadProjectJsx(virtual, OPTIONS, undefined, chain)).toBeUndefined();
+  });
+
   it("compiles a file another environment is loading at the same time", async () => {
     // Environment A's ask is still pending when environment B loads the same file
     // (two projects sharing a setup file): B must compile it, not skip it.

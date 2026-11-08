@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
 import { esmImportInterop } from "./esm-interop.mjs";
+import { relativeToRoot } from "./root-spelling.mjs";
 
 // One @babel/core per project root.
 const babels = new Map();
@@ -112,7 +113,8 @@ export function importMetaToCommonJS(root) {
 
 function importMetaUnsupported(file, root, name, at) {
   const what = name === null ? "`import.meta`" : `\`import.meta.${name}\``;
-  const rel = path.relative(root, file);
+  // In whichever spelling of the root the file is under (root-spelling.mjs).
+  const rel = relativeToRoot(root, file);
   const inside = rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
   const shownPath = inside ? rel : file;
   const shown = shownPath.split(path.sep).join("/");

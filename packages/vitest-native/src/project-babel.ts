@@ -28,6 +28,7 @@ import { rootBabelConfigFile } from "./fs-module-cache.js";
 import { installedManifest } from "./installed-manifest.js";
 import { projectBabelCaller } from "./native/babel-caller.mjs";
 import { relativeToRoot, rootSpellingOf } from "./native/root-spelling.mjs";
+import { isProjectSourceOnDisk, readProjectSource } from "./project-source-file.js";
 import { VitestNativeError } from "./errors.mjs";
 import type { PresetName } from "./preset-map.js";
 
@@ -790,6 +791,8 @@ export function createProjectBabel(
       if (babelRoot === null) return "";
       const partial = partialFor(id, babelRoot);
       if (!partial?.hasFilesystemConfig()) return "";
+      // An id with no file is a virtual module the load hook leaves to its plugin.
+      if (!isProjectSourceOnDisk(id)) return "";
       const presets = partial.options.presets ?? [];
       const plugins = partial.options.plugins ?? [];
       const names = [
@@ -834,8 +837,10 @@ export function createProjectBabel(
       // Babel ignores the file (`ignore`/`only`), or no project config applies to it.
       if (!partial?.hasFilesystemConfig()) return undefined;
       const plan = planOf(partial.options);
-      // Read once: the source tests and the compile use the same text.
-      const code = await fs.promises.readFile(id, "utf8");
+      // Read once: the source tests and the compile use the same text. No file: a virtual
+      // module a later plugin serves (src/project-source-file.ts), not ours.
+      const code = await readProjectSource(id);
+      if (code === null) return undefined;
       let matched: Plan["needs"] = [];
       const reasons =
         mode === "always"

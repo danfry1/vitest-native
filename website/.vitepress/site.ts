@@ -1,13 +1,13 @@
 // Where the site lives. The address comes from the package's own constant, so the links
 // vitest-native prints and the site's canonical links, sitemap and social card agree.
-// The base path is the one thing a host decides: GitHub Pages serves the site under
-// /vitest-native/, a host of its own at the root. SITE_BASE sets it for a build.
+// The site is served at its domain's root. SITE_BASE sets another base for a build, such
+// as /vitest-native/ for a full copy on GitHub Pages.
 import { SITE_URL } from '../../packages/vitest-native/src/docs-url.mjs'
 
 export { SITE_URL }
 
 /** The path the site is served under, with a slash at each end. */
-export const BASE = normalizeBase(process.env.SITE_BASE ?? '/vitest-native/')
+export const BASE = normalizeBase(process.env.SITE_BASE ?? '/')
 
 export function normalizeBase(base: string): string {
   const trimmed = base.replace(/^\/+|\/+$/g, '')

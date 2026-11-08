@@ -62,6 +62,7 @@ export default defineConfig({
         items: [
           { text: 'From Jest', link: '/migration/from-jest' },
           { text: 'From vitest-react-native', link: '/migration/from-vitest-react-native' },
+          { text: 'Upgrading to 0.15', link: '/migration/upgrading-to-0-15' },
         ],
       },
       {
@@ -105,6 +106,7 @@ export default defineConfig({
             { text: 'From Jest', link: '/migration/from-jest' },
             { text: 'jest-compat Layer', link: '/guide/jest-compat' },
             { text: 'From vitest-react-native', link: '/migration/from-vitest-react-native' },
+            { text: 'Upgrading to 0.15', link: '/migration/upgrading-to-0-15' },
           ],
         },
         {
