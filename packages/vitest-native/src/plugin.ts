@@ -1548,17 +1548,13 @@ function sameDirectory(a: string, b: string): boolean {
 // resolver's identityKey, the spelling Vite gives ids.
 const directoryKey = identityKey;
 
+// Compared by identityKey (the OS's spelling), which unifies a Windows 8.3 short name with
+// its long form, as two JS real paths do not.
 function hasSetupFile(setupFiles: unknown, file: string): boolean {
-  const real = (f: string) => {
-    try {
-      return fs.realpathSync(f);
-    } catch {
-      return path.resolve(f);
-    }
-  };
-  const wanted = real(file);
+  const wanted = identityKey(file);
   return (
-    Array.isArray(setupFiles) && setupFiles.some((f) => typeof f === "string" && real(f) === wanted)
+    Array.isArray(setupFiles) &&
+    setupFiles.some((f) => typeof f === "string" && identityKey(f) === wanted)
   );
 }
 
