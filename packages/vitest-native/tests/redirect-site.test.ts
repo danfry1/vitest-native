@@ -118,7 +118,7 @@ describe("links to the docs", () => {
   it("use the new address everywhere but the release history, the redirect site and its note", () => {
     let files: string[] = [];
     try {
-      files = execFileSync("git", ["grep", "--untracked", "-lF", OLD_SITE], {
+      files = execFileSync("git", ["grep", "-lIF", OLD_SITE], {
         cwd: repoRoot,
         encoding: "utf8",
       })
