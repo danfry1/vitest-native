@@ -164,6 +164,28 @@ describe("Node resolving the project's own source", () => {
     expect(warn.mock.calls[0][0]).not.toMatch(/Node loaded|now exists twice|observed owner/);
   });
 
+  // The project directory reaches the check in one spelling and the file in another: on
+  // Windows an 8.3 short name against a long one; on a case-insensitive disk, letter case,
+  // which reproduces it here.
+  const tmp = fs.realpathSync.native(os.tmpdir());
+  const otherCase = tmp.replace(/[a-z]/, (c) => c.toUpperCase());
+  it.runIf(otherCase !== tmp && fs.existsSync(otherCase))(
+    "warns about a file under the project directory spelled differently",
+    () => {
+      const dir = fs.mkdtempSync(path.join(tmp, "vn-hook-spelling-"));
+      try {
+        checkProjectSourceResolvedByNode(
+          path.join(dir, "lib", "index.cjs"),
+          from("/repo/node_modules/some-rn-lib/index.js"),
+          [dir.replace(tmp, otherCase)],
+        );
+        expect(warn).toHaveBeenCalledOnce();
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("reports each file once", () => {
     const requirer = from("/repo/node_modules/some-rn-lib/index.js");
     checkProjectSourceResolvedByNode(`${project}/lib/index.cjs`, requirer, dirs);

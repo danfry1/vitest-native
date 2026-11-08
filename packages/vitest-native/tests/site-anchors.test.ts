@@ -105,7 +105,7 @@ function sourceFiles(dir: string): string[] {
  */
 // SITE_URL as a regex literal, then the route and an optional fragment. A test below holds
 // it to SITE_URL.
-const SITE_LINK = /https:\/\/danfry1\.github\.io\/vitest-native(\/[\w/-]*)(?:#([\w-]+))?/g;
+const SITE_LINK = /https:\/\/vitest-native\.danfry\.dev(\/[\w/-]*)(?:#([\w-]+))?/g;
 
 // A link built from the constant: `docsUrl("/guide/errors#CODE")`. The path is one string
 // literal, so a reader of the source sees the page it links.
@@ -157,7 +157,7 @@ describe("site anchors", () => {
 
   it("matches source links against the site's own URL", () => {
     expect(`${SITE_URL}/guide/errors#X`.match(SITE_LINK)).toEqual([`${SITE_URL}/guide/errors#X`]);
-    expect("https://danfry1xgithub.io/vitest-native/guide".match(SITE_LINK)).toBeNull();
+    expect("https://vitest-nativexdanfry.dev/guide".match(SITE_LINK)).toBeNull();
   });
 
   it("finds the links to check", () => {
