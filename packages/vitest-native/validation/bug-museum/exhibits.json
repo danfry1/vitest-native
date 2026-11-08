@@ -1926,6 +1926,15 @@
       }
     },
     {
+      "id": "env-jest-automock-require",
+      "class": "env-contract",
+      "title": "require() gets the real package after a factory-less jest.mock",
+      "source": "review of #566 (#621)",
+      "fixedBy": "#656",
+      "bugSignature": "^automock-require\\.test\\.ts: AssertionError: museum-analytics, required: expected false to be true",
+      "fixRef": "5417c1f29c6226212c6f5cec600f4adf2a58b20b"
+    },
+    {
       "id": "own-jest-factory-require-source",
       "class": "ownership",
       "title": "A jest.mock factory's require of project source loads a second copy",
