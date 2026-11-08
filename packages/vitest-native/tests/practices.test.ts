@@ -89,10 +89,29 @@ describe("workflow skills", () => {
 // keep `npx vitest-native` and `npx vitest`: those run in the reader's own project, which
 // installed them.
 describe("tool commands in docs", () => {
-  // A command where one starts: at a line's start (after `$`, `#`, `-` or `>`), or after a
-  // backtick, a quote, `(`, `run:` or `&&`. Prose such as "bunx would download it" is not one.
-  const COMMAND =
-    /(?:^[ \t]*(?:[$#>-][ \t]*)?|[`'"(][ \t]*|run:[ \t]*|&&[ \t]*)((bunx|bun[ \t]+x|npx)[ \t]+((?:--?[\w-]+(?:=\S+)?[ \t]+)*)([@\w][\w@/.:-]*))/gm;
+  // A runner's name, found by plain search; what comes before and after it is read below
+  // without a regular expression that could backtrack.
+  const RUNNER = /\b(?:bunx|npx|bun x|bun\tx)\b/g;
+  // A command starts at a line's start (after `$`, `#`, `-` or `>`), or after a backtick, a
+  // quote, `(`, `run:` or `&&`. Prose such as "bunx would download it" is not one.
+  const OPENERS = ["`", "'", '"', "(", "run:", "&&"];
+  function startsCommand(before: string): boolean {
+    const text = before.trimEnd();
+    if (text === "") return true;
+    if ("$#>-".includes(text.slice(-1)) && text.slice(0, -1).trim() === "") return true;
+    return OPENERS.some((opener) => text.endsWith(opener));
+  }
+  /** The flags and the tool after a runner: `--yes oxfmt .` gives `["--yes"]` and `oxfmt`. */
+  function toolAfter(rest: string): { flags: string[]; tool: string } {
+    const words = rest.split(/[ \t]/).filter(Boolean);
+    const flags: string[] = [];
+    while (words.length > 0 && words[0].startsWith("-")) flags.push(words.shift()!);
+    const word = words[0] ?? "";
+    let end = 0;
+    while (end < word.length && /[\w@/.:-]/.test(word[end])) end++;
+    return { flags, tool: word.slice(0, end) };
+  }
+
   const USER_FACING = new RegExp(
     "^(" +
       [
@@ -133,13 +152,27 @@ describe("tool commands in docs", () => {
     );
 
   function commands(file: string, text: string) {
-    return [...text.matchAll(COMMAND)].map(([, command, runner, flags, tool]) => ({
-      file,
-      command,
-      allowed:
-        (QUOTES_BUILD.has(file) && buildScript.includes(command)) ||
-        (runner === "npx" && !flags && /^vitest(-native)?$/.test(tool) && USER_FACING.test(file)),
-    }));
+    return text.split("\n").flatMap((line) =>
+      [...line.matchAll(RUNNER)].flatMap((match) => {
+        const runner = match[0].replace("\t", " ");
+        if (!startsCommand(line.slice(0, match.index))) return [];
+        const { flags, tool } = toolAfter(line.slice(match.index + match[0].length));
+        if (!/^[@\w]/.test(tool)) return [];
+        const command = [runner, ...flags, tool].join(" ");
+        return [
+          {
+            file,
+            command,
+            allowed:
+              (QUOTES_BUILD.has(file) && buildScript.includes(command)) ||
+              (runner === "npx" &&
+                flags.length === 0 &&
+                /^vitest(-native)?$/.test(tool) &&
+                USER_FACING.test(file)),
+          },
+        ];
+      }),
+    );
   }
 
   it("tells no one to run a repository tool with bunx or npx", () => {
