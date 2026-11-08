@@ -67,6 +67,7 @@ export type InstalledOwnershipLedger = OwnershipLedger;
 
 export declare function ledgerKey(file: string): string;
 export declare function realKey(file: string): string;
+export declare function fileKey(file: string): string;
 export declare function viteMarkerFor(id: string): string | null;
 export declare function parseOwnershipGuardConfig(
   raw: string | Partial<OwnershipGuardConfig> | undefined,
@@ -80,6 +81,8 @@ export declare function createOwnershipLedger(options?: {
   viteImporter?: (entry: ViteEvaluation) => string | null;
   ownerOf?: (file: string) => { owner: string; reason: string } | null;
   nodeHolds?: (file: string) => boolean;
+  /** The key a Node file name is recorded and looked up under (default: nodeKey). */
+  keyOf?: (file: string) => string;
   warn?: (message: string) => void;
 }): OwnershipLedger;
 export declare function installOwnershipLedger(options?: {
