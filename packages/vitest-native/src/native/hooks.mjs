@@ -43,6 +43,7 @@ import {
   workerSharedResolver,
 } from "./shared-resolver.mjs";
 import { libraryExtensionsFor } from "./jest-resolvers.mjs";
+import { rootSpellings, under } from "./root-spelling.mjs";
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -104,6 +105,18 @@ function projectDirs() {
  * own source deliberately — `jest.requireActual('./src/thing')` — is Node loading
  * project files on purpose, and is not this.
  */
+// Each directory's spellings, once: the check runs for every resolution.
+const dirSpellings = new Map();
+function spellingsOf(dir) {
+  let spellings = dirSpellings.get(dir);
+  if (spellings === undefined) {
+    // The directory as given too: the paths a caller compares may be spelled that way.
+    spellings = [...new Set([dir, ...rootSpellings(dir)])];
+    dirSpellings.set(dir, spellings);
+  }
+  return spellings;
+}
+
 export function checkProjectSourceResolvedByNode(resolved, parent, dirs = projectDirs(), policy) {
   if (typeof resolved !== "string" || (!policy && dirs.length === 0)) return;
   // `_resolveFilename` returns bare names for built-ins (`fs`, `node:fs`, `module`).
@@ -121,9 +134,9 @@ export function checkProjectSourceResolvedByNode(resolved, parent, dirs = projec
     if (findNativeOwnershipConflict(policy, file, "node")?.decision.reason !== "project-source") {
       return;
     }
-  } else if (
-    !dirs.some((dir) => file.startsWith(dir.replace(/\\/g, "/").replace(/\/+$/, "") + "/"))
-  ) {
+  } else if (!dirs.some((dir) => spellingsOf(dir).some((spelling) => under(resolved, spelling)))) {
+    // In any spelling of the directory (root-spelling.mjs): Node's file name keeps the one
+    // its path was reached by, a Windows 8.3 short name too.
     return;
   }
   const from = parent && parent.filename ? parent.filename.replace(/\\/g, "/") : "";

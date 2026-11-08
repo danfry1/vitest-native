@@ -1548,17 +1548,13 @@ function sameDirectory(a: string, b: string): boolean {
 // resolver's identityKey, the spelling Vite gives ids.
 const directoryKey = identityKey;
 
+// Compared by identityKey (the OS's spelling), which unifies a Windows 8.3 short name with
+// its long form, as two JS real paths do not.
 function hasSetupFile(setupFiles: unknown, file: string): boolean {
-  const real = (f: string) => {
-    try {
-      return fs.realpathSync(f);
-    } catch {
-      return path.resolve(f);
-    }
-  };
-  const wanted = real(file);
+  const wanted = identityKey(file);
   return (
-    Array.isArray(setupFiles) && setupFiles.some((f) => typeof f === "string" && real(f) === wanted)
+    Array.isArray(setupFiles) &&
+    setupFiles.some((f) => typeof f === "string" && identityKey(f) === wanted)
   );
 }
 
@@ -1979,6 +1975,13 @@ interface HangWatchConfig {
   execArgv?: readonly string[];
 }
 
+/**
+ * The key of the setter `vitest-native compare --hot` calls on every vitest-native plugin
+ * in a config (false | 'auto'), before any hook runs. Registered, so the CLI's wrapper finds
+ * it without importing this module; not an option.
+ */
+export const COMPARE_HOT_RUNTIME = Symbol.for("vitest-native.compare-hot-runtime");
+
 export function reactNative(options?: VitestNativeOptions): Plugin {
   // Before anything else: on an unsupported Node the loader hooks below are unreliable,
   // and the failures they cause look like the project's own bugs.
@@ -2324,13 +2327,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // runtime's known per-file differences are detected and recovered (troubleshooting
   // guide). 'auto' opts in: the bounded hot runtime where config-time evidence shows
   // it is safe, per-file isolation otherwise, with the reason for any decline printed.
-  const hotRuntimeExplicit = options?.hotRuntime !== undefined;
-  const hotRuntimeOpt = options?.hotRuntime ?? false;
-  const hotRuntimeRequested = hotRuntimeOpt !== false;
-  const hotRecycle = typeof hotRuntimeOpt === "object" ? hotRuntimeOpt : {};
+  // `let`: `vitest-native compare --hot` sets the mode on every instance before any hook
+  // runs (COMPARE_HOT_RUNTIME below).
+  let hotRuntimeExplicit = options?.hotRuntime !== undefined;
+  let hotRuntimeOpt = options?.hotRuntime ?? false;
+  let hotRuntimeRequested = hotRuntimeOpt !== false;
+  let hotRecycle = typeof hotRuntimeOpt === "object" ? hotRuntimeOpt : {};
   // `{ mode: 'auto', … }` selects as 'auto' does and applies the object's recycling
   // options when hot runs.
-  const hotRuntimeAuto = hotRuntimeOpt === "auto" || hotRecycle.mode === "auto";
+  let hotRuntimeAuto = hotRuntimeOpt === "auto" || hotRecycle.mode === "auto";
   // Resolved at config() time, once the consumer project root is known. Seeded to a
   // safe default so the hooks (resolveId/load/transform), which run after config(),
   // never read undefined.
@@ -2373,6 +2378,23 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     }
     const leaf = subpathLeafOf(source);
     return leaf !== null && (presetExportNames.get(pkg) ?? []).includes(leaf) ? null : pkg;
+  };
+
+  /**
+   * `compare --hot` only (cli/compare-run.ts wrapper): run this config per file (false) or
+   * with hotRuntime 'auto', whatever the project set, so one config is compared in both
+   * modes. Keyed by a registered symbol and non-enumerable: not an option anyone writes.
+   */
+  // 'auto' keeps the project's own recycling options, so the runtime compared is the one it
+  // would ship (allowUnboundedMemory does not combine with 'auto').
+  const { allowUnboundedMemory: _unbounded, mode: _mode, ...userRecycle } = hotRecycle;
+  const setCompareHotRuntime = (value: false | "auto") => {
+    const auto = { ...userRecycle, mode: "auto" as const };
+    hotRuntimeExplicit = true;
+    hotRuntimeOpt = value === "auto" ? auto : false;
+    hotRuntimeRequested = value !== false;
+    hotRecycle = value === "auto" ? auto : {};
+    hotRuntimeAuto = value === "auto";
   };
 
   const pluginDefinition = {
@@ -4075,7 +4097,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const configHandler = pluginDefinition.config;
   const transformHandler = pluginDefinition.transform;
   // Vite's Plugin type does not declare Vitest's configureVitest hook.
-  return {
+  const plugin = {
     ...pluginDefinition,
     // Under the native engine the transform only checks ownership and inserts the
     // ownership guard's marker (withOwnershipMarker), which has to run after esbuild/oxc:
@@ -4173,4 +4195,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       return ready ? ready.then(() => verifyRunningVitest(context)) : verifyRunningVitest(context);
     },
   } as Plugin;
+  Object.defineProperty(plugin, COMPARE_HOT_RUNTIME, {
+    value: setCompareHotRuntime,
+    enumerable: false,
+  });
+  return plugin;
 }

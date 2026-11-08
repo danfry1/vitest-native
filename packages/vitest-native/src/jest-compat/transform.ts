@@ -203,6 +203,8 @@ function isViteOwnedSource(
   if (id.startsWith("\0") || !path.isAbsolute(id) || !SOURCE_FILE.test(id)) return false;
   let file = id;
   try {
+    // The OS's spelling (realpathSync.native), as Vite's ids are: the ownership policy
+    // matches each of its directories in every spelling (root-spelling.mjs).
     file = fs.realpathSync.native(id);
   } catch {
     // not on disk (a virtual id that looks like a path): judged as resolved

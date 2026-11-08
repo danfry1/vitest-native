@@ -176,6 +176,8 @@ export function scanReactNativeModuleRequests(reactNativeRoot) {
 export function reactNativeRootFor(projectRoot) {
   try {
     const req = createRequire(path.join(projectRoot, "package.json"));
+    // Node's spelling (fs.realpathSync), as Node reports React Native's files; the ownership
+    // policy matches this root in its other spellings too (root-spelling.mjs).
     return path.dirname(fs.realpathSync(req.resolve("react-native/package.json")));
   } catch {
     return null;

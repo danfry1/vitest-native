@@ -425,7 +425,7 @@ export interface VitestNativeOptions {
      * only. `'resolution'` adds the bridge: Node's \`require\` of a file Vite owns gets
      * Vite's own instance, evaluated then if Vite has not yet, so the order a test loads
      * files in cannot split a module. `'resolution'` turns `nodeMocks` on: a mocked module
-     * the bridge or Node reaches is the test's mock. See https://danfry1.github.io/vitest-native/guide/plugin-options#experimental.
+     * the bridge or Node reaches is the test's mock. See https://vitest-native.danfry.dev/guide/plugin-options#experimental.
      */
     ownershipModel?: "resolver" | "resolution";
   };
@@ -558,7 +558,7 @@ export interface VitestNativeOptions {
    * off.
    *
    * Default: `'warn'`.
-   * See https://danfry1.github.io/vitest-native/guide/errors#SOURCE_EVALUATED_TWICE.
+   * See https://vitest-native.danfry.dev/guide/errors#SOURCE_EVALUATED_TWICE.
    */
   ownership?:
     | "warn"

@@ -3,7 +3,8 @@
  * packages) as its own Vitest run against this build, with node_modules assembled from
  * this repository's install (materialise). `from` is the app directory, for a fixture
  * kept beside its test; by default, the exhibit named `id`, whose exhibits.json entry
- * (its workspace `links`, installed copies) shapes the install either way.
+ * (its workspace `links`, installed copies) shapes the install either way. `cwd` maps the
+ * app root to the directory the run starts in (another spelling of it).
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -12,7 +13,11 @@ import path from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { afterAll } from "vitest";
 // @ts-expect-error — runtime .mjs, no types
-import { materialise, museumRoot, packageRoot } from "../../validation/bug-museum/lib/materialise.mjs";
+import {
+  materialise,
+  museumRoot,
+  packageRoot,
+} from "../../validation/bug-museum/lib/materialise.mjs";
 
 export interface Edit {
   file: string;
@@ -27,7 +32,11 @@ afterAll(() => {
 
 export function runApp(
   id: string,
-  { from, edits = [] }: { from?: string; edits?: Edit[] } = {},
+  {
+    from,
+    edits = [],
+    cwd = (root) => root,
+  }: { from?: string; edits?: Edit[]; cwd?: (root: string) => string } = {},
 ): { status: number | null; output: string } {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), `vn-${id}-`));
   works.push(work);
@@ -44,7 +53,8 @@ export function runApp(
     ),
   );
   const proc = spawnSync(process.execPath, [vitest, "run"], {
-    cwd: root,
+    // The run's working directory, which is its root: another spelling of it, if asked.
+    cwd: cwd(root),
     env: { ...env, NODE_ENV: "test", NO_COLOR: "1" },
     encoding: "utf8",
     timeout: 120_000,

@@ -8,6 +8,7 @@
  */
 import path from "node:path";
 import { projectContext } from "../context.mjs";
+import { rootSpellings } from "./root-spelling.mjs";
 import {
   NODE_MODULES_PATH,
   REACT_NATIVE_PATH,
@@ -74,12 +75,10 @@ let freshRuntime;
 
 /**
  * hotRuntime.freshRuntime: React, the renderer, scheduler and RNTL re-run per hot file
- * instead of staying resident. Read from the project context (or
- * VITEST_NATIVE_HOT_FRESH_RUNTIME=1, to try it on a suite without editing its config),
- * because this module is evaluated once per realm and every instance must agree: a flag
- * set on one instance left another keeping React Native's components bound to the first
- * file's React. It needs ESM generations, so React's ES entry points re-run with its
- * CommonJS graph.
+ * instead of staying resident. Read from the project context, because this module is
+ * evaluated once per realm and every instance must agree: a flag set on one instance left
+ * another keeping React Native's components bound to the first file's React. It needs ESM
+ * generations, so React's ES entry points re-run with its CommonJS graph.
  */
 export function isFreshRuntime() {
   if (freshRuntime === undefined) {
@@ -88,7 +87,7 @@ export function isFreshRuntime() {
       context !== null &&
       context.hotEsmGeneration !== false &&
       process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0" &&
-      (context.hotFreshRuntime === true || process.env.VITEST_NATIVE_HOT_FRESH_RUNTIME === "1");
+      context.hotFreshRuntime === true;
   }
   return freshRuntime;
 }
@@ -192,22 +191,33 @@ export function createNativeOwnershipPolicy({
   );
   // Either separator at every boundary: these patterns are handed to Vitest's resolver
   // and also meet paths in the form Node reports them, backslashed on Windows.
-  const reactNativeRootPatterns = normalizedReactNativeRoots.map(
-    (dir) =>
-      new RegExp(
-        `^${normalizeFile(dir).replace(/\/$/, "").split("/").map(escapeRe).join("[\\\\/]")}[\\\\/]`,
-      ),
-  );
+  // Each directory in every spelling a file can arrive in (root-spelling.mjs): as given,
+  // Node's (fs.realpathSync) and the OS's (realpathSync.native, Vite's ids). Computed once
+  // here, so deciding a file stays a string comparison.
+  const spelled = (dirs) => dirs.map((dir) => ({ dir, spellings: rootSpellings(dir) }));
+  const dirHolding = (entries, file) =>
+    entries.find(({ spellings }) => spellings.some((spelling) => containsPath(spelling, file)));
+  const reactNativeRootSpellings = spelled(normalizedReactNativeRoots);
+  const reactNativeRootPatterns = reactNativeRootSpellings
+    .flatMap(({ spellings }) => spellings)
+    .map(
+      (dir) =>
+        new RegExp(
+          `^${normalizeFile(dir).replace(/\/$/, "").split("/").map(escapeRe).join("[\\\\/]")}[\\\\/]`,
+        ),
+    );
   const isReactNativeCore = (file, rawFile) =>
     REACT_NATIVE_PATH.test(file) ||
-    normalizedReactNativeRoots.some((dir) => containsPath(dir, cleanRawFileId(rawFile)));
+    dirHolding(reactNativeRootSpellings, cleanRawFileId(rawFile)) !== undefined;
   const reactNativePathFor = (rawFile) => {
     const clean = cleanRawFileId(rawFile);
     const file = normalizeFile(clean);
     if (REACT_NATIVE_PATH.test(file)) return file;
-    const packageRoot = normalizedReactNativeRoots.find((dir) => containsPath(dir, clean));
-    if (!packageRoot) return null;
-    const relative = normalizeFile(path.relative(packageRoot, clean));
+    // Relative to the spelling the file is under, so the path inside the package is right.
+    const held = dirHolding(reactNativeRootSpellings, clean);
+    if (!held) return null;
+    const spelling = held.spellings.find((candidate) => containsPath(candidate, clean));
+    const relative = normalizeFile(path.relative(spelling, clean));
     return `/react-native/${relative}`;
   };
   // Framework boundary: Vitest sorts resolver pattern arrays in place while it
@@ -226,6 +236,7 @@ export function createNativeOwnershipPolicy({
   const ecosystemMatcher = buildPkgMatcher(ecosystem, root, dirOf);
   const runtimeMatcher = buildPkgMatcher(runtime, root, dirOf);
   const normalizedProjectDirs = Object.freeze(unique(projectDirs).map((dir) => path.resolve(dir)));
+  const projectDirSpellings = spelled(normalizedProjectDirs);
   const normalizedEntryFiles = Object.freeze(unique(entryFiles).map((file) => path.resolve(file)));
   const entryKey = (file) => {
     const resolved = path.resolve(file);
@@ -288,16 +299,14 @@ export function createNativeOwnershipPolicy({
         "worker-resident",
         ["react-native-core"],
         [
-          normalizedReactNativeRoots.find((dir) => containsPath(dir, cleanRawFileId(rawFile))) ??
+          dirHolding(reactNativeRootSpellings, cleanRawFileId(rawFile))?.dir ??
             "react-native/@react-native path",
           "preloaded before the hot reset baseline",
         ],
       );
     }
     if (!NODE_MODULES_PATH.test(file)) {
-      const projectDir = normalizedProjectDirs.find((dir) =>
-        containsPath(dir, cleanRawFileId(rawFile)),
-      );
+      const projectDir = dirHolding(projectDirSpellings, cleanRawFileId(rawFile))?.dir;
       if (projectDir) {
         return decision("vite", "source", "vite", "per-file", ["project-source"], [projectDir]);
       }
