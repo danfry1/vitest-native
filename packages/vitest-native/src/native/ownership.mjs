@@ -75,12 +75,10 @@ let freshRuntime;
 
 /**
  * hotRuntime.freshRuntime: React, the renderer, scheduler and RNTL re-run per hot file
- * instead of staying resident. Read from the project context (or
- * VITEST_NATIVE_HOT_FRESH_RUNTIME=1, to try it on a suite without editing its config),
- * because this module is evaluated once per realm and every instance must agree: a flag
- * set on one instance left another keeping React Native's components bound to the first
- * file's React. It needs ESM generations, so React's ES entry points re-run with its
- * CommonJS graph.
+ * instead of staying resident. Read from the project context, because this module is
+ * evaluated once per realm and every instance must agree: a flag set on one instance left
+ * another keeping React Native's components bound to the first file's React. It needs ESM
+ * generations, so React's ES entry points re-run with its CommonJS graph.
  */
 export function isFreshRuntime() {
   if (freshRuntime === undefined) {
@@ -89,7 +87,7 @@ export function isFreshRuntime() {
       context !== null &&
       context.hotEsmGeneration !== false &&
       process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0" &&
-      (context.hotFreshRuntime === true || process.env.VITEST_NATIVE_HOT_FRESH_RUNTIME === "1");
+      context.hotFreshRuntime === true;
   }
   return freshRuntime;
 }
