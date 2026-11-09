@@ -47,7 +47,8 @@ describe("--hot off", () => {
     for (const hotRuntime of [undefined, false, true, "auto", { allowUnboundedMemory: true }]) {
       expect(reactNative({ hotRuntime }).hotRuntime).toBe(false);
     }
-    expect(marker()).toEqual(["axis", "axis", "axis", "axis", "axis"]);
+    // The last three asked for the hot runtime: their exhibits' precondition is gone.
+    expect(marker()).toEqual(["axis", "axis", "overrode", "overrode", "overrode"]);
   });
 });
 

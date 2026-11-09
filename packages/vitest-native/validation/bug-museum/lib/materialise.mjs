@@ -213,7 +213,9 @@ export const HOT_MARKER = ".museum-hot-calls";
  * written before there was a choice). `off` gives every reactNative() call
  * `hotRuntime: false`. `auto` gives every call `'auto'`, except a call that already asks
  * for the hot runtime (`true`, an object, `'auto'`): an exhibit written for it keeps its
- * own. Each call appends "axis" or "exhibit" to HOT_MARKER. Wraps whatever the installed
+ * own. Each call appends to HOT_MARKER: "exhibit" (its own hot runtime kept), "overrode"
+ * (`off` turned off a hot runtime the exhibit asked for, which removes the precondition of
+ * an exhibit written for it) or "axis". Wraps whatever the installed
  * copy's main entry is, so it composes with wrapForOwnership.
  */
 export function wrapForHot(installed, root, mode) {
@@ -234,8 +236,10 @@ export function wrapForHot(installed, root, mode) {
       `export * from ${JSON.stringify(main.default)};`,
       "export function reactNative(options) {",
       "  const asked = options?.hotRuntime;",
-      `  const own = ${mode === "auto"} && (asked === true || asked === "auto" || (asked !== null && typeof asked === "object"));`,
-      `  fs.appendFileSync(${JSON.stringify(path.join(root, HOT_MARKER))}, own ? "exhibit\\n" : "axis\\n");`,
+      '  const hot = asked === true || asked === "auto" || (asked !== null && typeof asked === "object");',
+      `  const own = ${mode === "auto"} && hot;`,
+      `  const mark = own ? "exhibit" : ${mode === "off"} && hot ? "overrode" : "axis";`,
+      `  fs.appendFileSync(${JSON.stringify(path.join(root, HOT_MARKER))}, mark + "\\n");`,
       `  return buildReactNative(own ? options : { ...options, hotRuntime: ${value} });`,
       "}",
       "",

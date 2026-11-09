@@ -212,7 +212,13 @@ function runExhibit(original, context) {
       failures.push(`museum: --hot ${context.hotMode} never reached reactNative()`);
     hot = {
       mode: context.hotMode,
-      source: calls.includes("exhibit") ? "exhibit" : "axis",
+      // "overrode": `off` turned off the hot runtime the exhibit asked for, so its
+      // verdict says nothing about the mode; compare such exhibits apart.
+      source: calls.includes("exhibit")
+        ? "exhibit"
+        : calls.includes("overrode")
+          ? "overrode"
+          : "axis",
       // The engine banner names the hot runtime when it runs (plugin.ts).
       engaged: /\(platform [^)]*, hot runtime[,)]/.test(output),
     };
@@ -322,7 +328,7 @@ function main() {
           ? verdict.failures[0]
           : "";
     const hotTag = verdict.hot
-      ? ` [hot ${verdict.hot.source === "exhibit" ? "set by exhibit" : verdict.hot.mode}${verdict.hot.engaged ? ", ran hot" : ""}]`
+      ? ` [hot ${verdict.hot.source === "exhibit" ? "set by exhibit" : verdict.hot.source === "overrode" ? "off, exhibit asked for it" : verdict.hot.mode}${verdict.hot.engaged ? ", ran hot" : ""}]`
       : "";
     console.log(
       `${tag.padEnd(18)} ${exhibit.id.padEnd(40)} ${verdict.seconds ?? "-"}s${hotTag}  ${detail}`,
