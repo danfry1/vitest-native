@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 // @ts-expect-error — internal runtime .mjs, intentionally not public API
 import {
+  _resetFailedRegistries,
   _setRegistryBuildOptions,
   buildRegistryFor,
   compileRegistryInChild,
@@ -209,6 +210,29 @@ describe("background registry build", () => {
     };
     return { compiler: run, calls, finish: () => finish() };
   }
+
+  it("falls back at once for an entry whose compile already failed in this process", async () => {
+    // #689: every later project or reload compiled again, each up to its timeout.
+    const options = coldOptions("failed-once");
+    const failing = vi.fn(async () => ({ ok: false, error: "compiler exceeded 120000ms" }));
+    expect(await buildRegistryFor(options, failing)).toBeNull();
+    expect(failing).toHaveBeenCalledTimes(1);
+    const again = vi.fn(async () => ({ ok: true, registryFile: "unused" }));
+    expect(await buildRegistryFor(options, again)).toBeNull();
+    expect(startRegistryBuild(options, again)).toEqual({});
+    expect(again).not.toHaveBeenCalled();
+  });
+
+  it("records a background failure too, so a later wait does not compile again", async () => {
+    const options = coldOptions("failed-background");
+    const held = heldCompiler();
+    startRegistryBuild(options, held.compiler);
+    held.finish();
+    await settleRegistryBuilds(1000);
+    const again = vi.fn(async () => ({ ok: true, registryFile: "unused" }));
+    expect(await buildRegistryFor(options, again)).toBeNull();
+    expect(again).not.toHaveBeenCalled();
+  });
 
   it("returns at once on a miss, at the lowest priority, and shares one compiler per entry", async () => {
     const options = coldOptions("shared");
@@ -417,6 +441,9 @@ describe("internal test seams", () => {
     try {
       _setRegistryBuildOptions({});
       await buildRegistryFor(options, record);
+      // The first compile failed, and a failed entry is not compiled again in this
+      // process: clear that, as this test is about what the compiler is handed.
+      _resetFailedRegistries();
       _setRegistryBuildOptions({ compilerDelayMs: 1234 });
       await buildRegistryFor(options, record);
     } finally {
