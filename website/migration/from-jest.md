@@ -142,7 +142,7 @@ Some libraries run as themselves instead:
 
 Two kinds of library mock from a Jest setup need a closer look:
 
-- **A Reanimated mock that spreads `jest.requireActual('react-native-reanimated')`** runs Reanimated's real hooks, which need the worklets Babel plugin, as under Jest. Keep `react-native-worklets/plugin` (or `react-native-reanimated/plugin`) in your Babel config, which the engine applies to the files that need it, or delete the mock: the engine already serves Reanimated's own test mock. With neither, `useAnimatedStyle` throws that it was "used without a dependency array or Babel plugin".
+- **A Reanimated mock that spreads `jest.requireActual('react-native-reanimated')`**, under the native engine with Reanimated 4.7+, runs Reanimated's real hooks, which need the worklets Babel plugin, as under Jest. Keep `react-native-worklets/plugin` (or `react-native-reanimated/plugin`) in your Babel config, which the engine applies to the files that need it, or delete the mock: the engine already serves Reanimated's own test mock. With neither, `useAnimatedStyle` throws that it was "used without a dependency array or Babel plugin".
 - **`jest.mock('react-native-gesture-handler', …)` lines** can usually go. Under the native engine Gesture Handler runs with its own `jestSetup.js`, which mocks its native module and host components. A `presets: { gestureHandler: false }` added for those mocks can go too; it [keeps that setup](/guide/presets#turning-a-preset-off).
 
 A mock you wrote for your own app's modules stays.

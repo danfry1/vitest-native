@@ -164,7 +164,7 @@ On Node 24.13.0, a run can stop at startup with `Segmentation fault` (exit code 
 
 Under the native engine, a test file that imports `react-native-gesture-handler` can print React Native's deprecation warning for `DrawerLayoutAndroid`. It is harmless, and tests are unaffected.
 
-Gesture Handler re-exports React Native's `DrawerLayoutAndroid` (as `LegacyDrawerLayoutAndroid`), and React Native defines that export as a getter that prints the warning. Under the native engine, Node builds a CommonJS module's namespace by reading every named export, so the getter runs even when no test uses the component. Jest's `require` reads only the exports a test uses, so Jest does not print it. Reading only the names a file imports is tracked in [#687](https://github.com/danfry1/vitest-native/issues/687).
+React Native defines its `DrawerLayoutAndroid` export as a getter that prints the warning. Gesture Handler's own components load it only when one renders, but the Jest mock its `jestSetup.js` swaps in imports it from `react-native` up front (as `LegacyDrawerLayoutAndroid`). When an ES module imports a CommonJS module, Node reads every named export, so the getter runs even when no test uses the component. Jest's `require` reads only the exports a test uses, so Jest does not print it. Reading only the names a file imports is tracked in [#687](https://github.com/danfry1/vitest-native/issues/687).
 
 ## Still stuck?
 
