@@ -38,7 +38,7 @@ Requirements: Node 22.22.3+ (on 22), 24.12+ (on 24) or 26+, Vitest 5.x, Vite ^8.
 - mocks: mock engine only (a non-empty value under native is a config error). JSON-serializable values only; each replaces that export whole. For components or functions use `vi.mock('react-native', ...)` in a setup file
 - assetExts: extra asset extensions (loaded as Metro does: a registered asset id)
 - transform: extra node_modules to transform (native engine; like Jest's transformIgnorePatterns)
-- hotRuntime: false (default, fresh worker per file) | 'auto' | true | options object. Opt-in, experimental: reuses workers across files; measure whether it is faster on your suite
+- hotRuntime: 'auto' (default since 0.16: reuses workers across files where the run can be bounded) | false (a fresh worker per file, the default before 0.16) | true | options object. Experimental Vitest worker APIs; known differences from per-file isolation
 - nativeModules: native engine only. 'device' (default; unregistered native modules are absent, as on a device) | 'permissive'
 - metroConfig: experimental; use the project's Metro source-extension order and asset list
 

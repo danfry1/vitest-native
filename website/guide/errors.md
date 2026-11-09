@@ -149,7 +149,7 @@ Import the mocked module in the test before the code that requires it, or give t
 
 ## Hot runtime
 
-These come from the opt-in [hot runtime](/guide/hot-runtime). Setting `hotRuntime: false` avoids all of them.
+These come from the [hot runtime](/guide/hot-runtime), the default under the native engine. Setting `hotRuntime: false` avoids all of them.
 
 ### `HOT_RUNTIME_OVERRIDDEN` {#HOT_RUNTIME_OVERRIDDEN}
 

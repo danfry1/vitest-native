@@ -1022,13 +1022,15 @@ describe("plugin engine routing", () => {
     }
   });
 
-  it("defaults to per-file isolation; an explicit 'auto' selects the hot runtime", async () => {
-    // Unset keeps 0.13.0's default: no hot pool, and nothing to warn about.
+  it("defaults to 'auto': the hot runtime where it can be bounded, quietly per file where not", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Unset is 'auto' since 0.16: the hot pool where the run can be bounded.
     const byDefault = reactNative({ engine: "native" }) as any;
-    const stockByDefault = await runPluginConfig(byDefault, { root: hotRoot }, SERVE_ENV);
-    expect(stockByDefault.test.isolate).toBeUndefined();
-    expect(stockByDefault.test.pool).not.toMatchObject({ name: "vitest-native" });
+    const hotByDefault = await runPluginConfig(byDefault, { root: hotRoot }, SERVE_ENV);
+    expect(hotByDefault.test.isolate).toBe(false);
+    expect(hotByDefault.test.pool).toMatchObject({ name: "vitest-native" });
+    // Where it cannot be bounded (an explicit pool), the default falls back to per-file
+    // isolation without a warning: nobody asked for the hot runtime.
     const withPool = reactNative({ engine: "native" }) as any;
     const stock = await runPluginConfig(
       withPool,
@@ -1038,18 +1040,21 @@ describe("plugin engine routing", () => {
     expect(stock.test.isolate).toBeUndefined();
     expect(stock.test.pool).toBe("forks");
     expect(warn).not.toHaveBeenCalledWith(expect.stringMatching(/kept default isolation/));
+    // The same fallback, asked for explicitly, says why.
+    const asked = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
+    await runPluginConfig(
+      asked,
+      { root: hotRoot, test: { maxWorkers: 2, pool: "forks" } },
+      SERVE_ENV,
+    );
+    expect(warn).toHaveBeenCalledWith(expect.stringMatching(/kept default isolation/));
     warn.mockRestore();
 
-    // Opting in with 'auto' selects it where the run can be bounded.
-    const optIn = reactNative({ engine: "native", hotRuntime: "auto" }) as any;
-    const hot = await runPluginConfig(optIn, { root: hotRoot }, SERVE_ENV);
-    expect(hot.test.isolate).toBe(false);
-    expect(hot.test.pool).toMatchObject({ name: "vitest-native" });
-
-    // Explicitly off stays off.
+    // `false` keeps per-file isolation, the default before 0.16.
     const off = reactNative({ engine: "native", hotRuntime: false }) as any;
     const plain = await runPluginConfig(off, { root: hotRoot }, SERVE_ENV);
     expect(plain.test.isolate).toBeUndefined();
+    expect(plain.test.pool).not.toMatchObject({ name: "vitest-native" });
   });
 
   it("refuses unrecyclable one-worker hot unless the risk is explicit", async () => {
@@ -1656,11 +1661,21 @@ describe("engine-selection notices", () => {
     );
     expect(banner()).toMatch(/\(platform ios, hot runtime\)$/);
 
-    // The default keeps per-file isolation, and the banner says nothing about hot.
+    // The default is 'auto', so an unset option names it too.
     resetBanner();
     err.mockClear();
     await runPluginConfig(
       reactNative({ engine: "native" }) as any,
+      { root: projectRoot },
+      SERVE_ENV,
+    );
+    expect(banner()).toMatch(/\(platform ios, hot runtime\)$/);
+
+    // Per-file isolation, and the banner says nothing about hot.
+    resetBanner();
+    err.mockClear();
+    await runPluginConfig(
+      reactNative({ engine: "native", hotRuntime: false }) as any,
       { root: projectRoot },
       SERVE_ENV,
     );

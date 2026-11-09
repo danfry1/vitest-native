@@ -2327,14 +2327,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Hot runtime (native engine only): persistent RN-hot workers with per-file
   // isolation via the custom pool. `auto` is a conservative selector: it keeps
   // stock isolation whenever config-time evidence cannot prove this path safe.
-  // Off by default, as in 0.13.0: each file runs in a fresh worker until the hot
-  // runtime's known per-file differences are detected and recovered (troubleshooting
-  // guide). 'auto' opts in: the bounded hot runtime where config-time evidence shows
-  // it is safe, per-file isolation otherwise, with the reason for any decline printed.
+  // 'auto' by default since 0.16 (docs: hot-default gate): the bounded hot runtime where
+  // config-time evidence shows it is safe, per-file isolation otherwise. A decline is
+  // printed when the option was set, or under diagnostics; `hotRuntime: false` keeps
+  // per-file isolation, the default before 0.16.
   // `let`: `vitest-native compare --hot` sets the mode on every instance before any hook
   // runs (COMPARE_HOT_RUNTIME below).
   let hotRuntimeExplicit = options?.hotRuntime !== undefined;
-  let hotRuntimeOpt = options?.hotRuntime ?? false;
+  let hotRuntimeOpt = options?.hotRuntime ?? "auto";
   let hotRuntimeRequested = hotRuntimeOpt !== false;
   let hotRecycle = typeof hotRuntimeOpt === "object" ? hotRuntimeOpt : {};
   // `{ mode: 'auto', … }` selects as 'auto' does and applies the object's recycling

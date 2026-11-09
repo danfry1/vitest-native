@@ -10,7 +10,7 @@ reactNative({
   mocks: {},             // Custom mock overrides
   assetExts: [],         // Additional asset extensions (e.g. ['.lottie', '.m4b'])
   transform: [],         // Extra node_modules packages to transform (Flow/TS/JSX), native engine
-  hotRuntime: false,     // Per-file isolation (default); 'auto' opts in to the hot runtime
+  hotRuntime: 'auto',    // The hot runtime where the run can be bounded (default); false: per-file isolation
   nativeModules: 'device', // 'device' | 'permissive' — how native module lookups answer, native engine
   registryBuild: 'background', // 'background' | 'wait' — a cold registry build, native engine
   hangTimeout: 60000,    // fail a stuck run after this many ms with no progress; on by default under the hot runtime
@@ -175,12 +175,12 @@ Vitest's transform cache is keyed on what your config loads for each file: the p
 
 ## `hotRuntime`
 
-**Type:** `boolean | 'auto' | object` · **Default:** `false` · **Engine:** native
+**Type:** `boolean | 'auto' | object` · **Default:** `'auto'` (since 0.16; `false` before) · **Engine:** native
 
-Reuses test workers across files instead of starting a fresh one for each, while still giving every file fresh app and test modules, mocks and timers. It is opt-in and experimental: it uses Vitest's custom worker APIs, which Vitest labels experimental, and it has [known differences](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) from per-file isolation. Whether it is faster depends on the suite, so measure it on yours. See [Hot Runtime](/guide/hot-runtime).
+Reuses test workers across files instead of starting a fresh one for each, while still giving every file fresh app and test modules, mocks and timers. It uses Vitest's custom worker APIs, which Vitest labels experimental, and it has [known differences](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) from per-file isolation. See [Hot Runtime](/guide/hot-runtime).
 
-- `false` *(default)*: each test file runs in a fresh worker.
-- `'auto'`: use the hot runtime where the run can be bounded and recycled (at least two workers, no explicit pool, `test.isolate` or overriding CLI flag, and a matching Vitest install), and per-file isolation otherwise, printing why.
+- `false`: each test file runs in a fresh worker (the default before 0.16).
+- `'auto'` *(default)*: use the hot runtime where the run can be bounded and recycled (at least two workers, no explicit pool, `test.isolate` or overriding CLI flag, and a matching Vitest install), and per-file isolation otherwise, printing why when you set the option or turn on `diagnostics`.
 - `true`: require the hot runtime. Startup fails with [`HOT_MEMORY_UNBOUNDED`](/guide/errors#HOT_MEMORY_UNBOUNDED) when the run has one worker, and with [`HOT_RUNTIME_OVERRIDDEN`](/guide/errors#HOT_RUNTIME_OVERRIDDEN) when an explicit pool or `test.isolate`, a CLI flag (`--no-isolate`, `--pool`, `--maxWorkers=1`, `--no-file-parallelism`) or a `sequence.groupOrder` worker-count clash rules it out.
 - An object: tune worker recycling. On its own it requires the hot runtime, as `true` does; add `mode: 'auto'` to fall back as `'auto'` does.
 
@@ -235,7 +235,7 @@ What a run does when React Native's precompiled registry is not in the cache yet
 - `'background'` *(default)* — the run starts at once while the registry compiles in a low-priority background process. Test files that start before it is ready load React Native file by file, which is slower per file; files that start after it lands use it. When Vitest closes, a build still running gets up to half of `teardownTimeout` to finish, so the next run starts warm; a run that ends cancelled (`--bail`, or Ctrl-C in a terminal) stops it at close instead, while a watch-mode cancel keeps it building for the reruns. The first run can differ from later ones in one visible way: the column numbers in React Native's own stack frames.
 - `'wait'` — compile the registry before the run starts, so every file uses it.
 
-The hot runtime, CI runs and `experimental.ownershipModel` always wait. A run counts as CI when `CI` is set to anything but `false`, or, unless `CI=false`, when one of `CONTINUOUS_INTEGRATION`, `GITHUB_ACTIONS`, `GITLAB_CI`, `BUILDKITE`, `CIRCLECI`, `TF_BUILD`, `JENKINS_URL`, `TEAMCITY_VERSION`, `TRAVIS`, `APPVEYOR`, `CODEBUILD_BUILD_ID` or `BITBUCKET_BUILD_NUMBER` is set.
+The hot runtime (the default since 0.16, where the run can be bounded), CI runs and `experimental.ownershipModel` always wait. A run counts as CI when `CI` is set to anything but `false`, or, unless `CI=false`, when one of `CONTINUOUS_INTEGRATION`, `GITHUB_ACTIONS`, `GITLAB_CI`, `BUILDKITE`, `CIRCLECI`, `TF_BUILD`, `JENKINS_URL`, `TEAMCITY_VERSION`, `TRAVIS`, `APPVEYOR`, `CODEBUILD_BUILD_ID` or `BITBUCKET_BUILD_NUMBER` is set.
 
 ```ts
 reactNative({ registryBuild: 'wait' })

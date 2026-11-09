@@ -1,4 +1,4 @@
-[vitest-native] engine: native — real react-native@0.88.0 (platform ios)
+[vitest-native] engine: native — real react-native@0.88.0 (platform ios, hot runtime)
 ✓ src/Counter.test.tsx > is a button
 ✓ src/Counter.test.tsx > starts at zero
 ✓ src/Counter.test.tsx > counts a press

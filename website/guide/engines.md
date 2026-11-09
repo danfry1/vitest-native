@@ -69,6 +69,6 @@ Because the mock is a reimplementation, it could drift from real RN behavior. A 
 
 ## Hot runtime
 
-By default the native engine runs each test file in a fresh worker. The opt-in [hot runtime](/guide/hot-runtime) (`hotRuntime: 'auto'`) keeps workers alive across files instead, so React Native loads once per worker while each file still gets fresh app and test modules. It is experimental and has known differences from per-file isolation; the [Hot Runtime](/guide/hot-runtime) page covers when to try it, how it falls back, and its workers and memory.
+By default the native engine keeps workers alive across files where the run can be bounded (the [hot runtime](/guide/hot-runtime), `hotRuntime: 'auto'`), so React Native loads once per worker while each file still gets fresh app and test modules. It has known differences from per-file isolation, which `hotRuntime: false` gives instead; the [Hot Runtime](/guide/hot-runtime) page covers when to turn it off, how it falls back, and its workers and memory.
 
 Next: [How It Works](/guide/how-it-works) explains what the plugin does under the hood.

@@ -50,9 +50,9 @@ Migrating a large Jest suite is incremental, not turnkey.
   [bake-offs repository](https://github.com/danfry1/vitest-native-bakeoffs), with each app's setup
   in the repository. Their results are not capability claims; see the
   [validation model](https://vitest-native.danfry.dev/guide/validation-model).
-- **Performance.** vitest-native is not a speed play. Each test file gets a fresh worker by
-  default; the opt-in hot runtime reuses workers, and whether that is faster depends on your suite,
-  so measure it.
+- **Performance.** vitest-native is not a speed play. By default the native engine reuses
+  workers across files where the run can be bounded (the hot runtime; `hotRuntime: false` gives each
+  file a fresh worker), and whether that is faster depends on your suite, so measure it.
 
 ## Quick start
 

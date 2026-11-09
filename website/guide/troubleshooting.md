@@ -61,7 +61,7 @@ Under the mock engine, RNTL advances fake timers only with the [jest-compat laye
 
 ## A test passes on its own but fails when run with other files
 
-If the engine banner says `hot runtime`, the native engine is reusing workers across files because `hotRuntime` is set to `'auto'` or `true`. The default, `hotRuntime: false`, gives every file a fresh worker. The hot runtime resets app/test modules, mocks, timers and a verified list of process-wide state between files, but some state is known to carry over. To confirm, run with per-file isolation:
+If the engine banner says `hot runtime`, the native engine is reusing workers across files: the default (`hotRuntime: 'auto'`) does where the run can be bounded, and `true` requires it. `hotRuntime: false` gives every file a fresh worker. The hot runtime resets app/test modules, mocks, timers and a verified list of process-wide state between files, but some state is known to carry over. To confirm, run with per-file isolation:
 
 ```ts
 reactNative({ hotRuntime: false });
@@ -136,7 +136,7 @@ Files your tests `import` compile with Vite's Oxc transform, which the plugin co
 
 ## `Worker terminated due to reaching memory limit` / `JS heap out of memory`
 
-Every test file that renders real React Native loads a full renderer. Under the default per-file isolation each file starts in a fresh worker, so heap does not accumulate across files. Under the hot runtime (`hotRuntime: 'auto'`), workers are reused and recycled on a memory budget; set your own heap threshold with `hotRuntime: { mode: 'auto', memoryLimit }` (bytes; see [worker recycling](/guide/hot-runtime#workers-and-memory)).
+Every test file that renders real React Native loads a full renderer. Under the hot runtime (the default, `hotRuntime: 'auto'`), workers are reused and recycled on a memory budget; with `hotRuntime: false` each file starts in a fresh worker, so heap does not accumulate across files. Under the hot runtime, set your own heap threshold with `hotRuntime: { mode: 'auto', memoryLimit }` (bytes; see [worker recycling](/guide/hot-runtime#workers-and-memory)).
 
 ## `Vitest caught N unhandled errors` in error-boundary tests
 

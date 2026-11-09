@@ -521,8 +521,14 @@ describe("the plugin on a cold cache", () => {
     try {
       vi.stubEnv("CI", "false");
       _setRegistryBuildOptions({});
+      // Per file: the hot runtime (the default since 0.16) always waits, since a hot worker
+      // keeps React Native resident from its first file.
       const background = contextOf(
-        await runPluginConfig(reactNative({ engine: "native" }) as any, { root }, SERVE_ENV),
+        await runPluginConfig(
+          reactNative({ engine: "native", hotRuntime: false }) as any,
+          { root },
+          SERVE_ENV,
+        ),
       );
       expect(background.registryPending).toBeDefined();
       expect(background.registry).toBeUndefined();

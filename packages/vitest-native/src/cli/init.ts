@@ -9,13 +9,14 @@ import { usesVitePlus } from "../host.js";
 import { docsUrl } from "../docs-url.mjs";
 
 /**
- * Printed after `init` and `migrate`: the hot runtime is off by default, so a user
- * reading only the CLI output would not otherwise learn it exists or what it costs.
+ * Printed after `init` and `migrate`: the hot runtime is on by default (since 0.16), so a
+ * user meeting a test that passes alone but fails after other files learns the switch
+ * and where the known differences are.
  */
 export const HOT_RUNTIME_NOTE = [
-  "Hot runtime: off by default. `hotRuntime: 'auto'` reuses workers across test files instead of",
-  "starting a fresh one per file. Whether that is faster depends on the suite, so measure it on yours.",
-  "It has known differences from per-file isolation:",
+  "Hot runtime: on by default (`hotRuntime: 'auto'`), reusing workers across test files where the",
+  "run can be bounded. A test that passes on its own but fails after other files depends on state",
+  "carried between them; `hotRuntime: false` gives each file a fresh worker. The known differences:",
   `  ${docsUrl("/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files")}`,
 ];
 

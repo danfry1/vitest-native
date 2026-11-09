@@ -489,9 +489,10 @@ export interface VitestNativeOptions {
    *   `allowUnboundedMemory: true`. Worker count and process-RSS limits still come
    *   from the memory plan; `memoryLimit: 0` turns the heap threshold off.
    *
-   * Default: `false`, as in 0.13.0: each file runs in a fresh worker, with React
-   * Native reloaded per file. The hot runtime has known differences from per-file
-   * isolation, listed in the troubleshooting guide.
+   * Default: `'auto'` (since 0.16; `false` before): the hot runtime where the run can be
+   * bounded, per-file isolation otherwise. The hot runtime has known differences from
+   * per-file isolation, listed in the troubleshooting guide; `false` keeps a fresh
+   * worker per file, with React Native reloaded per file.
    */
   hotRuntime?:
     | boolean

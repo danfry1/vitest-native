@@ -1,19 +1,19 @@
 # Hot Runtime
 
-By default the native engine runs each test file in a fresh worker, so React Native loads again for every file. The **hot runtime** keeps workers alive across test files instead: React Native loads once per worker, while every file still gets fresh app and test modules, mocks and timers.
+The **hot runtime** keeps the native engine's workers alive across test files: React Native loads once per worker, while every file still gets fresh app and test modules, mocks and timers. It is the default since 0.16 (`hotRuntime: 'auto'`), where the run can be bounded; elsewhere, and with `hotRuntime: false`, each test file runs in a fresh worker and React Native loads again for every file.
 
-It is opt-in and experimental. It uses Vitest's custom worker APIs, which Vitest labels experimental, and it has [known differences](#known-differences) from per-file isolation.
+It uses Vitest's custom worker APIs, which Vitest labels experimental, and it has [known differences](#known-differences) from per-file isolation.
 
-::: tip Should I turn it on?
-Try it when a suite is large enough that loading React Native in every file takes a noticeable share of the run. Run the suite both ways, with `hotRuntime: false` and with `hotRuntime: 'auto'`, and compare the results and the time. Keep it only if every test gives the same result both ways and it is faster on your suite. Whether it is faster depends on the suite.
+::: tip Should I turn it off?
+If a test passes on its own but fails after other files, run the suite with `hotRuntime: false`. If the failure goes away, it depends on state the hot runtime carries between files ([known differences](#known-differences)): keep `hotRuntime: false` for that project, and please [report it](https://github.com/danfry1/vitest-native/issues). [`vitest-native compare --hot`](/guide/cli#compare-hot) runs a suite both ways and lists any test that differs.
 :::
 
-## Turning it on
+## Choosing the mode
 
 ```ts
-reactNative({ hotRuntime: 'auto' })  // hot where the run can be bounded, per-file isolation otherwise
+reactNative({ hotRuntime: 'auto' })  // the default: hot where the run can be bounded, per-file isolation otherwise
 reactNative({ hotRuntime: true })    // require it; fail at startup where it cannot run
-reactNative({ hotRuntime: false })   // the default: a fresh worker per file
+reactNative({ hotRuntime: false })   // per-file isolation: a fresh worker per file (the default before 0.16)
 ```
 
 The [`hotRuntime` option](/guide/plugin-options#hotruntime) lists every value and the object form's keys. The engine banner at the start of a run says `hot runtime` when it is on (unless a following `hot runtime off: …` line names why it was turned off), and the startup log names the worker count it chose, for example:
