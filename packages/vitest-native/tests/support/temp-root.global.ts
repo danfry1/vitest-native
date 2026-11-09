@@ -18,8 +18,17 @@ import path from "node:path";
  * never removed by Vitest 5.0.0–5.0.2. Upstream fixed that in 5.0.3
  * (vitest-dev/vitest#11248).
  */
-/** The file in each run root that names the process owning it. */
+/**
+ * The file in each run root that names the process owning it: `<hostname>\n<pid>`. A pid
+ * means something only on the host that wrote it — a container sharing a bind-mounted
+ * temp directory with its host has its own pid namespace — so roots are pruned only by
+ * runs on the same host.
+ */
 const OWNER = ".vn-test-run-pid";
+
+export function ownerRecord(pid = process.pid): string {
+  return `${os.hostname()}\n${pid}`;
+}
 
 function alive(pid: number): boolean {
   try {
@@ -34,19 +43,23 @@ function alive(pid: number): boolean {
 /**
  * Remove the roots of earlier runs that were stopped before their teardown: Ctrl-C ends
  * Vitest without running global teardown, which leaves the whole root, scratch apps and
- * registry builds included. Only roots this setup made (the prefix and its owner file)
- * whose owner process has ended are removed.
+ * registry builds included. Only roots this setup made (the prefix and its owner file),
+ * written on this host, whose owner process has ended are removed; anything else — another
+ * host, an unreadable or older-format owner file — is kept.
  */
 export function pruneAbandonedRoots(tmp: string): void {
   for (const name of fs.readdirSync(tmp)) {
     if (!name.startsWith("vn-test-run-")) continue;
     const dir = path.join(tmp, name);
-    let pid: number;
+    let owner: string;
     try {
-      pid = Number(fs.readFileSync(path.join(dir, OWNER), "utf8"));
+      owner = fs.readFileSync(path.join(dir, OWNER), "utf8");
     } catch {
       continue; // not one of ours, or still being created
     }
+    const [host, pidText, ...rest] = owner.split("\n");
+    const pid = Number(pidText);
+    if (host !== os.hostname() || rest.length > 0) continue;
     if (Number.isInteger(pid) && pid > 0 && !alive(pid)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -58,7 +71,7 @@ export default function setup(): () => void {
   const tmp = fs.realpathSync(os.tmpdir());
   pruneAbandonedRoots(tmp);
   const root = fs.mkdtempSync(path.join(tmp, "vn-test-run-"));
-  fs.writeFileSync(path.join(root, OWNER), String(process.pid));
+  fs.writeFileSync(path.join(root, OWNER), ownerRecord());
   for (const name of Object.keys(saved)) process.env[name] = root;
   return () => {
     for (const [name, value] of Object.entries(saved)) {
