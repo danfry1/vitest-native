@@ -41,6 +41,7 @@ import {
   installedExpoVersion,
   isBelowSupportedReactNative,
   PEER_REQUIREMENTS,
+  belowRecommendedMessage,
   unsupportedExpoSdkMessage,
   unsupportedReactNativeMessage,
 } from "../peer-requirements.js";
@@ -319,8 +320,11 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     const error = validatePeerDependency(name, minimum, from, maximumMajor, running);
     if (error) fail(error);
     else {
-      pass(`${name} ${running ?? packageVersion(from, name)}`);
+      const version = running ?? packageVersion(from, name);
+      pass(`${name} ${version}`);
       if (from !== root) lines.push(`      (resolved from ${from}, not from here)`);
+      const advice = version && belowRecommendedMessage(name, version);
+      if (advice) warn(advice);
     }
   }
 
