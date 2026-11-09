@@ -102,12 +102,6 @@
     "issue": "n/a (mock engine preset)"
   },
   {
-    "export": "LayoutAnimationType",
-    "path": "LayoutAnimationType",
-    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
-    "issue": "n/a (mock engine preset)"
-  },
-  {
     "export": "InterfaceOrientation",
     "path": "InterfaceOrientation",
     "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
@@ -344,12 +338,6 @@
   {
     "export": "withReanimatedTimer",
     "path": "withReanimatedTimer",
-    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
-    "issue": "n/a (mock engine preset)"
-  },
-  {
-    "export": "ReanimatedKeyframe",
-    "path": "ReanimatedKeyframe",
     "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
     "issue": "n/a (mock engine preset)"
   },
