@@ -1,0 +1,494 @@
+[
+  {
+    "export": "BaseAnimationBuilder",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "BounceIn",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "BounceInDown",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "BounceInLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "BounceInRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "BounceInUp",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "BounceOut",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "BounceOutDown",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "BounceOutLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "BounceOutRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "BounceOutUp",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ComplexAnimationBuilder",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "CurvedTransition",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "EntryExitTransition",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FadeIn",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FadeInDown",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FadeInLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FadeInRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FadeInUp",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FadeOut",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FadeOutDown",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FadeOutLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FadeOutRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FadeOutUp",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FadingTransition",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FlipInEasyX",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FlipInEasyY",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FlipInXDown",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FlipInXUp",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FlipInYLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FlipInYRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FlipOutEasyX",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FlipOutEasyY",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FlipOutXDown",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FlipOutXUp",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FlipOutYLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "FlipOutYRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "JumpingTransition",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "Layout",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "LightSpeedInLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "LightSpeedInRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "LightSpeedOutLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "LightSpeedOutRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "LinearTransition",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "PinwheelIn",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "PinwheelOut",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ReanimatedKeyframe",
+    "reason": "missing from Reanimated's mock",
+    "issue": "#696"
+  },
+  {
+    "export": "RollInLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "RollInRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "RollOutLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "RollOutRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "RotateInDownLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "RotateInDownRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "RotateInUpLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "RotateInUpRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "RotateOutDownLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "RotateOutDownRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "RotateOutUpLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "RotateOutUpRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "SequencedTransition",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "SharedTransition",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "SlideInDown",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "SlideInLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "SlideInRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "SlideInUp",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "SlideOutDown",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "SlideOutLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "SlideOutRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "SlideOutUp",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "StretchInX",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "StretchInY",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "StretchOutX",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "StretchOutY",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomIn",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomInDown",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomInEasyDown",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomInEasyUp",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomInLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomInRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomInRotate",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomInUp",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomOut",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomOutDown",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomOutEasyDown",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomOutEasyUp",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomOutLeft",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomOutRight",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomOutRotate",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "ZoomOutUp",
+    "reason": "A layout animation or builder is a plain object in Reanimated's mock: new, instanceof and extends fail",
+    "issue": "#696"
+  },
+  {
+    "export": "LayoutAnimationType",
+    "reason": "missing from Reanimated's mock",
+    "issue": "#696"
+  },
+  {
+    "export": "useAnimatedRef",
+    "path": "useAnimatedRef()",
+    "reason": "Reanimated's mock gives { current }, not a callable function ref",
+    "issue": "#696"
+  },
+  {
+    "export": "runOnRuntime",
+    "path": "runOnRuntime()",
+    "reason": "Reanimated's mock returns undefined, not a function",
+    "issue": "#696"
+  },
+  {
+    "export": "createWorkletRuntime",
+    "path": "createWorkletRuntime()",
+    "reason": "Reanimated's mock returns undefined, not a WorkletRuntime",
+    "issue": "#696"
+  },
+  {
+    "export": "makeMutable",
+    "path": "makeMutable()._value",
+    "reason": "internal member of Mutable",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "makeMutable",
+    "path": "makeMutable().setDirtyFlag",
+    "reason": "internal member of Mutable",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "makeShareableCloneRecursive",
+    "path": "makeShareableCloneRecursive().__",
+    "reason": "internal serialisation fields of a shareable ref",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "useAnimatedStyle",
+    "path": "useAnimatedStyle().",
+    "reason": "internal members of the style handle; the mock gives the style itself, which tests read (toHaveAnimatedStyle)",
+    "issue": "n/a (internal)"
+  }
+]
