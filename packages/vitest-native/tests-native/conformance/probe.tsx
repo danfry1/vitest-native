@@ -93,6 +93,10 @@ async function inRender(
 
 const COMPONENT_TYPES = new Set(["ReactElement", "ReactNode", "Element", "JSX.Element"]);
 
+/** A declared function that is a component: capitalised, or returning an element. */
+const isComponent = (name: string, declared: ExportContract) =>
+  /^[A-Z]/.test(name) || (!!declared.returns?.type && COMPONENT_TYPES.has(declared.returns.type));
+
 /** Registers one test per declared export of `contract`, against `module`. */
 export function probeModule(
   module: Record<string, unknown>,
@@ -123,16 +127,17 @@ export function probeModule(
           if (typeof value !== "function")
             found.push(`${name}: is ${typeof value}, declared class`);
         } else if (declared.kind === "function") {
-          if (typeof value !== "function") {
+          if (typeof value === "string" && isComponent(name, declared)) {
+            // A host component's name, as a library's own Jest mock often serves a view
+            // (`KeyboardProvider: "KeyboardProvider"`): a valid element type that renders.
+            report.unchecked.push(`${name} (a host component, "${value}")`);
+          } else if (typeof value !== "function") {
             // A component may be an exotic object (forwardRef, memo): checked, not called.
             found.push(...differences(value, { kind: "function" }, name));
             if (found.length === 0) report.unchecked.push(`${name} (a component)`);
           } else if (options.noCall?.[name] !== undefined) {
             report.unchecked.push(`${name} (${options.noCall[name]})`);
-          } else if (
-            /^[A-Z]/.test(name) ||
-            (declared.returns?.type && COMPONENT_TYPES.has(declared.returns.type))
-          ) {
+          } else if (isComponent(name, declared)) {
             report.unchecked.push(`${name} (a component)`);
           } else {
             const args = options.args?.[name]?.() ?? argumentsFor(declared);

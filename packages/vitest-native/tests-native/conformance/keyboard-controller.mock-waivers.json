@@ -1,0 +1,278 @@
+[
+  {
+    "export": "KeyboardEffects",
+    "path": "KeyboardEffects",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "KeyboardControllerNative",
+    "path": "KeyboardControllerNative",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FocusedInputEvents",
+    "path": "FocusedInputEvents",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "WindowDimensionsEvents",
+    "path": "WindowDimensionsEvents",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "KeyboardControllerViewCommands",
+    "path": "KeyboardControllerViewCommands",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RCTOverKeyboardView",
+    "path": "RCTOverKeyboardView",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RCTKeyboardExtender",
+    "path": "RCTKeyboardExtender",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ClippingScrollView",
+    "path": "ClippingScrollView",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RCTKeyboardToolbarGroupView",
+    "path": "RCTKeyboardToolbarGroupView",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "KeyboardContext",
+    "path": "KeyboardContext",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardContext",
+    "path": "useKeyboardContext().enabled",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardContext",
+    "path": "useKeyboardContext().layout",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardContext",
+    "path": "useKeyboardContext().update",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardContext",
+    "path": "useKeyboardContext().setKeyboardHandlers",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardContext",
+    "path": "useKeyboardContext().setInputHandlers",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardContext",
+    "path": "useKeyboardContext().setEnabled",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useReanimatedFocusedInput",
+    "path": "useReanimatedFocusedInput().input.addListener",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useReanimatedFocusedInput",
+    "path": "useReanimatedFocusedInput().input.removeListener",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useReanimatedFocusedInput",
+    "path": "useReanimatedFocusedInput().input.modify",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useReanimatedFocusedInput",
+    "path": "useReanimatedFocusedInput().update",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardAnimation",
+    "path": "useKeyboardAnimation().progress.addListener",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardAnimation",
+    "path": "useKeyboardAnimation().progress.setValue",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardAnimation",
+    "path": "useKeyboardAnimation().progress.setOffset",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardAnimation",
+    "path": "useKeyboardAnimation().progress.flattenOffset",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardAnimation",
+    "path": "useKeyboardAnimation().progress.extractOffset",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardAnimation",
+    "path": "useKeyboardAnimation().progress.stopAnimation",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardAnimation",
+    "path": "useKeyboardAnimation().progress.resetAnimation",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardAnimation",
+    "path": "useKeyboardAnimation().progress.interpolate",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardAnimation",
+    "path": "useKeyboardAnimation().progress.animate",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardAnimation",
+    "path": "useKeyboardAnimation().progress.stopTracking",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardAnimation",
+    "path": "useKeyboardAnimation().progress.track",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardAnimation",
+    "path": "useKeyboardAnimation().progress.removeListener",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardAnimation",
+    "path": "useKeyboardAnimation().progress.removeAllListeners",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardAnimation",
+    "path": "useKeyboardAnimation().progress.hasListeners",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useKeyboardAnimation",
+    "path": "useKeyboardAnimation().progress.toJSON",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useReanimatedKeyboardAnimation",
+    "path": "useReanimatedKeyboardAnimation().progress.addListener",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useReanimatedKeyboardAnimation",
+    "path": "useReanimatedKeyboardAnimation().progress.removeListener",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useReanimatedKeyboardAnimation",
+    "path": "useReanimatedKeyboardAnimation().progress.modify",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useReanimatedKeyboardAnimation",
+    "path": "useReanimatedKeyboardAnimation().height.addListener",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useReanimatedKeyboardAnimation",
+    "path": "useReanimatedKeyboardAnimation().height.removeListener",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useReanimatedKeyboardAnimation",
+    "path": "useReanimatedKeyboardAnimation().height.modify",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "KEYBOARD_BORDER_RADIUS",
+    "path": "KEYBOARD_BORDER_RADIUS",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "KEYBOARD_HAS_ROUNDED_CORNERS",
+    "path": "KEYBOARD_HAS_ROUNDED_CORNERS",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "KeyboardController",
+    "path": "KeyboardController.setTranslucent",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "KeyboardState",
+    "path": "KeyboardState",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useAnimatedKeyboard",
+    "path": "useAnimatedKeyboard",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  }
+]
