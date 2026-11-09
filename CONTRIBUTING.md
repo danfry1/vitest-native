@@ -37,16 +37,17 @@ Each rule below comes from a bug or a lost CI round. The workflows that repeat a
 as skills in `.claude/skills/`, which Claude Code loads by name and which read as checklists for
 anyone:
 
-| Skill | When |
-|---|---|
-| `fix-a-bug` | Reproducing and fixing a bug so it cannot ship again |
-| `land-a-stack` | Merging a PR or a stack of PRs into main |
-| `perf-measurement` | Measuring speed or resource use |
-| `docs-claims` | Changing user-facing docs or site copy |
-| `changeset-style` | Writing or reviewing changesets |
-| `release-rc` | Cutting a release candidate or a release |
+| Skill              | When                                                 |
+| ------------------ | ---------------------------------------------------- |
+| `fix-a-bug`        | Reproducing and fixing a bug so it cannot ship again |
+| `land-a-stack`     | Merging a PR or a stack of PRs into main             |
+| `perf-measurement` | Measuring speed or resource use                      |
+| `docs-claims`      | Changing user-facing docs or site copy               |
+| `changeset-style`  | Writing or reviewing changesets                      |
+| `release-rc`       | Cutting a release candidate or a release             |
 
 **Evidence**
+
 - A test is evidence only if it fails without the fix. Revert the fix and watch each new test
   go red before calling it covered.
 - A test that loops over cases counts the cases it actually checked and asserts a floor on
@@ -56,14 +57,21 @@ anyone:
 - Never act on one timing sample (see `perf-measurement`).
 
 **Installs and tools**
+
 - In a new worktree, run `bun install --frozen-lockfile` first. Running `bunx` or `npx` before
   it fetches the latest release of a tool from the registry and runs it.
 - After moving fixtures around, check `bun.lock` for temporary `file:` paths before committing.
+- Install a throwaway fixture outside the repository (a reproduction, an older library) with
+  `node packages/vitest-native/scripts/scratch-install.mjs <dir>`, never a plain `bun install`.
+  bun reads `bunfig.toml` from the project it installs, so a scratch directory gets neither the
+  week-long release cooldown nor the repository's resolutions. The script applies both, refuses
+  young packages, installs with scripts off, and lists the packages new to the machine.
 - Don't use `git stash`. Every worktree of a repository shares one stash, so `git stash pop` can
   apply someone else's changes. Commit work in progress to your own branch, or make a scratch
   copy with `git worktree add`.
 
 **Code**
+
 - Compare paths in one spelling. `fs.realpathSync` keeps the spelling a path was given in (a
   Windows short name such as `RUNNER~1`, the case it was typed in); `fs.realpathSync.native`
   returns the long name and the on-disk case. Say in a comment which one a call needs. A
@@ -78,6 +86,7 @@ anyone:
   created inside per-file setup is rebuilt for every file.
 
 **Files**
+
 - A CommonJS file inside a `"type": "module"` package uses `.cjs`.
 - Never commit reporter or coverage output, such as the file `--reporter=json` writes or a
   coverage report. Check `git status` after a debugging run.
@@ -85,6 +94,7 @@ anyone:
   scratch directory.
 
 **Commits and pull requests**
+
 - Use a closing keyword (`fixes`, `closes`, `resolves` and their forms) only for the issue the
   change fixes. GitHub acts on it when the commit reaches main, and a squash-merge copies the
   pull request's text into the commit, so "fix #566" written about another pull request closed
@@ -92,6 +102,7 @@ anyone:
   body aims a closing keyword at another pull request.
 
 **Long runs**
+
 - Run one heavy suite at a time. To check for another, match the process, not text that your
   own shell also contains: `pgrep -fl 'node .*vitest(\.mjs)? run'`. To queue behind a run,
   wait on its PID.
@@ -120,12 +131,12 @@ agents read it for exact names. Keep it short and write for both.
    `… for the pull request (#12).` Several people or references read `@a and @b`, `(#12, #14)`.
    Use public GitHub handles only, and never name a reporter who asked to stay anonymous.
 
-| Instead of | Say |
-|---|---|
-| Node-owned | loaded by Node (a `vi.mock` from a test does not reach its imports) |
-| owner, ownership | whether Vite or Node loads the file |
-| closure, closure walk | the packages vitest-native compiles |
-| registry | React Native's precompiled modules, or just the effect ("React Native loads faster") |
+| Instead of            | Say                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------ |
+| Node-owned            | loaded by Node (a `vi.mock` from a test does not reach its imports)                  |
+| owner, ownership      | whether Vite or Node loads the file                                                  |
+| closure, closure walk | the packages vitest-native compiles                                                  |
+| registry              | React Native's precompiled modules, or just the effect ("React Native loads faster") |
 
 For example, a 176-word entry with four bullets about compiling a workspace library's
 dependencies becomes:
@@ -151,15 +162,15 @@ toward the length or the vocabulary check. Empty changesets are exempt. Run it l
 
 ## Scripts
 
-| Command | Description |
-|---|---|
-| `bun run build` | Build the package (runs tsdown under bun's runtime — see below) |
-| `bun run test` | Run tests |
-| `bun run test:example` | Build and test the example app |
-| `bun run lint` | Lint with oxlint |
-| `bun run format` | Format with oxfmt |
-| `bun run format:check` | Check formatting (CI) |
-| `bun run typecheck` | Type-check with tsc |
+| Command                | Description                                                     |
+| ---------------------- | --------------------------------------------------------------- |
+| `bun run build`        | Build the package (runs tsdown under bun's runtime — see below) |
+| `bun run test`         | Run tests                                                       |
+| `bun run test:example` | Build and test the example app                                  |
+| `bun run lint`         | Lint with oxlint                                                |
+| `bun run format`       | Format with oxfmt                                               |
+| `bun run format:check` | Check formatting (CI)                                           |
+| `bun run typecheck`    | Type-check with tsc                                             |
 
 ### Why the build runs tsdown under bun
 
@@ -237,6 +248,7 @@ Every published version includes [SLSA provenance](https://slsa.dev/), cryptogra
 Presets live in `packages/vitest-native/src/presets/`. Each preset exports a function that returns a `Preset` object with module factories and export lists. See existing presets for the pattern.
 
 After adding a preset:
+
 1. Export it from `src/presets/index.ts`
 2. Add auto-detect mapping in `src/preset-map.ts`
 3. Add tests in `tests/presets.test.ts`
