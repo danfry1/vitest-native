@@ -19,7 +19,12 @@ import { installKnownNativeModules } from "./native-modules.mjs";
 import { installRequireHooks, resetExpoSdkWarnings, verifyExpoSdkWarningsReset } from "./hooks.mjs";
 import { installHotReset } from "./reset.mjs";
 import { installRegistry } from "./registry.mjs";
-import { captureModuleBaseline, resetEvaluatedModules } from "./module-reset.mjs";
+import {
+  captureModuleBaseline,
+  resetEvaluatedModules,
+  trackCjsResolutions,
+} from "./module-reset.mjs";
+import { isFreshRuntime } from "./ownership.mjs";
 import { registerRntlHooksOnImport } from "./rntl-hooks.mjs";
 import { residentProblems } from "./resident-health.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
@@ -84,6 +89,9 @@ installRequireHooks(
 );
 // After the hooks: the polyfill is Flow-typed and compiled by them (see globals.mjs).
 installErrorUtils(projectRoot);
+// With the runtime packages re-run per file, the preload's lookups into them must be
+// drained too, so resolution tracking starts before it.
+const earlyResolutions = isFreshRuntime() ? trackCjsResolutions() : undefined;
 try {
   const req = createRequire(path.join(projectRoot, "package.json"));
   const RN = req("react-native");
@@ -118,7 +126,7 @@ try {
     { cause: error },
   );
 }
-const resetModules = captureModuleBaseline();
+const resetModules = captureModuleBaseline(earlyResolutions);
 const { hotReset, bless, registerState, stateEntries } = installHotReset({
   projectRoot,
   diagnostics,
@@ -133,7 +141,7 @@ registerState({
   verify: verifyExpoSdkWarningsReset,
 });
 globalThis.__vitest_native_state_entries = stateEntries;
-globalThis.__vitest_native_hot_reset = () => {
+globalThis.__vitest_native_hot_reset = (file) => {
   globalThis.__vitest_native_registry_reset?.();
   // Advance the ESM generation so externalized packages a test file `import`s are
   // re-evaluated instead of served from Node's uninvalidatable ESM registry, and let go
@@ -145,7 +153,7 @@ globalThis.__vitest_native_hot_reset = () => {
     released = hot.release?.(generation) ?? 0;
   }
   const dropped = resetModules();
-  hotReset();
+  hotReset(file);
   if (diagnostics) {
     console.log(
       `[vitest-native] hot reset: dropped ${dropped} modules, released ${released} module generations`,
@@ -203,13 +211,13 @@ function clearPendingMocks(mocker) {
   }
 }
 
-globalThis.__vitest_native_reset_module_runner = () => {
+globalThis.__vitest_native_reset_module_runner = (file) => {
   try {
     // The previous file's realm state (fake timers, stubbed globals, listeners) must be
     // gone before ANY setup file of the next one runs. It used to be reset from this
     // package's setup file, which Vitest runs after the user's own: a user setup that
     // installs fake timers then found the previous file's still installed.
-    globalThis.__vitest_native_hot_reset?.();
+    globalThis.__vitest_native_hot_reset?.(file);
   } finally {
     // A failed realm restore is reported by the runner as this file's failure; the
     // previous file's modules and mocks are still dropped, so what follows does not

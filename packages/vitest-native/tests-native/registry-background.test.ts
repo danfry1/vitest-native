@@ -4,8 +4,7 @@ import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { CLEANUP_BUDGET_MS } from "./support/cold-import";
+import { afterEach, describe, expect, it } from "vitest";
 // @ts-expect-error — runtime .mjs, no types
 import { CI_VARIABLES } from "../src/native/registry-process.mjs";
 
@@ -19,8 +18,9 @@ const require = createRequire(path.join(packageRoot, "package.json"));
 const vitestEntry = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
 const posix = process.platform !== "win32";
 const scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-registry-bg-"));
-// The scratch projects hold React Native registry builds.
-afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }), CLEANUP_BUDGET_MS);
+// Under the run's temporary root (vitest.background.config.mts), which global teardown
+// removes: the scratch projects hold React Native registry builds, and deleting them per
+// file is not this test's to time.
 
 // Each test file records whether its worker serves React Native from the registry,
 // and whether the registry existed when it started. A file that started before the

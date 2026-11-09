@@ -103,14 +103,39 @@ npx vitest-native compare --json compare.json   # a report to attach to an issue
 
 Neither run writes snapshots, and compare fails if a run changes a file in the project. With no Vitest config yet, it uses the config `migrate` would write, without saving it. It exits 0 when every test that passes under Jest also passes under Vitest and `vitest run` exits 0, and 1 when not. It exits 2 when a runner could not run, when the project changed, or when no test passed under Jest, and 130 when interrupted.
 
-| Flag | Does |
-|---|---|
-| `--jest-args "<args>"`, `--vitest-args "<args>"` | Pass extra arguments to one runner. Only filters, timeouts and switches that cannot write files are accepted. |
-| `--vitest-config <file>` | Use this Vitest config. |
-| `--jest-results <file>` | Read a Jest `--json` report, such as one from CI, instead of running Jest. |
-| `--jest-root <dir>` | The directory that report was made in. Found from the report when omitted. |
-| `--json <file>` | Write a report of test names, results and error messages, with stack traces, code frames and absolute paths removed. Read it before you attach it to an issue: a message still contains whatever a test put in it. |
-| `--top <n>` | How many error groups and files to list (default 10). |
-| `--timeout <seconds>` | The time limit for each runner (default 1800). |
-| `--show-output` | Stream both runners' output. |
-| `--strict` | Confirm a parametrised test whose title Vitest printed as `%p` only by its title, never by its row position. |
+| Flag                                             | Does                                                                                                                                                                                                               |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--jest-args "<args>"`, `--vitest-args "<args>"` | Pass extra arguments to one runner. Only filters, timeouts and switches that cannot write files are accepted.                                                                                                      |
+| `--vitest-config <file>`                         | Use this Vitest config.                                                                                                                                                                                            |
+| `--jest-results <file>`                          | Read a Jest `--json` report, such as one from CI, instead of running Jest.                                                                                                                                         |
+| `--jest-root <dir>`                              | The directory that report was made in. Found from the report when omitted.                                                                                                                                         |
+| `--json <file>`                                  | Write a report of test names, results and error messages, with stack traces, code frames and absolute paths removed. Read it before you attach it to an issue: a message still contains whatever a test put in it. |
+| `--top <n>`                                      | How many error groups and files to list (default 10).                                                                                                                                                              |
+| `--timeout <seconds>`                            | The time limit for each runner (default 1800).                                                                                                                                                                     |
+| `--show-output`                                  | Stream both runners' output.                                                                                                                                                                                       |
+| `--strict`                                       | Confirm a parametrised test whose title Vitest printed as `%p` only by its title, never by its row position.                                                                                                       |
+| `--hot`                                          | Compare the suite per file with `hotRuntime: 'auto'` instead of Jest with Vitest. See [below](#compare-hot).                                                                                                       |
+| `--runs <n>`                                     | With `--hot`: runs per mode (default 3; the first warms caches and is not timed).                                                                                                                                  |
+| `--seed <n>`                                     | With `--hot`: the seed for the shuffled hot run (random by default, always printed).                                                                                                                               |
+| `--no-shuffle`                                   | With `--hot`: skip the shuffled hot run.                                                                                                                                                                           |
+
+### `compare --hot` {#compare-hot}
+
+```sh
+npx vitest-native compare --hot
+```
+
+Runs your Vitest config per file and with `hotRuntime: 'auto'`, then compares every test's result. Jest is not run. The runs are, in order:
+
+- per file three times;
+- hot three times;
+- one hot run with files shuffled (`--seed`, printed);
+- one hot run at `--maxWorkers=2`, where more files share a worker.
+
+Tests are matched by file, full name and occurrence. A failure compares by its kind (an assertion error, a timeout, an error code), not its message. Also compared: errors outside tests, and snapshots written or left obsolete.
+
+- **No difference:** it prints `No difference in N per-file and M hot runs` and exits 0. Then the timing: each mode's median wall time and range over its timed runs. The first run of each mode only warms caches, and the shuffled and `--maxWorkers=2` runs are checks; the listing marks all of these as not timed. It says hot is faster or slower only from at least two timed runs per mode whose ranges don't overlap. With fewer runs, or overlapping ranges, it makes no speed claim. When hot is faster, you can add `hotRuntime: 'auto'` to `reactNative({ … })`.
+- **Differences:** it lists each test that differs, or that varies between hot runs, and exits 1. A test that already varies between per-file runs is reported separately, and hot may only produce results the per-file runs also produced.
+- **No verdict (exit 2):** a hot run did not actually run hot, because `'auto'` declined and printed `hot runtime off: …`; or a run failed to start or timed out; or the runs changed project files.
+
+Two runs cannot rule out a rare flake: raise `--runs` for more confidence. `--json` records every run's results, the versions and the worker counts.

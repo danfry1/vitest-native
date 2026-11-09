@@ -1,0 +1,5 @@
+{
+  "name": "museum-env-jest-automock-require",
+  "private": true,
+  "type": "module"
+}

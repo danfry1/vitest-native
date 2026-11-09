@@ -1,0 +1,260 @@
+[
+  {
+    "export": "LegacyBaseButton",
+    "path": "LegacyBaseButton",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LegacyBorderlessButton",
+    "path": "LegacyBorderlessButton",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LegacyRawButton",
+    "path": "LegacyRawButton",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LegacyRectButton",
+    "path": "LegacyRectButton",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LegacyDrawerLayoutAndroid",
+    "path": "LegacyDrawerLayoutAndroid",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LegacyFlatList",
+    "path": "LegacyFlatList",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LegacyRefreshControl",
+    "path": "LegacyRefreshControl",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LegacyScrollView",
+    "path": "LegacyScrollView",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LegacySwitch",
+    "path": "LegacySwitch",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LegacyTextInput",
+    "path": "LegacyTextInput",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LegacyPressable",
+    "path": "LegacyPressable",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LegacyText",
+    "path": "LegacyText",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "TouchableHighlight",
+    "path": "TouchableHighlight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "TouchableNativeFeedback",
+    "path": "TouchableNativeFeedback",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "TouchableOpacity",
+    "path": "TouchableOpacity",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "legacy_createNativeWrapper",
+    "path": "legacy_createNativeWrapper",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "MouseButton",
+    "path": "MouseButton",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Gesture",
+    "path": "Gesture.ForceTouch",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Gesture",
+    "path": "Gesture.Native",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Gesture",
+    "path": "Gesture.Manual",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Gesture",
+    "path": "Gesture.Hover",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "HoverEffect",
+    "path": "HoverEffect",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "PointerType",
+    "path": "PointerType",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RefreshControl",
+    "path": "RefreshControl",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Switch",
+    "path": "Switch",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "TextInput",
+    "path": "TextInput",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Touchable",
+    "path": "Touchable",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "GestureDetectorType",
+    "path": "GestureDetectorType",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "InterceptingGestureDetector",
+    "path": "InterceptingGestureDetector",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "VirtualGestureDetector",
+    "path": "VirtualGestureDetector",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "GestureStateManager",
+    "path": "GestureStateManager",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useCompetingGestures",
+    "path": "useCompetingGestures",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useExclusiveGestures",
+    "path": "useExclusiveGestures",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useFlingGesture",
+    "path": "useFlingGesture",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useHoverGesture",
+    "path": "useHoverGesture",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useLongPressGesture",
+    "path": "useLongPressGesture",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useManualGesture",
+    "path": "useManualGesture",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useNativeGesture",
+    "path": "useNativeGesture",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "usePanGesture",
+    "path": "usePanGesture",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "usePinchGesture",
+    "path": "usePinchGesture",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useRotationGesture",
+    "path": "useRotationGesture",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useSimultaneousGestures",
+    "path": "useSimultaneousGestures",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useTapGesture",
+    "path": "useTapGesture",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  }
+]

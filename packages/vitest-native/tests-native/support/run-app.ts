@@ -3,21 +3,20 @@
  * packages) as its own Vitest run against this build, with node_modules assembled from
  * this repository's install (materialise). `from` is the app directory, for a fixture
  * kept beside its test; by default, the exhibit named `id`, whose exhibits.json entry
- * (its workspace `links`, installed copies) shapes the install either way.
+ * (its workspace `links`, installed copies) shapes the install either way. `cwd` maps the
+ * app root to the directory the run starts in (another spelling of it).
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { stripVTControlCharacters } from "node:util";
-import { afterAll } from "vitest";
 // @ts-expect-error — runtime .mjs, no types
 import {
   materialise,
   museumRoot,
   packageRoot,
 } from "../../validation/bug-museum/lib/materialise.mjs";
-import { CLEANUP_BUDGET_MS } from "./cold-import";
 
 export interface Edit {
   file: string;
@@ -25,18 +24,33 @@ export interface Edit {
   replace: string;
 }
 
-const works: string[] = [];
-// Each work directory holds a materialised app with its node_modules.
-afterAll(() => {
-  for (const work of works) fs.rmSync(work, { recursive: true, force: true });
-}, CLEANUP_BUDGET_MS);
+/**
+ * The run's own temporary root (tests/support/temp-root.global.ts), which global teardown
+ * removes with everything in it. Each materialised app lives there, and nothing deletes it
+ * per file. Deleting one per file, node_modules included, took longer than Vitest's 10 s
+ * hook timeout on Windows runners: it failed 5 of 53 Windows native jobs in a day, after
+ * the tests had passed. Global teardown has no hook timeout.
+ */
+function runTempRoot(): string {
+  const root = os.tmpdir();
+  if (!/[\\/]vn-test-run-[^\\/]+$/.test(root)) {
+    throw new Error(
+      `runApp materialises apps under the run's temporary root, which this config does not set ` +
+        `(os.tmpdir() is ${root}). Add tests/support/temp-root.global.ts to its globalSetup.`,
+    );
+  }
+  return root;
+}
 
 export function runApp(
   id: string,
-  { from, edits = [] }: { from?: string; edits?: Edit[] } = {},
+  {
+    from,
+    edits = [],
+    cwd = (root) => root,
+  }: { from?: string; edits?: Edit[]; cwd?: (root: string) => string } = {},
 ): { status: number | null; output: string } {
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), `vn-${id}-`));
-  works.push(work);
+  const work = fs.mkdtempSync(path.join(runTempRoot(), `vn-${id}-`));
   const exhibit = JSON.parse(
     fs.readFileSync(path.join(museumRoot, "exhibits.json"), "utf8"),
   ).exhibits.find((e: { id: string }) => e.id === id) ?? { id };
@@ -50,7 +64,8 @@ export function runApp(
     ),
   );
   const proc = spawnSync(process.execPath, [vitest, "run"], {
-    cwd: root,
+    // The run's working directory, which is its root: another spelling of it, if asked.
+    cwd: cwd(root),
     env: { ...env, NODE_ENV: "test", NO_COLOR: "1" },
     encoding: "utf8",
     timeout: 120_000,
