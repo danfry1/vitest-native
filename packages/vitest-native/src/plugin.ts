@@ -348,6 +348,7 @@ function printEngineBanner(
   hotRuntime = false,
   ownershipModel?: string,
   nodeMocks = false,
+  hotDeclined: string | null = null,
 ): void {
   // Once per process, so a multi-project run prints the first project's line only: its
   // engine, runtime and presets, which another project may not share. Naming each
@@ -367,7 +368,13 @@ function printEngineBanner(
     // The runtime is named because it is chosen automatically: a test that passes
     // alone but fails after other files is the hot-runtime signal, and this is the
     // line that tells someone reading the log that it is in play.
-    const runtime = hotRuntime ? ", hot runtime" : "";
+    // A declined 'auto' says why, set or not: the default declines quietly otherwise, and
+    // this is where someone asking why a run is slow will look.
+    const runtime = hotRuntime
+      ? ", hot runtime"
+      : hotDeclined !== null
+        ? `, hot runtime declined: ${hotDeclined}`
+        : "";
     const model = ownershipModel ? `, experimental.ownershipModel: ${ownershipModel}` : "";
     // Named whether set or implied ('resolution' turns it on): it changes what a vi.mock
     // reaches, and why a require can fail with MOCK_NOT_SEEN_BY_NODE.
@@ -2868,6 +2875,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // event, so discovering here that only an unrecyclable one-worker run fits
         // gives the user a deterministic configuration error instead of risking an
         // OOM during an optimization that the run cannot safely use anyway.
+        // Why 'auto' kept per-file isolation, for the engine banner: the one line every run
+        // prints, so a default 'auto' that declines quietly still says so (and why).
+        let hotDeclineReason: string | null = null;
         let hotMemory:
           | {
               plan: HotMemoryPlan;
@@ -2907,6 +2917,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
                 : null))
             : null;
           if (autoDeclineReason !== null) {
+            hotDeclineReason = autoDeclineReason;
             if (hotRuntimeExplicit || diagnostics) {
               console.warn(
                 `[vitest-native] hotRuntime${hotRuntimeOpt === "auto" ? ":'auto'" : " mode:'auto'"} ` +
@@ -3039,6 +3050,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           hot !== undefined,
           ownershipModel,
           fields.nodeMocks === true,
+          hotDeclineReason,
         );
         if (hot) {
           hotSelections.set(vitestRootOf(userConfig), {

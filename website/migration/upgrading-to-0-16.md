@@ -14,5 +14,5 @@ reactNative({ hotRuntime: false })
 
 - A test that passes on its own but fails after other files depends on state the hot runtime carries between files. The [known differences](/guide/hot-runtime#known-differences) list the cases vitest-native knows about. Set `hotRuntime: false` for that project, and please [report it](https://github.com/danfry1/vitest-native/issues).
 - [`vitest-native compare --hot`](/guide/cli#compare-hot) runs your suite both ways and lists every test whose result differs.
-- The engine banner says `hot runtime` when it is on. A run that falls back to per-file isolation prints why when you set the option yourself or turn on `diagnostics`.
+- The engine banner at the start of a run says `hot runtime` when it is on, and `hot runtime declined: <reason>` when the run kept per-file isolation, for example because of an explicit `pool` or a single worker.
 - The mock engine is unchanged: the hot runtime applies only to the native engine.

@@ -180,7 +180,7 @@ Vitest's transform cache is keyed on what your config loads for each file: the p
 Reuses test workers across files instead of starting a fresh one for each, while still giving every file fresh app and test modules, mocks and timers. It uses Vitest's custom worker APIs, which Vitest labels experimental, and it has [known differences](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) from per-file isolation. See [Hot Runtime](/guide/hot-runtime).
 
 - `false`: each test file runs in a fresh worker (the default before 0.16).
-- `'auto'` *(default)*: use the hot runtime where the run can be bounded and recycled (at least two workers, no explicit pool, `test.isolate` or overriding CLI flag, and a matching Vitest install), and per-file isolation otherwise, printing why when you set the option or turn on `diagnostics`.
+- `'auto'` *(default)*: use the hot runtime where the run can be bounded and recycled (at least two workers, no explicit pool, `test.isolate` or overriding CLI flag, and a matching Vitest install), and per-file isolation otherwise. The engine banner then says `hot runtime declined: <reason>`, and a warning repeats it when you set the option or turn on `diagnostics`.
 - `true`: require the hot runtime. Startup fails with [`HOT_MEMORY_UNBOUNDED`](/guide/errors#HOT_MEMORY_UNBOUNDED) when the run has one worker, and with [`HOT_RUNTIME_OVERRIDDEN`](/guide/errors#HOT_RUNTIME_OVERRIDDEN) when an explicit pool or `test.isolate`, a CLI flag (`--no-isolate`, `--pool`, `--maxWorkers=1`, `--no-file-parallelism`) or a `sequence.groupOrder` worker-count clash rules it out.
 - An object: tune worker recycling. On its own it requires the hot runtime, as `true` does; add `mode: 'auto'` to fall back as `'auto'` does.
 

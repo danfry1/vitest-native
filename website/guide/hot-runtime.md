@@ -16,7 +16,7 @@ reactNative({ hotRuntime: true })    // require it; fail at startup where it can
 reactNative({ hotRuntime: false })   // per-file isolation: a fresh worker per file (the default before 0.16)
 ```
 
-The [`hotRuntime` option](/guide/plugin-options#hotruntime) lists every value and the object form's keys. The engine banner at the start of a run says `hot runtime` when it is on (unless a following `hot runtime off: …` line names why it was turned off), and the startup log names the worker count it chose, for example:
+The [`hotRuntime` option](/guide/plugin-options#hotruntime) lists every value and the object form's keys. The engine banner at the start of a run says `hot runtime` when it is on (unless a following `hot runtime off: …` line names why it was turned off), and `hot runtime declined: <reason>` when `'auto'` kept per-file isolation, and the startup log names the worker count it chose, for example:
 
 ```
 [vitest-native] workers: 4 (automatic cap of 4; 9 available, set maxWorkers to run more; 24576 MiB host memory)

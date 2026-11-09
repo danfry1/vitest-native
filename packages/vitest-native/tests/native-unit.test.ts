@@ -1671,6 +1671,18 @@ describe("engine-selection notices", () => {
     );
     expect(banner()).toMatch(/\(platform ios, hot runtime\)$/);
 
+    // A default 'auto' that declines says so, and why, though it warns about nothing.
+    resetBanner();
+    err.mockClear();
+    await runPluginConfig(
+      reactNative({ engine: "native" }) as any,
+      { root: projectRoot, test: { maxWorkers: 2, pool: "forks" } },
+      SERVE_ENV,
+    );
+    expect(banner()).toMatch(
+      /\(platform ios, hot runtime declined: 'forks' is explicitly configured\)$/,
+    );
+
     // Per-file isolation, and the banner says nothing about hot.
     resetBanner();
     err.mockClear();
