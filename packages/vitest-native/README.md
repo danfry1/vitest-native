@@ -1,4 +1,9 @@
-# vitest-native
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/danfry1/vitest-native/main/website/public/lockup-dark.svg">
+    <img src="https://raw.githubusercontent.com/danfry1/vitest-native/main/website/public/lockup.svg" alt="vitest-native" width="335" height="64">
+  </picture>
+</h1>
 
 [![npm](https://img.shields.io/npm/v/vitest-native)](https://www.npmjs.com/package/vitest-native)
 [![npm downloads](https://img.shields.io/npm/dm/vitest-native)](https://npmcharts.com/compare/vitest-native?interval=30)
