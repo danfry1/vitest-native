@@ -16,6 +16,8 @@
 //   cjslabel              the same beside another unknown plugin the file needs: fails.
 //   expoesm               babel-preset-expo with its native module transform on and a
 //                         dynamic-import plugin listed: a routed file with import() passes.
+//   virtual native|hot    ids under the root that only a plugin serves (#666): the
+//                         root-mocks setup module, a virtual .ts and a virtual .js: pass.
 //   cache                 after a warm run, the local plugin changes: the next warm run
 //                         recompiles the file it applies to.
 import { spawnSync } from "node:child_process";
@@ -159,6 +161,22 @@ check(
     /cannot fall back to Oxc/.test(cjslabel.output),
   cjslabel.output,
 );
+
+// Ids spelled as files under the root that only a plugin serves (#666): jest-compat's
+// root-mocks setup module and a plugin's virtual .ts and .js modules. projectBabel leaves
+// them to their plugin and still routes the real decorator file, cold and warm.
+for (const mode of ["native", "hot"]) {
+  for (const pass of ["cold", "warm"]) {
+    const virtual = run("virtual", mode, `virtual-${mode}`);
+    check(
+      `virtual ${mode} ${pass}: 4 pass${pass === "cold" ? ", routes src/Model.js only" : ""}`,
+      virtual.status === 0 &&
+        /Tests\s+4 passed \(4\)/.test(virtual.output) &&
+        (pass === "warm" || routed(virtual.output).join(",") === "src/Model.js"),
+      virtual.output,
+    );
+  }
+}
 
 // Cache: the local plugin is a file the config requires, not a package.
 const plugin = path.join(packageRoot, "tests-native", "project-babel", "plugins", "answer.cjs");

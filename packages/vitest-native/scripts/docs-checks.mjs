@@ -57,6 +57,7 @@ const KNOWN = [
   "docs-presets-sync.test.ts",
   "documented-config.test.ts",
   "site-meta.test.ts",
+  "redirect-site.test.ts",
 ];
 const lost = KNOWN.filter((file) => !readers.includes(file));
 if (lost.length > 0) {

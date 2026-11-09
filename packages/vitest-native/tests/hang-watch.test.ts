@@ -133,6 +133,36 @@ describe("HangWatch", () => {
     );
   });
 
+  it("waits while modules are still loading for a file that has not started a test", () => {
+    // A cold start (a hot worker booting, a large graph transforming for the first time)
+    // makes no reporter event until the first test: module loads are its progress.
+    const { w, exit, write } = watch();
+    w.onTestRunStart();
+    w.onTestModuleQueued(file("/app/cold.test.ts"));
+    vi.advanceTimersByTime(900);
+    w.activity();
+    vi.advanceTimersByTime(100); // the limit since the file was taken
+    expect(exit).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(850); // still inside the limit since the last load
+    expect(exit).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(100); // loading stopped a full limit ago
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(write.mock.calls.join("")).toContain("The last module the run loaded was 1 s ago.");
+  });
+
+  it("says how long ago a worker took a file that never started a test", () => {
+    const { w, exit, write } = watch(2000);
+    w.onTestRunStart();
+    w.onTestModuleQueued(file("/app/stuck-import.test.ts"));
+    vi.advanceTimersByTime(2000);
+    expect(exit).toHaveBeenCalledWith(1);
+    const text = write.mock.calls.join("");
+    expect(text).toContain(
+      "Running: /app/stuck-import.test.ts (no test had started; a worker took the file 2 s ago",
+    );
+    expect(text).toContain("No module was loaded through Vite in this run.");
+  });
+
   it("is quiet between runs (watch mode waiting for a change)", () => {
     const { w, exit } = watch();
     w.onTestRunStart();

@@ -257,6 +257,7 @@ export interface HotRuntimeRecycleOptions {
   memoryLimit?: number;
   preserveGlobals?: string[];
   esmGeneration?: boolean;
+  freshRuntime?: boolean;
 }
 
 export interface VitestNativeOptions {
@@ -424,7 +425,7 @@ export interface VitestNativeOptions {
      * only. `'resolution'` adds the bridge: Node's \`require\` of a file Vite owns gets
      * Vite's own instance, evaluated then if Vite has not yet, so the order a test loads
      * files in cannot split a module. `'resolution'` turns `nodeMocks` on: a mocked module
-     * the bridge or Node reaches is the test's mock. See https://danfry1.github.io/vitest-native/guide/plugin-options#experimental.
+     * the bridge or Node reaches is the test's mock. See https://vitest-native.danfry.dev/guide/plugin-options#experimental.
      */
     ownershipModel?: "resolver" | "resolution";
   };
@@ -468,6 +469,13 @@ export interface VitestNativeOptions {
    *   is on, hot workers leave Node's V8 compile cache off, because every file
    *   would add an entry per re-evaluated module (unless `NODE_COMPILE_CACHE` is
    *   set, which turns the cache on before vitest-native runs).
+   * - `freshRuntime` (experimental, off by default): React, its renderers, `scheduler`
+   *   and React Native Testing Library run again for every test file, as React Native
+   *   does, instead of staying loaded for the worker's life. State they hold at module
+   *   level (`useId` counters, warning de-duplication, scheduler timers) then starts
+   *   fresh in each file, as under per-file isolation. It costs re-execution: about
+   *   20 ms per file with one worker and 5 ms with four, on a 135-file suite. Requires
+   *   `esmGeneration`.
    *
    * `'auto'` selects the bounded hot runtime when the configuration has recyclable
    * task boundaries (enough memory headroom for at least two workers) and no
@@ -524,8 +532,10 @@ export interface VitestNativeOptions {
 
   /**
    * Fail the run when no test makes progress for this many milliseconds, naming the files
-   * and tests that were running. Default: 60 000, or twice the larger of `testTimeout` and
-   * `hookTimeout` if that is longer. `false` turns it off. Off while a debugger is attached.
+   * and tests that were running. A module loaded through Vite counts as progress, so a
+   * cold start that is still importing is not taken for a hang. Default: 60 000, or twice
+   * the larger of `testTimeout` and `hookTimeout` if that is longer. `false` turns it off.
+   * Off while a debugger is attached.
    *
    * Vitest's `testTimeout` runs on the test's own worker, so a test stuck in synchronous
    * code (a loop that never ends) never reaches it, and the run waits forever with nothing
@@ -550,7 +560,7 @@ export interface VitestNativeOptions {
    * off.
    *
    * Default: `'warn'`.
-   * See https://danfry1.github.io/vitest-native/guide/errors#SOURCE_EVALUATED_TWICE.
+   * See https://vitest-native.danfry.dev/guide/errors#SOURCE_EVALUATED_TWICE.
    */
   ownership?:
     | "warn"

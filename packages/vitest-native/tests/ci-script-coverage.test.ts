@@ -35,6 +35,8 @@ const NOT_ON_PULL_REQUESTS: Record<string, string> = {
   prepublishOnly: "a local pre-publish bundle of checks that CI runs as separate steps",
   "test:native:ownership":
     "runs the four test:native:ownership:* parts for local use; CI runs the parts in test:native, in parallel",
+  "test:native:conformance-mock":
+    "the mock engine's conformance job, to be its own CI job (pK); remove this entry when it is wired",
 };
 
 /** A step or job condition under which a pull request may not run it. */
