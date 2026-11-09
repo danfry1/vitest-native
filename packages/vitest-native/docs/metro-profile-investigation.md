@@ -280,7 +280,7 @@ Metro-compatible tools and compatibility CI.
 Reproduce with:
 
 ```sh
-bun run vitest run tests/registry-process.test.ts tests/metro-profile.test.ts
+./node_modules/.bin/vitest run tests/registry-process.test.ts tests/metro-profile.test.ts
 node --expose-gc validation/module-isolation/run-metro-profile.mjs
 ```
 

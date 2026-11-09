@@ -56,12 +56,13 @@ anyone:
 - Never act on one timing sample (see `perf-measurement`).
 
 **Installs and tools**
-- Never use `bunx` or `npx`, in any form: a tool they cannot find installed is fetched at its
-  latest release and run. Run tools through `bun run <script or bin>` or
-  `./node_modules/.bin/<tool>`. In a new worktree, run `bun install --frozen-lockfile` right
-  after `git worktree add`. A tool that is not in the lockfile is a new dependency, which needs
-  the maintainer's approval. `tests/no-bunx-npx.test.ts` fails on either in a `package.json`
-  script, a workflow or a repository script.
+- In a new worktree, run `bun install --frozen-lockfile` right after `git worktree add`.
+- Never run a tool with `bunx` or `npx`. Use `bun run <script>` or `./node_modules/.bin/<tool>`.
+  Where a tool is missing from `node_modules`, `bunx` and `npx` fetch its latest release from
+  the registry and run it, unpinned. A tool that is not in the lockfile is a new dependency,
+  which needs the maintainer's approval. `tests/no-bunx-npx.test.ts` (package.json scripts,
+  workflows and repository scripts) and `tests/practices.test.ts` (the docs' instructions)
+  fail on either.
 - After moving fixtures around, check `bun.lock` for temporary `file:` paths before committing.
 - Don't use `git stash`. Every worktree of a repository shares one stash, so `git stash pop` can
   apply someone else's changes. Commit work in progress to your own branch, or make a scratch

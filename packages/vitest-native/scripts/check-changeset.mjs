@@ -441,8 +441,8 @@ if (isMain()) {
         "  changelog entry and no version bump.\n\n" +
         "  A production dependency change ships to users too, a Dependabot bump included: add a\n" +
         '  patch changeset naming the bump (e.g. "Updates magic-string to 1.4.4.").\n\n' +
-        "      bun run changeset            # user-visible change\n" +
-        "      bun run changeset --empty    # refactor or comments only — records the decision",
+        "      bun run changeset          # user-visible change\n" +
+        "      bun run changeset --empty  # refactor or comments only — records the decision",
     );
     process.exit(1);
   }
