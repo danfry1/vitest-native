@@ -12,12 +12,6 @@
     "issue": "#709"
   },
   {
-    "export": "SkiaPictureView",
-    "path": "SkiaPictureView",
-    "reason": "Skia's mock gives a plain object, not a class",
-    "issue": "#709"
-  },
-  {
     "export": "useClock",
     "path": "useClock().get",
     "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",

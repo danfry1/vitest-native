@@ -48,11 +48,6 @@
     "issue": "#709"
   },
   {
-    "export": "SkiaPictureView",
-    "reason": "Skia's mock gives a plain object, not a class",
-    "issue": "#709"
-  },
-  {
     "export": "useVideo",
     "path": "useVideo()",
     "reason": "Skia's mock returns null, not the video's shared values",

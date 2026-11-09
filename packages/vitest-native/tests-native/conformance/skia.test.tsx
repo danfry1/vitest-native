@@ -22,6 +22,11 @@ const waivers: Waiver[] = JSON.parse(
 
 const { Skia } = Served;
 const rect = () => Skia.XYWHRect(0, 0, 10, 10);
+// A data source Node's fetch loads offline (a 1x1 PNG): the loaders' `source` parameter is
+// a URL or a required asset, and an empty one makes their fetch reject after the test.
+const PNG =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+const SVG = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg'/>";
 
 probeModule(
   Served as unknown as Record<string, unknown>,
@@ -36,6 +41,18 @@ probeModule(
       processRadius: () => [Skia, 5],
       select: () => [makeMutable({ x: 1 }), "x"],
       useVideo: () => ["video.mp4"],
+      loadData: () => [PNG, () => null],
+      useRawData: () => [PNG, () => null],
+      useData: () => [PNG],
+      useImage: () => [PNG],
+      useAnimatedImage: () => [PNG],
+      useAnimatedImageValue: () => [PNG],
+      useImageAsTexture: () => [PNG],
+      useTypeface: () => [PNG],
+      useSVG: () => [SVG],
+    },
+    noCall: {
+      makeImageFromView: "snapshots a mounted native view, which a probe does not have",
       processRect: () => [{ x: 0, y: 0, width: 10, height: 10 }],
       processPath: () => ["M0 0 L10 10"],
       processGradientProps: () => [{ transform: [{ scale: 1 }] }],
