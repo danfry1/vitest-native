@@ -12,7 +12,15 @@ import { probeModule, type Waiver } from "./probe";
 
 const packageRoot = path.resolve(import.meta.dirname, "../..");
 const waivers: Waiver[] = JSON.parse(
-  fs.readFileSync(path.join(import.meta.dirname, "gesture-handler.waivers.json"), "utf8"),
+  fs.readFileSync(
+    path.join(
+      import.meta.dirname,
+      process.env.VN_CONFORMANCE_ENGINE === "mock"
+        ? "gesture-handler.mock-waivers.json"
+        : "gesture-handler.waivers.json",
+    ),
+    "utf8",
+  ),
 );
 
 probeModule(
