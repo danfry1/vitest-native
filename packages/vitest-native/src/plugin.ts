@@ -14,6 +14,7 @@ import {
   installedExpoVersion,
   isBelowSupportedReactNative,
   PEER_REQUIREMENTS,
+  belowRecommendedMessage,
   SUPPORTED_EXPO_SDKS,
   unsupportedExpoSdkMessage,
   unsupportedReactNativeMessage,
@@ -679,6 +680,9 @@ async function startRegistryFor(options: RegistryOptions): Promise<StartedRegist
     return {};
   }
 }
+
+/** Recommended-floor warnings already printed in this process. */
+const warnedRecommended = new Set<string>();
 
 /** Vitest instances whose close already settles the background registry builds. */
 const registrySettlers = new WeakSet<object>();
@@ -3778,6 +3782,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           "UNSUPPORTED_PEER",
           `Unsupported peer dependencies:\n- ${error}`,
         );
+      // Below the recommended floor: it runs, with an upstream bug users would meet. Once
+      // per process, as each project of a run reaches this hook.
+      const advice = belowRecommendedMessage("vitest", vitest.version);
+      if (advice && !warnedRecommended.has(advice)) {
+        warnedRecommended.add(advice);
+        console.warn(`[vitest-native] ${advice}`);
+      }
     }
     if (backgroundRegistryRoots.has(directoryKey(root)) && !registrySettlers.has(vitest)) {
       registrySettlers.add(vitest);
