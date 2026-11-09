@@ -194,6 +194,16 @@ export class HangWatch {
     this.graceMs = graceMs;
     /** Test file → the test running in it, or null if none has reported starting. */
     this.running = new Map();
+    /** Test file → when a worker took it (onTestModuleQueued). */
+    this.takenAt = new Map();
+    /**
+     * The last module the main process transformed for a worker (activity). A file still
+     * importing makes no reporter event until its first test, so a cold start (a worker
+     * booting, a large graph transforming for the first time) looks like a hang to the
+     * events alone. A module load is progress: a file stuck in a synchronous loop loads
+     * none.
+     */
+    this.lastActivity = 0;
     this.timer = undefined;
     this.vitest = undefined;
   }
@@ -221,18 +231,30 @@ export class HangWatch {
 
   onTestRunStart() {
     this.running.clear();
+    this.takenAt.clear();
     this.disarm();
   }
 
+  /** Called by the plugin for each module the main process transforms (see lastActivity). */
+  activity() {
+    this.lastActivity = this.now();
+  }
+
   onTestModuleQueued(testModule) {
-    // A worker took the file: its imports and collection are in flight from here.
-    if (!this.running.has(testModule.moduleId)) this.running.set(testModule.moduleId, null);
+    // A worker took the file (Vitest queues a file only when a worker is free for it): its
+    // imports and collection are in flight from here.
+    this.taken(testModule.moduleId);
     this.progress();
   }
 
   onTestModuleStart(testModule) {
-    if (!this.running.has(testModule.moduleId)) this.running.set(testModule.moduleId, null);
+    this.taken(testModule.moduleId);
     this.progress();
+  }
+
+  taken(file) {
+    if (!this.running.has(file)) this.running.set(file, null);
+    if (!this.takenAt.has(file)) this.takenAt.set(file, this.now());
   }
 
   onTestCaseReady(testCase) {
@@ -249,12 +271,14 @@ export class HangWatch {
 
   onTestModuleEnd(testModule) {
     this.running.delete(testModule.moduleId);
+    this.takenAt.delete(testModule.moduleId);
     this.progress();
   }
 
   onTestRunEnd() {
     // Watch mode waits here for the next change: that is not a hang.
     this.running.clear();
+    this.takenAt.clear();
     this.disarm();
   }
 
@@ -285,6 +309,8 @@ export class HangWatch {
       if (record.debugger) return this.arm(this.timeoutMs);
       waitUntil = Math.max(waitUntil, record.at + testBudget(record));
     }
+    // Modules still loading somewhere in the run: progress the events cannot show.
+    if (this.lastActivity > 0) waitUntil = Math.max(waitUntil, this.lastActivity + this.timeoutMs);
     const left = waitUntil - this.now();
     if (left > 0) return this.arm(left);
     this.trip(records);
@@ -301,14 +327,23 @@ export class HangWatch {
     const lines = [
       `[vitest-native] No test made progress for ${seconds} s (hangTimeout), and the running tests are past their own timeouts: a test or hook is stuck in synchronous code, which testTimeout cannot interrupt.`,
     ];
+    const now = this.now();
+    const ago = (at) => `${Math.round((now - at) / 1000)} s ago`;
     for (const [file, reported] of this.running) {
-      const test = records.get(file)?.test ?? reported;
+      const record = records.get(file);
+      const test = record?.test ?? reported;
+      const taken = this.takenAt.get(file);
       lines.push(
         test
-          ? `  Running: ${file} › ${test}`
-          : `  Running: ${file} (no test had started: the file's imports, collection or a beforeAll hook)`,
+          ? `  Running: ${file} › ${test}${record?.at ? ` (started ${ago(record.at)})` : ""}`
+          : `  Running: ${file} (no test had started; a worker took the file ${taken ? ago(taken) : "earlier"}: its imports, collection or a beforeAll hook. On a hot worker, the first file includes the worker's start-up)`,
       );
     }
+    lines.push(
+      this.lastActivity > 0
+        ? `  The last module the run loaded was ${ago(this.lastActivity)}.`
+        : "  No module was loaded through Vite in this run.",
+    );
     lines.push(
       "  The run is stopped (global teardown and output reporters such as coverage and junit do not finish). To change the limit, set reactNative({ hangTimeout }); false turns it off.",
     );
