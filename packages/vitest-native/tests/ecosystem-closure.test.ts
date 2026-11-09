@@ -391,8 +391,14 @@ describe("ecosystem detection: a workspace member imported but not declared", ()
     }
     return path.join(root, "apps", "app");
   }
-  const detect = (app: string, reported: string[] = [], truncated: string[] = []) =>
+  const detect = (
+    app: string,
+    reported: string[] = [],
+    truncated: string[] = [],
+    importScanLimit?: number,
+  ) =>
     detectEcosystemPackages(app, [], [], [], undefined, dependencyDirOf, {
+      importScanLimit,
       onImportedUndeclared: (importer, name, _dir, listed) =>
         reported.push(`${importer} imports ${name} (${listed})`),
       onImportScanTruncated: (pkg, limit) => truncated.push(`${pkg} ${limit}`),
@@ -496,14 +502,18 @@ describe("ecosystem detection: a workspace member imported but not declared", ()
   it("names a scan the file limit cut short", () => {
     const files: Record<string, string> = {};
     const imports: string[] = [];
-    for (let i = 0; i < 5001; i++) {
+    for (let i = 0; i < 4; i++) {
       files[`src/f${i}.ts`] = "export {};\n";
       imports.push(`import "./f${i}";`);
     }
     files["src/index.ts"] = `${imports.join("\n")}\n`;
     const truncated: string[] = [];
-    detect(workspace({ files }), [], truncated);
-    expect(truncated).toEqual(["@w/feature 5000"]);
+    detect(workspace({ files }), [], truncated, 3);
+    expect(truncated).toEqual(["@w/feature 3"]);
+    // Under the limit, nothing to report.
+    const whole: string[] = [];
+    detect(workspace({ files }), [], whole, 10);
+    expect(whole).toEqual([]);
   });
 
   it("does nothing under pnpm's layout, where Node cannot resolve the member from the package either", () => {

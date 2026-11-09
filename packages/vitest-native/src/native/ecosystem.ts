@@ -211,6 +211,7 @@ function staticImports(
   manifest: Record<string, unknown>,
   parse: Parse | null,
   memo: Map<string, StaticImports>,
+  limit: number,
 ): StaticImports {
   const memoized = memo.get(dir);
   if (memoized) return memoized;
@@ -282,7 +283,7 @@ function staticImports(
     return found;
   };
   while (pending.length > 0) {
-    if (seen.size >= MAX_RUNTIME_FILES) {
+    if (seen.size >= limit) {
       result.truncated = true;
       break;
     }
@@ -521,6 +522,11 @@ export interface ReachedPackages {
   ) => void;
   /** Called when the scan of a package's imports stopped at the file limit. */
   onImportScanTruncated?: (pkg: string, limit: number) => void;
+  /**
+   * The most files the scan of one package's imports reads (default 5000). Tests lower
+   * it so that reaching it needs a few files, not thousands.
+   */
+  importScanLimit?: number;
 }
 
 /**
@@ -564,6 +570,7 @@ export function detectEcosystemPackages(
     onReachedUndeclared,
     onImportedUndeclared,
     onImportScanTruncated,
+    importScanLimit = MAX_RUNTIME_FILES,
     compileReactNativeFieldSource,
   }: ReachedPackages = {},
 ): string[] {
@@ -975,9 +982,15 @@ export function detectEcosystemPackages(
         // 50-member workspace (25 React Native, 21 files each): about 65 ms more on a cold
         // detection; each package directory is parsed once per detection.
         parser ??= babelParser(roots[0]) ?? babelParser(process.cwd()) ?? false;
-        const scanned = staticImports(pkg.dir, pkg.manifest, parser || null, staticMemo);
+        const scanned = staticImports(
+          pkg.dir,
+          pkg.manifest,
+          parser || null,
+          staticMemo,
+          importScanLimit,
+        );
         if (scanned.truncated)
-          onImportScanTruncated?.(pkg.manifest.name as string, MAX_RUNTIME_FILES);
+          onImportScanTruncated?.(pkg.manifest.name as string, importScanLimit);
         for (const name of scanned.names) {
           if (declared.has(name) || walked.has(name) || excluded(name)) continue;
           const installed = dependencyOf(pkg, name);
