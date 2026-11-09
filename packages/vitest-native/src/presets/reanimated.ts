@@ -36,8 +36,8 @@ const REANIMATED_MOCK: LibraryMock = {
   // Reanimated's mock (4.7.1, and its main branch in October 2026) answers `interpolate`,
   // `interpolateColor` and `clamp` with a no-op, so every interpolated style is
   // `undefined`; its `useAnimatedScrollHandler` and `useComposedEventHandler` never run
-  // their handlers; its `useScrollOffset` and `useScrollViewOffset` return
-  // `{ value: 0 }`, which is not a shared value; and its shared values have no
+  // their handlers; its `useScrollOffset`, `useScrollViewOffset` and `useTimestamp`
+  // return `{ value: 0 }`, which is not a shared value; and its shared values have no
   // listeners, which Gesture Handler 3 adds to one given as gesture config. Those
   // names, and only while the mock's value still behaves so (mockCorrections), are
   // replaced: the helpers by reanimated's own (ownHelpers), the rest by ones that work
@@ -227,7 +227,9 @@ export function mockCorrections(
     fixed.useSharedValue = useSharedValue;
   }
   const offsets = scrollHandlers(useSharedValue).useScrollOffset;
-  for (const name of ["useScrollOffset", "useScrollViewOffset"]) {
+  // useTimestamp too: the mock's `{ value: 0 }` has no get(), which Reanimated 4's own
+  // hooks have (#351: "first.get is not a function").
+  for (const name of ["useScrollOffset", "useScrollViewOffset", "useTimestamp"]) {
     if (notASharedValue(mock[name])) fixed[name] = offsets;
   }
   // Reanimated's setUpTests() registers its own toHaveAnimatedStyle and
@@ -479,6 +481,7 @@ export function reanimated(): Preset {
           "useComposedEventHandler",
           "useScrollOffset",
           "useScrollViewOffset",
+          "useTimestamp",
           "useAnimatedGestureHandler",
           "useAnimatedReaction",
           "useAnimatedKeyboard",
@@ -820,6 +823,8 @@ export function reanimated(): Preset {
             useComposedEventHandler,
             useScrollOffset,
             useScrollViewOffset: useScrollOffset,
+            // A shared value that stays 0: no frames advance in a test.
+            useTimestamp: useScrollOffset,
             useAnimatedGestureHandler,
             useAnimatedReaction,
             useAnimatedKeyboard,

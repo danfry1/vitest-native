@@ -24,6 +24,7 @@ function noOpMock() {
     useComposedEventHandler: () => NOOP,
     useScrollOffset: () => ({ value: 0 }),
     useScrollViewOffset: () => ({ value: 0 }),
+    useTimestamp: () => ({ value: 0 }),
     useSharedValue: (value: number) => ({ value, get: () => value }),
     default: { interpolate: NOOP, clamp: NOOP, ScrollView: () => null },
   };
@@ -46,6 +47,7 @@ function workingMock() {
       hs.forEach((h) => h(e)),
     useScrollOffset: () => value,
     useScrollViewOffset: () => value,
+    useTimestamp: () => value,
     useSharedValue: () => value,
     default: { interpolate: () => "theirs", clamp: () => "theirs", ScrollView: () => null },
   };
@@ -59,6 +61,7 @@ const NAMES = [
   "useComposedEventHandler",
   "useScrollOffset",
   "useScrollViewOffset",
+  "useTimestamp",
 ] as const;
 
 describe("reanimated mock corrections", () => {

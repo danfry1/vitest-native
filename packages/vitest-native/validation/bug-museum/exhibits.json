@@ -1176,6 +1176,14 @@
       "preFixRef": "42712528^"
     },
     {
+      "id": "pre-351-reanimated-timestamp-get",
+      "class": "presets",
+      "title": "Reanimated's mock gives useTimestamp a value without get()",
+      "source": "#351 (rc.1 report)",
+      "fixedBy": "open",
+      "bugSignature": "^app\\.test\\.tsx: TypeError: timestamp\\.get is not a function"
+    },
+    {
       "id": "pre-banner-names-presets",
       "class": "presets",
       "title": "The engine banner does not name the presets it applies",
