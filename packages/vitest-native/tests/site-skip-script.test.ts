@@ -83,3 +83,16 @@ describe("the site-data branch", () => {
     expect(workflow).toContain("git add fidelity-matrix.md vercel.json");
   });
 });
+
+// Every push to a branch Vercel watches creates a deployment, even one the skip script then
+// cancels, and the plan caps deployments per day. Only main and docs/ branches deploy.
+describe("which branches Vercel deploys", () => {
+  const config = JSON.parse(fs.readFileSync(path.join(repoRoot, "vercel.json"), "utf8"));
+  it("is main and docs/ branches only", () => {
+    expect(config.git.deploymentEnabled).toEqual({ "**": false, main: true, "docs/**": true });
+  });
+  it("is stated in CONTRIBUTING.md", () => {
+    const contributing = fs.readFileSync(path.join(repoRoot, "CONTRIBUTING.md"), "utf8");
+    expect(contributing).toContain("Vercel deploys only `main` and branches named `docs/…`");
+  });
+});

@@ -31,6 +31,12 @@ bun run test
    takes a patch changeset naming the bump. An internal refactor takes `bunx changeset --empty`.
 5. Open a pull request
 
+**The docs site.** Vercel deploys only `main` and branches named `docs/…`, and only when their
+changes touch the site (`website/` and the other inputs listed in
+`website/scripts/skip-unless-site-changed.sh`). A pull request that changes the site and wants a
+preview uses a `docs/` branch. On any other branch, site changes go live when the pull request
+merges.
+
 ## Practices
 
 Each rule below comes from a bug or a lost CI round. The workflows that repeat are written up
