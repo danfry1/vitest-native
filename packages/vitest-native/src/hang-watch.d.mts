@@ -34,6 +34,8 @@ export declare class HangWatch {
     now?: () => number;
     cli?: boolean;
     graceMs?: number;
+    /** Measures time the machine spends asleep (native/suspension.mjs); a test seam. */
+    suspension?: { tick(): void; readonly suspendedMs: number };
   });
   timeoutMs: number | null;
   readonly recordsDir: string | undefined;
