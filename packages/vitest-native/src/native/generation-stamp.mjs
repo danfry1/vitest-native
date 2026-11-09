@@ -30,6 +30,18 @@ export function unstamped(url) {
     .replace(/\.vnhot-\d+(\.[cm]?js)(?=[?#]|$)/, "$1");
 }
 
+/**
+ * What the loader puts before a sibling's source, on its first line (so line numbers
+ * hold): import.meta naming the real file. Its length is what a frame on line 1 is off by.
+ */
+export function siblingPrologue(realUrl, file, dirname) {
+  return (
+    `import.meta.url = ${JSON.stringify(realUrl)}; ` +
+    `import.meta.filename = ${JSON.stringify(file)}; ` +
+    `import.meta.dirname = ${JSON.stringify(dirname)}; `
+  );
+}
+
 /** `url`, an unstamped ES module's URL, as generation `gen`'s sibling name. */
 export function siblingOf(url, gen) {
   return url.replace(/(\.[cm]?js)$/, `.vnhot-${gen}$1`);

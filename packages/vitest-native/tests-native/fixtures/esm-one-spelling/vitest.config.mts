@@ -1,5 +1,5 @@
 // One hot worker, files in name order (tests-native/hot-esm-one-spelling.test.ts edits
-// freshRuntime and the source-map flag in).
+// freshRuntime and the included file in).
 import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 import { reactNative } from "vitest-native";
@@ -21,7 +21,6 @@ export default defineConfig({
     maxWorkers: 1,
     fileParallelism: false,
     sequence: { sequencer: ByName, shuffle: false },
-    execArgv: [],
     testTimeout: 10_000,
     hookTimeout: 10_000,
   },

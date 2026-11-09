@@ -73,6 +73,16 @@ function sourceLineOf(map, line) {
  * the line has none.
  */
 export function originalPosition(map, line, column) {
+  const found = sourcePosition(map, line, column, 0);
+  return found === null ? null : { line: found.line, column: found.column };
+}
+
+/**
+ * The source (its index in `sources`) and position a v3 sourcemap gives for the generated
+ * position (1-based line, 0-based column), from the last mapping at or before it on that
+ * line, in any source or only in `onlySource`; null when the line has none.
+ */
+export function sourcePosition(map, line, column, onlySource = null) {
   if (typeof map?.mappings !== "string") return null;
   const lines = map.mappings.split(";");
   let sourceLine = 0;
@@ -89,8 +99,16 @@ export function originalPosition(map, line, column) {
       source += fields[1];
       sourceLine += fields[2];
       sourceColumn += fields[3];
-      if (i === line - 1 && generatedColumn <= column && source === 0) {
-        found = { line: sourceLine + 1, column: sourceColumn + (column - generatedColumn) };
+      if (
+        i === line - 1 &&
+        generatedColumn <= column &&
+        (onlySource === null || source === onlySource)
+      ) {
+        found = {
+          source,
+          line: sourceLine + 1,
+          column: sourceColumn + (column - generatedColumn),
+        };
       }
     }
   }

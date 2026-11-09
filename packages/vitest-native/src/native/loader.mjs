@@ -1,7 +1,7 @@
 // Node ESM loader hook (registered via module.register). Intercepts import() of RN —
 // which Module._extensions cannot — Flow-stripping and serving boundary mock source.
 import { nodeDispatch } from "../node-dispatch.mjs";
-import { SIBLING, isStamped, siblingOf, unstamped } from "./generation-stamp.mjs";
+import { SIBLING, isStamped, siblingOf, siblingPrologue, unstamped } from "./generation-stamp.mjs";
 import Module, { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { projectContext } from "../context.mjs";
@@ -688,12 +688,13 @@ function recordModule(url, result) {
 function servedSibling(url) {
   const real = unstamped(url);
   const file = fileURLToPath(real);
-  const meta =
-    `import.meta.url = ${JSON.stringify(real)}; ` +
-    `import.meta.filename = ${JSON.stringify(file)}; ` +
-    `import.meta.dirname = ${JSON.stringify(path.dirname(file))}; `;
+  const meta = siblingPrologue(real, file, path.dirname(file));
   const source = fs.readFileSync(file, "utf8");
-  return { format: "module", source: `${meta}${source}\n//# sourceURL=${real}\n`, shortCircuit: true };
+  return {
+    format: "module",
+    source: `${meta}${source}\n//# sourceURL=${real}\n`,
+    shortCircuit: true,
+  };
 }
 
 /** A require's load: a generation's sibling name (resolveRequire) is served from its file. */
