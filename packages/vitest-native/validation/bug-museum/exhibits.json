@@ -1780,7 +1780,7 @@
         "@m/lib": "packages/lib"
       },
       "bugSignature": "^shared-store\\.test\\.ts: AssertionError: one store: expected null to be 'written by the test'",
-      "fixRef": "b96dd100703579d9f7ad755af05e68a8242ca692"
+      "fixRef": "d6e75016b206ef45974f7d7d3da2743ccdcb998c"
     },
     {
       "id": "res-workspace-member-closure",
