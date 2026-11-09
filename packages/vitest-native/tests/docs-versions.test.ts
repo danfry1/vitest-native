@@ -14,18 +14,19 @@ const PACKAGE = path.join(repoRoot, "packages/vitest-native");
 const CHANGELOG = path.join(PACKAGE, "CHANGELOG.md");
 
 // vitest-native's versions are 0.x with a small minor; React Native's (0.86) and Metro's
-// (0.87) are not. Other packages' versions with a small minor are named here, by the text
-// that comes before them.
-const VERSION = /\b0\.([0-9]|[1-4][0-9])\.(\d+)(?:-rc\.(\d+))?\b/g;
-const OTHER_PACKAGES = [/worklets $/];
-/** `react-refresh@0.14.2` is another package's version; `vitest-native@0.15.0` is ours. */
-const otherPackage = (before: string) => {
-  const spec = /([\w@/.-]+)@$/.exec(before)?.[1];
-  return (
-    (spec !== undefined && !spec.endsWith("vitest-native")) ||
-    OTHER_PACKAGES.some((pattern) => pattern.test(before))
-  );
-};
+// (0.87) are not. A version is not part of a longer number (`127.0.0.1`), and may follow a
+// `v`. `0.14.x` names a minor.
+const VERSION = /(?<![\d.])0\.([0-9]|[1-4][0-9])\.(\d+|x)(?:-rc\.(\d+))?(?!\.?\d)/g;
+// Other packages with a small 0.x minor, named by the word before their version.
+const OTHER_PACKAGES =
+  /\b(?:worklets|tsdown|oxfmt|oxlint|esbuild|scheduler|hermes-parser|metro[\w-]*|react-refresh) v?$/i;
+/** Another package's version: `react-refresh@^0.14.2`, `"react-refresh": "0.14.2"`, `tsdown 0.16`. */
+function otherPackage(before: string): boolean {
+  const spec =
+    /([\w@/.-]+)@[\^~]?v?$/.exec(before)?.[1] ?? /"([\w@/.-]+)":\s*"[\^~]?$/.exec(before)?.[1];
+  if (spec !== undefined) return !spec.endsWith("vitest-native");
+  return OTHER_PACKAGES.test(before);
+}
 
 function existingVersions() {
   const released = new Set(
@@ -38,13 +39,30 @@ function existingVersions() {
   return { released, current, next, currentRc: rc === undefined ? null : Number(rc) };
 }
 
-function exists(version: string, known = existingVersions()): boolean {
-  const [base, rc] = version.split("-rc.");
-  if (base === known.next) {
-    // A candidate of the coming release exists up to the current one.
-    return rc === undefined || known.currentRc === null || Number(rc) <= known.currentRc;
+type Known = ReturnType<typeof existingVersions>;
+
+/** The releases a page may name: those released, and the coming one. */
+function releases(known: Known): Set<string> {
+  const all = new Set([...known.released, known.next]);
+  if (known.currentRc === null) {
+    // Between releases, the next one is not decided: a page may name the next patch or minor.
+    const [, minor, patch] = known.next.split(".").map(Number);
+    all.add(`0.${minor}.${patch + 1}`);
+    all.add(`0.${minor + 1}.0`);
   }
-  return known.released.has(base);
+  return all;
+}
+
+function exists(version: string, known: Known = existingVersions()): boolean {
+  const [base, rc] = version.split("-rc.");
+  const all = releases(known);
+  if (base.endsWith(".x")) return [...all].some((release) => release.startsWith(base.slice(0, -1)));
+  if (!all.has(base)) return false;
+  // A candidate of the coming release exists up to the current one. An earlier release's
+  // candidates are not listed anywhere a shallow checkout can read, so its base is checked.
+  if (rc !== undefined && base === known.next && known.currentRc !== null)
+    return Number(rc) <= known.currentRc;
+  return true;
 }
 
 /** The vitest-native versions a page names, with the text before each. */
@@ -76,27 +94,41 @@ describe("vitest-native versions named in the docs", () => {
   });
 
   it("knows which versions exist", () => {
-    const known = {
+    const candidate = {
       released: new Set(["0.13.0", "0.14.0", "0.14.1"]),
       current: "0.15.0-rc.2",
       next: "0.15.0",
       currentRc: 2,
     };
-    expect(exists("0.14.1", known)).toBe(true);
-    expect(exists("0.14.0-rc.11", known)).toBe(true);
-    expect(exists("0.15.0", known)).toBe(true);
-    expect(exists("0.15.0-rc.2", known)).toBe(true);
-    expect(exists("0.14.2", known)).toBe(false);
-    expect(exists("0.15.0-rc.3", known)).toBe(false);
-    expect(exists("0.15.1", known)).toBe(false);
-    expect(exists("0.16.0", known)).toBe(false);
+    for (const version of ["0.14.1", "0.14.0-rc.11", "0.15.0", "0.15.0-rc.2", "0.14.x", "0.15.x"])
+      expect(exists(version, candidate), version).toBe(true);
+    for (const version of ["0.14.2", "0.15.0-rc.3", "0.15.1", "0.16.0", "0.16.x", "0.12.0"])
+      expect(exists(version, candidate), version).toBe(false);
+
+    // After 0.15.0: its candidates exist, and a page may name 0.15.1 or 0.16.0.
+    const released = {
+      released: new Set(["0.14.1", "0.15.0"]),
+      current: "0.15.0",
+      next: "0.15.0",
+      currentRc: null,
+    };
+    for (const version of ["0.15.0-rc.9", "0.15.1", "0.16.0", "0.16.x"])
+      expect(exists(version, released), version).toBe(true);
+    for (const version of ["0.15.2", "0.17.0"])
+      expect(exists(version, released), version).toBe(false);
   });
 
   it("reads only vitest-native's versions", () => {
     const versions = (text: string) => versionsIn(text).map(({ version }) => version);
-    expect(versions("from 0.14.2 it takes effect")).toEqual(["0.14.2"]);
-    expect(versions("vitest-native@0.15.0-rc.1")).toEqual(["0.15.0-rc.1"]);
-    expect(versions("main pins worklets 0.13.1")).toEqual([]);
-    expect(versions("react-refresh@0.14.2, React Native 0.86.0, Metro 0.87.3")).toEqual([]);
+    expect(versions("from 0.14.2 it takes effect.")).toEqual(["0.14.2"]);
+    expect(versions("vitest-native@0.15.0-rc.1 and v0.14.2, on 0.14.x")).toEqual([
+      "0.15.0-rc.1",
+      "0.14.2",
+      "0.14.x",
+    ]);
+    expect(versions('"vitest-native": "^0.14.1"')).toEqual(["0.14.1"]);
+    expect(versions("main pins worklets 0.13.1; tsdown 0.16.4; oxfmt v0.30.0")).toEqual([]);
+    expect(versions('react-refresh@^0.14.2, "react-refresh": "0.14.2"')).toEqual([]);
+    expect(versions("React Native 0.86.0, Metro 0.87.3, 127.0.0.1, 0.0.0.0, 10.14.2")).toEqual([]);
   });
 });
