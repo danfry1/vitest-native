@@ -20,7 +20,7 @@ npx vitest-native doctor
 | React Native Testing Library | 13–14                                          | warns                                                                      |
 
 1. Update Node in your machine, CI images and `.nvmrc` or `engines`. Avoid Node 24.13.0, which can
-   crash a run at startup (`doctor` warns); use 24.14 or later. The native engine needs Node: Bun
+   crash a run at startup (`doctor` warns); use another supported Node 24, such as 24.14 or later. The native engine needs Node: Bun
    stops with `UNSUPPORTED_NODE`.
 2. Install `vitest@^5.1.0` with matching `@vitest/*` packages, and `vite@^8.0.5`. Vitest 5.0.x runs, with a
    startup warning: 5.1.0 or later is recommended.
@@ -85,8 +85,8 @@ their installed packages, with the Jest setup each ships, as a Jest suite runs t
   no longer resolve.
 - A `FlashList` renders a window of rows, as under Jest, where it used to render every row.
 - To keep a preset, set `presets: { gestureHandler: true }` or `presets: { flashList: true }`.
-- A `presets: { gestureHandler: false }` carried over from older mocks can go: it keeps Gesture
-  Handler's own Jest setup.
+- A `presets: { gestureHandler: false }` carried over from older mocks can go: it no longer turns
+  off Gesture Handler's own Jest setup, and `flashList: false` likewise.
 
 ## Other libraries' own mocks
 
@@ -95,9 +95,10 @@ netinfo presets are now each library's own Jest mock, and Reanimated 4.7+ is its
 Snapshots of their output may change; review the diff and re-record with `vitest -u`.
 
 - Safe-area insets are zero unless `<SafeAreaProvider initialMetrics>` sets them. A test that
-  expects other insets passes `initialMetrics`, or calls `setInsets()`.
-- Worklets' `runOnJS` and `scheduleOnRN` run a tick later, as under Jest: await the result, or
-  advance fake timers.
+  expects other insets passes `initialMetrics`, or calls `setInsets()`, which holds until
+  `resetAllMocks()`.
+- Worklets' `runOnJS` and `scheduleOnRN` run a tick later, as under Jest: wait for their effect
+  (`await waitFor(...)`), or advance fake timers.
 - Implementations a library sets up in its own mocks survive `vi.resetAllMocks()` and
   `mockReset: true`. Update a test that expected them to be blank after a reset.
 - Reanimated's `interpolate`, `interpolateColor` and `clamp` return real values, so snapshots of
@@ -116,8 +117,9 @@ Snapshots of their output may change; review the diff and re-record with `vitest
 
 - **The hot runtime fails a stuck run instead of waiting forever,** naming the file and test.
   Set [`hangTimeout`](/guide/plugin-options#hangtimeout) to change or turn this off.
-- **A factory-less `jest.mock('pkg')` automocks `pkg` for `require()` too,** as under Jest. A test
-  that relied on `require` getting the real package gives `jest.mock` a factory.
+- **A factory-less `jest.mock('pkg')` automocks `pkg` for `require()` too,** as under Jest, for an
+  installed package with no manual mock. A test that relied on `require` getting the real package
+  gives `jest.mock` a factory.
 - **`SOURCE_EVALUATED_TWICE`** is a new warning under the native engine, naming a file Vite and
   Node both load; its message gives the fix. Set `reactNative({ ownership: 'error' })` to fail on
   it.
