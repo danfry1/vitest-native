@@ -1146,6 +1146,14 @@
       }
     },
     {
+      "id": "pre-351-gh-preset-off-own-setup",
+      "class": "presets",
+      "title": "Gesture Handler with its preset off loses its own Jest setup",
+      "source": "#351 (rc.1 report)",
+      "fixedBy": "open",
+      "bugSignature": "^app\\.test\\.tsx: AssertionError: Gesture Handler warnings: expected 1 to be \\+0"
+    },
+    {
       "id": "pre-351-reanimated-helpers",
       "class": "presets",
       "title": "Reanimated's pure helpers are no-ops under the engine",
