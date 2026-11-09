@@ -367,6 +367,28 @@ describe("the worklets plugin is kept wherever real Reanimated can run (#738)", 
     },
   );
 
+  it("applies only to files with worklets or Reanimated hooks, not to every file", () => {
+    const root = projectWith({
+      "react-native-reanimated": "4.5.3",
+      "react-native-worklets": "0.11.3",
+    });
+    for (const [name, kind] of [
+      ["react-native-worklets/plugin", "plugin"],
+      ["babel-preset-expo", "preset"],
+    ] as const) {
+      const c = classifyProjectBabelEntry({ name, kind }, root, ["reanimated", "worklets"]);
+      expect(c.kind).toBe("needed");
+      const applies = c.kind === "needed" ? c.applies : null;
+      expect(applies).not.toBeNull();
+      expect(
+        applies!("export const add = (a: number, b: number) => a + b;", "/app/src/math.ts"),
+      ).toBe(false);
+      expect(applies!("const View = () => <Text>hi</Text>;", "/app/src/View.tsx")).toBe(false);
+      expect(applies!("const s = useAnimatedStyle(() => ({}));", "/app/src/Card.tsx")).toBe(true);
+      expect(applies!("function f() { 'worklet'; }", "/app/src/w.ts")).toBe(true);
+    }
+  });
+
   it("is left out when neither Reanimated nor Worklets is installed", () => {
     const root = projectWith({});
     expect(kept(root, "react-native-worklets/plugin", "plugin")).toBeNull();
