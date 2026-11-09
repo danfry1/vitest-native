@@ -8,7 +8,7 @@
 // green.
 //
 // Comment-only edits and internal refactors genuinely need no release note. They
-// need an explicit `bunx changeset --empty`, which records the decision rather
+// need an explicit `bun run changeset --empty`, which records the decision rather
 // than leaving it to be inferred from an absence.
 //
 // Shipped means more than src/. The build files decide what dist/ contains
@@ -236,7 +236,7 @@ export function parseChangeset(text) {
 
 /**
  * The style problems in one changeset, as messages naming the rule and its limit.
- * Empty changesets (`bunx changeset --empty`) and changesets that do not bump
+ * Empty changesets (`bun run changeset --empty`) and changesets that do not bump
  * vitest-native have none.
  *
  * @param {string} text the changeset file's contents
@@ -441,8 +441,8 @@ if (isMain()) {
         "  changelog entry and no version bump.\n\n" +
         "  A production dependency change ships to users too, a Dependabot bump included: add a\n" +
         '  patch changeset naming the bump (e.g. "Updates magic-string to 1.4.4.").\n\n' +
-        "      bunx changeset            # user-visible change\n" +
-        "      bunx changeset --empty    # refactor or comments only — records the decision",
+        "      bun run changeset          # user-visible change\n" +
+        "      bun run changeset --empty  # refactor or comments only — records the decision",
     );
     process.exit(1);
   }
