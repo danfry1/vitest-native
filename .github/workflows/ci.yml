@@ -555,9 +555,33 @@ jobs:
   # on a push to main.
   # needs.<job>.result is one of success, failure, cancelled, skipped (GitHub Actions
   # contexts reference).
+  # The library conformance probes under engine: 'mock', with the mock's own waivers
+  # (test:native:conformance runs them under the native engine inside test:native). Its
+  # own small job, on one leg: the mock engine does not depend on the OS or Node line.
+  mock-conformance:
+    name: Mock conformance
+    needs: classify
+    if: needs.classify.outputs.docs-only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        with:
+          node-version: 22.22.3
+
+      - name: Build
+        run: bun run build
+
+      - name: Conformance probes under the mock engine
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 600 -- bun run --filter vitest-native test:native:conformance-mock
+
   verdict:
     name: CI verdict
-    needs: [classify, docs, snippets, changeset, unit, check, packed]
+    needs: [classify, docs, snippets, changeset, unit, check, packed, mock-conformance]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
