@@ -73,9 +73,43 @@ export interface HotVerdict {
   hotFlakes: HotFlake[];
   perFileFlakes: HotFlake[];
   wallsMs: Record<HotMode, number[]>;
+  /** Each run's part in the timing, in the order the runs were given (TimingRole). */
+  roles: TimingRole[];
+  /** The timed runs' walls per mode: warm-ups and checks left out. */
+  timedMs: Record<HotMode, number[]>;
   medianMs: Record<HotMode, number | null>;
-  /** Per-file median over hot median; null without both. */
+  /** Fastest and slowest timed run per mode; null without one. */
+  rangeMs: Record<HotMode, [number, number] | null>;
+  /**
+   * What the timing supports. faster/slower only from at least MIN_TIMED_SAMPLES timed runs
+   * per mode whose ranges do not overlap; within-spread when they overlap; too-few-samples
+   * otherwise (no claim either way).
+   */
+  speed: "faster" | "slower" | "within-spread" | "too-few-samples";
+  /** Per-file median over hot median, when `speed` makes a claim; null otherwise. */
   speedup: number | null;
+}
+
+/**
+ * A run's part in the timing. warm-up: the first run of a mode when there are more, which
+ * fills caches. check: a run at another order or worker count, compared but not timed.
+ */
+export type TimingRole = "warm-up" | "timed" | "check";
+
+/** Timed runs per mode below which no faster/slower claim is made (the evidence log's rule). */
+export const MIN_TIMED_SAMPLES = 2;
+
+/** Each run's timing role: checks are shuffled or untimed runs; the first of a mode warms up. */
+export function timingRoles(runs: readonly HotRun[]): TimingRole[] {
+  const plain = (r: HotRun) => r.seed === undefined && !r.untimed;
+  const count = (m: HotMode) => runs.filter((r) => r.mode === m && plain(r)).length;
+  const seen = new Set<HotMode>();
+  return runs.map((r) => {
+    if (!plain(r)) return "check";
+    const first = !seen.has(r.mode);
+    seen.add(r.mode);
+    return first && count(r.mode) > 1 ? "warm-up" : "timed";
+  });
 }
 
 interface Observed {
@@ -281,14 +315,37 @@ export function compareHotRuns(runs: readonly HotRun[]): HotVerdict {
     "per-file": ordered.filter((r) => r.mode === "per-file" && !r.untimed).map((r) => r.wallMs),
     hot: ordered.filter((r) => r.mode === "hot" && !r.untimed).map((r) => r.wallMs),
   };
-  // The first run of each mode warms caches; with more than one, it is left out of the median.
-  const timed = (w: number[]) => (w.length > 1 ? w.slice(1) : w);
-  const medianMs: Record<HotMode, number | null> = {
-    "per-file": median(timed(wallsMs["per-file"])),
-    hot: median(timed(wallsMs.hot)),
+  const roles = timingRoles(runs);
+  const timedOf = (m: HotMode) =>
+    runs.filter((r, i) => r.mode === m && roles[i] === "timed").map((r) => r.wallMs);
+  const timedMs: Record<HotMode, number[]> = {
+    "per-file": timedOf("per-file"),
+    hot: timedOf("hot"),
   };
+  const rangeOf = (w: number[]): [number, number] | null =>
+    w.length ? [Math.min(...w), Math.max(...w)] : null;
+  const medianMs: Record<HotMode, number | null> = {
+    "per-file": median(timedMs["per-file"]),
+    hot: median(timedMs.hot),
+  };
+  const rangeMs: Record<HotMode, [number, number] | null> = {
+    "per-file": rangeOf(timedMs["per-file"]),
+    hot: rangeOf(timedMs.hot),
+  };
+  const pf = rangeMs["per-file"];
+  const hr = rangeMs.hot;
+  const speed: HotVerdict["speed"] =
+    !pf || !hr || Math.min(timedMs["per-file"].length, timedMs.hot.length) < MIN_TIMED_SAMPLES
+      ? "too-few-samples"
+      : hr[1] < pf[0]
+        ? "faster"
+        : hr[0] > pf[1]
+          ? "slower"
+          : "within-spread";
   const speedup =
-    medianMs["per-file"] !== null && medianMs.hot ? medianMs["per-file"] / medianMs.hot : null;
+    (speed === "faster" || speed === "slower") && medianMs["per-file"] !== null && medianMs.hot
+      ? medianMs["per-file"] / medianMs.hot
+      : null;
 
   return {
     noDifference:
@@ -303,7 +360,11 @@ export function compareHotRuns(runs: readonly HotRun[]): HotVerdict {
     hotFlakes,
     perFileFlakes,
     wallsMs,
+    roles,
+    timedMs,
     medianMs,
+    rangeMs,
+    speed,
     speedup,
   };
 }
