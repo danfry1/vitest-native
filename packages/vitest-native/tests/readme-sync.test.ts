@@ -2,7 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { expoSdkList, PEER_REQUIREMENTS, SUPPORTED_EXPO_SDKS } from "../src/peer-requirements.js";
+import {
+  expoSdkList,
+  PEER_REQUIREMENTS,
+  RECOMMENDED_FLOORS,
+  SUPPORTED_EXPO_SDKS,
+} from "../src/peer-requirements.js";
 
 // GitHub shows the repository's README.md and npm shows the package's, so the two are
 // one document kept in two places. They had drifted to 575 and 1045 lines with
@@ -67,7 +72,13 @@ describe("README.md", () => {
           ? nodeRow[0]
           : `${nodeRow.slice(0, -1).join(", ")}, or ${nodeRow.at(-1)}`,
       ],
-      ["Vitest", list(majors("vitest"))],
+      // A recommended floor (a release below it runs, with a startup warning) follows the range.
+      [
+        "Vitest",
+        RECOMMENDED_FLOORS.vitest
+          ? `${list(majors("vitest"))} (${RECOMMENDED_FLOORS.vitest.version} or later recommended)`
+          : list(majors("vitest")),
+      ],
       // One caret range per supported major, or the single minimum when only one major is.
       [
         "Vite",
