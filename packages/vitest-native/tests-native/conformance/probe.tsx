@@ -13,7 +13,7 @@
 import React from "react";
 import { Text } from "react-native";
 import { render } from "@testing-library/react-native";
-import { expect, it } from "vitest";
+import { it } from "vitest";
 import {
   describeShape,
   differences,
