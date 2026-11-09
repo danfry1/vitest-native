@@ -27,6 +27,7 @@ const KNOWN_HOT_RUNTIME_OPTIONS = [
   "allowUnboundedMemory",
   "preserveGlobals",
   "esmGeneration",
+  "freshRuntime",
 ];
 const KNOWN_METRO_CONFIG_OPTIONS = ["configFile"];
 
@@ -340,6 +341,23 @@ export function validateOptions(options: Record<string, unknown>): void {
     throw new VitestNativeTypeError(
       "INVALID_OPTION",
       `"hotRuntime.esmGeneration" must be a boolean.`,
+    );
+  }
+  if (hotOptions.freshRuntime !== undefined && typeof hotOptions.freshRuntime !== "boolean") {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"hotRuntime.freshRuntime" must be a boolean.`,
+    );
+  }
+  // React's ES entry points are re-evaluated per file only through ESM generations; without
+  // them an ES import of React would keep the first file's instance while the CommonJS
+  // graph got a new one.
+  if (hotOptions.freshRuntime === true && hotOptions.esmGeneration === false) {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"hotRuntime.freshRuntime" needs "hotRuntime.esmGeneration": React's ES entry points ` +
+        `are re-run per file through ESM generations. Remove "esmGeneration: false", or ` +
+        `"freshRuntime: true".`,
     );
   }
 }

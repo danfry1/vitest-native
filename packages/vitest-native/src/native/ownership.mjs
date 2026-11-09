@@ -71,8 +71,29 @@ const cleanFileId = (file) => normalizeFile(cleanRawFileId(file));
 const unique = (values) => [...new Set((values || []).filter(Boolean))];
 const escapeRe = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+let freshRuntime;
+
+/**
+ * hotRuntime.freshRuntime: React, the renderer, scheduler and RNTL re-run per hot file
+ * instead of staying resident. Read from the project context, because this module is
+ * evaluated once per realm and every instance must agree: a flag set on one instance left
+ * another keeping React Native's components bound to the first file's React. It needs ESM
+ * generations, so React's ES entry points re-run with its CommonJS graph.
+ */
+export function isFreshRuntime() {
+  if (freshRuntime === undefined) {
+    const context = projectContext();
+    freshRuntime =
+      context !== null &&
+      context.hotEsmGeneration !== false &&
+      process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0" &&
+      context.hotFreshRuntime === true;
+  }
+  return freshRuntime;
+}
+
 export function isRuntimeResidentFile(file) {
-  return RUNTIME_RESIDENT_PATH.test(normalizeFile(file));
+  return !isFreshRuntime() && RUNTIME_RESIDENT_PATH.test(normalizeFile(file));
 }
 
 export function isTestRuntimeResidentFile(file) {
@@ -88,7 +109,7 @@ export function isResidentPackageName(name) {
   const file = `/node_modules/${name}/`;
   return (
     REACT_NATIVE_PATH.test(file) ||
-    RUNTIME_RESIDENT_PATH.test(file) ||
+    (!isFreshRuntime() && RUNTIME_RESIDENT_PATH.test(file)) ||
     TEST_RUNTIME_RESIDENT_PATH.test(file)
   );
 }

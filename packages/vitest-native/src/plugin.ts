@@ -2642,6 +2642,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       if (hotRuntimeRequested && hotRecycle.esmGeneration === false) {
         fields.hotEsmGeneration = false;
       }
+      // Only the opt-in is recorded: React and its renderer stay resident by default.
+      if (hotRuntimeRequested && hotRecycle.freshRuntime === true) {
+        fields.hotFreshRuntime = true;
+      }
       // A released module generation is safe to read only through Vitest's interop proxy,
       // which falls back to the module's default export (loader.mjs, releaseGenerations).
       // Without it a test file's late callback would read a cleared binding, so nothing is
