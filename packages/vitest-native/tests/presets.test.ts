@@ -458,12 +458,18 @@ describe("preset: reanimated", () => {
     expect(received).toBe(99); // listener removed, not updated
   });
 
-  it("SharedValue.modify mutates in place", () => {
+  // Reanimated 4.7.1's modify (src/mutables.ts) stores what the modifier returns:
+  // valueSetter(mutable, modifier(mutable.value), forceUpdate). Its documented use mutates
+  // the value in place and returns it.
+  it("SharedValue.modify keeps what the modifier returns, as Reanimated's does", () => {
     const sv = mock.useDerivedValue(() => ({ x: 1 }));
     sv.modify((obj: any) => {
       obj.x = 5;
+      return obj;
     });
     expect(sv.value.x).toBe(5);
+    sv.modify((obj: any) => ({ x: obj.x + 1 }));
+    expect(sv.value).toEqual({ x: 6 });
   });
 
   it("useAnimatedStyle calls the updater and returns result", () => {
