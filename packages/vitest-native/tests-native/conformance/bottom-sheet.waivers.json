@@ -1,0 +1,476 @@
+[
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedIndex.addListener",
+    "reason": "bottom-sheet's mock gives { value, get, set }, not a full SharedValue",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedIndex.removeListener",
+    "reason": "bottom-sheet's mock gives { value, get, set }, not a full SharedValue",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedIndex.modify",
+    "reason": "bottom-sheet's mock gives { value, get, set }, not a full SharedValue",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedPosition.addListener",
+    "reason": "bottom-sheet's mock gives { value, get, set }, not a full SharedValue",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedPosition.removeListener",
+    "reason": "bottom-sheet's mock gives { value, get, set }, not a full SharedValue",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedPosition.modify",
+    "reason": "bottom-sheet's mock gives { value, get, set }, not a full SharedValue",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedDetentsState.value",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedDetentsState.addListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedDetentsState.removeListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedDetentsState.modify",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedAnimationState.value",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedAnimationState.addListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedAnimationState.removeListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedAnimationState.modify",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedSheetState.addListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedSheetState.removeListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedSheetState.modify",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedKeyboardState.value",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedKeyboardState.addListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedKeyboardState.removeListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedKeyboardState.modify",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedContentGestureState.addListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedContentGestureState.removeListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedContentGestureState.modify",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedHandleGestureState.addListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedHandleGestureState.removeListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedHandleGestureState.modify",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedLayoutState.value",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedLayoutState.addListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedLayoutState.removeListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedLayoutState.modify",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedScrollableState.value",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedScrollableState.addListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedScrollableState.removeListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedScrollableState.modify",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedScrollableStatus.addListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedScrollableStatus.removeListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedScrollableStatus.modify",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedPosition.addListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedPosition.removeListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedPosition.modify",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedIndex.addListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedIndex.removeListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedIndex.modify",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedSheetHeight.addListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedSheetHeight.removeListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedSheetHeight.modify",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().isInTemporaryPosition.value",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().isInTemporaryPosition.addListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().isInTemporaryPosition.removeListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().isInTemporaryPosition.modify",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().overDragResistanceFactor",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().enableContentPanningGesture",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().enableOverDrag",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().enablePanDownToClose",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().enableDynamicSizing",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().enableBlurKeyboardOnGesture",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetModalInternal",
+    "path": "useBottomSheetModalInternal().hostName",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetModalInternal",
+    "path": "useBottomSheetModalInternal().containerLayoutState.value",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetModalInternal",
+    "path": "useBottomSheetModalInternal().containerLayoutState.addListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetModalInternal",
+    "path": "useBottomSheetModalInternal().containerLayoutState.removeListener",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetModalInternal",
+    "path": "useBottomSheetModalInternal().containerLayoutState.modify",
+    "reason": "bottom-sheet's mock answers every unknown read of its internal context with one { value: 0, get, set } stub",
+    "issue": "#714"
+  },
+  {
+    "export": "useScrollEventsHandlersDefault",
+    "path": "useScrollEventsHandlersDefault",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "useGestureEventsHandlersDefault",
+    "path": "useGestureEventsHandlersDefault",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetGestureHandlers",
+    "path": "useBottomSheetGestureHandlers",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "useScrollHandler",
+    "path": "useScrollHandler",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "useScrollableSetter",
+    "path": "useScrollableSetter",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "useBottomSheetScrollableCreator",
+    "path": "useBottomSheetScrollableCreator",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "ANIMATION_CONFIGS",
+    "path": "ANIMATION_CONFIGS",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "ANIMATION_DURATION",
+    "path": "ANIMATION_DURATION",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "ANIMATION_EASING",
+    "path": "ANIMATION_EASING",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "INITIAL_CONTAINER_LAYOUT",
+    "path": "INITIAL_CONTAINER_LAYOUT",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "INITIAL_LAYOUT_VALUE",
+    "path": "INITIAL_LAYOUT_VALUE",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "KEYBOARD_BEHAVIOR",
+    "path": "KEYBOARD_BEHAVIOR",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "KEYBOARD_BLUR_BEHAVIOR",
+    "path": "KEYBOARD_BLUR_BEHAVIOR",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "KEYBOARD_DISMISS_THRESHOLD",
+    "path": "KEYBOARD_DISMISS_THRESHOLD",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "KEYBOARD_INPUT_MODE",
+    "path": "KEYBOARD_INPUT_MODE",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "MODAL_STACK_BEHAVIOR",
+    "path": "MODAL_STACK_BEHAVIOR",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  },
+  {
+    "export": "SCROLLABLE_DECELERATION_RATE_MAPPER",
+    "path": "SCROLLABLE_DECELERATION_RATE_MAPPER",
+    "reason": "missing from bottom-sheet's own Jest mock",
+    "issue": "#714"
+  }
+]

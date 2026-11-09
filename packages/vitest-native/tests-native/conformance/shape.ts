@@ -47,11 +47,14 @@ export function differences(value: unknown, shape: Shape, path: string): string[
       const found: string[] = [];
       for (const [name, member] of Object.entries(shape.members ?? {})) {
         const here = `${path}.${name}`;
-        if (!(name in (value as object))) {
+        // Present if `in` finds it or a read gives a value: a Proxy that answers any read
+        // (bottom-sheet's internal hooks) has no `has` trap, so `in` alone says missing.
+        const read = (value as Record<string, unknown>)[name];
+        if (!(name in (value as object)) && read === undefined) {
           if (!member.optional) found.push(`${here}: missing, declared ${describeShape(member)}`);
           continue;
         }
-        found.push(...differences((value as Record<string, unknown>)[name], member, here));
+        found.push(...differences(read, member, here));
       }
       return found;
     }
