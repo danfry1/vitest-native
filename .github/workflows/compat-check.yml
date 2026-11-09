@@ -130,6 +130,11 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           node-version: ${{ matrix.node }}
+          # Expo's next SDK is an app's dependency, not this repository's: the packed Expo
+          # fixture on the prerelease, with `expo install --fix` aligning the rest, as an app
+          # trying the beta would. Its matching packages ship the same day, so the release
+          # cooldown is off for this step (scripts/release-age.mjs, VN_CANARY_UNAGED).
+          npm-version: ${{ matrix.channel == 'expo' && '11.20.0' || '' }}
 
       - name: Pick and install the prerelease
         id: pick
@@ -179,14 +184,6 @@ jobs:
         if: steps.pick.outputs.skip != 'true' && matrix.channel != 'expo'
         run: bun run test:native:hot
 
-      # Expo's next SDK is an app's dependency, not this repository's: the packed Expo
-      # fixture on the prerelease, with `expo install --fix` aligning the rest, as an app
-      # trying the beta would. Its matching packages ship the same day, so the release
-      # cooldown is off for this step (scripts/release-age.mjs, VN_CANARY_UNAGED).
-      - name: Use an npm without the arborist edgesOut bug
-        if: steps.pick.outputs.skip != 'true' && matrix.channel == 'expo'
-        run: npm install -g npm@11.20.0
-
       - name: Expo fixture on the prerelease
         if: steps.pick.outputs.skip != 'true' && matrix.channel == 'expo'
         env:
@@ -212,9 +209,7 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           node-version: 22.22.3
-
-      - name: Use an npm without the arborist edgesOut bug
-        run: npm install -g npm@11.20.0
+          npm-version: 11.20.0
 
       - name: Build
         run: bun run build
