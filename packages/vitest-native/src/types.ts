@@ -532,8 +532,10 @@ export interface VitestNativeOptions {
 
   /**
    * Fail the run when no test makes progress for this many milliseconds, naming the files
-   * and tests that were running. Default: 60 000, or twice the larger of `testTimeout` and
-   * `hookTimeout` if that is longer. `false` turns it off. Off while a debugger is attached.
+   * and tests that were running. A module loaded through Vite counts as progress, so a
+   * cold start that is still importing is not taken for a hang. Default: 60 000, or twice
+   * the larger of `testTimeout` and `hookTimeout` if that is longer. `false` turns it off.
+   * Off while a debugger is attached.
    *
    * Vitest's `testTimeout` runs on the test's own worker, so a test stuck in synchronous
    * code (a loop that never ends) never reaches it, and the run waits forever with nothing

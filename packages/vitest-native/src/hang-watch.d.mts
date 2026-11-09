@@ -37,6 +37,8 @@ export declare class HangWatch {
   });
   timeoutMs: number | null;
   readonly recordsDir: string | undefined;
+  /** A module was loaded for a worker: progress while a file is still importing. */
+  activity(): void;
   active: boolean;
   off: boolean;
   readonly running: Map<string, string | null>;

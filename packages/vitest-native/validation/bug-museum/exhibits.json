@@ -1068,6 +1068,28 @@
       }
     },
     {
+      "id": "pfs-hot-worker-state",
+      "class": "per-file-state",
+      "title": "Under hot, a later file reads the first file's Vitest worker state and loses RNTL's auto-cleanup",
+      "source": "#690",
+      "fixedBy": "#690's fix: the hot reset leaves Vitest's globals alone, and verifies that Vitest's worker state names the file starting",
+      "bugSignature": "^c-victim\\.test\\.tsx: AssertionError: expected false to be true",
+      "control": {
+        "why": "Per file, every file has its own Vitest worker state.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "hotRuntime: true",
+            "replace": "hotRuntime: false"
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS"
+      }
+    },
+    {
       "id": "pfs-hot-resident-mock",
       "class": "per-file-state",
       "title": "Under hot, RNTL keeps a file's partial react-native mock for the worker's life",
@@ -1144,6 +1166,23 @@
         "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
         "proof": "guard proven"
       }
+    },
+    {
+      "id": "pre-351-own-mocks-babel-worklets",
+      "class": "transform/resolution",
+      "title": "A project's own Reanimated mock needs its Babel worklets plugin applied",
+      "source": "#351 (rc.1 report)",
+      "fixedBy": "#597 (merged)",
+      "bugSignature": "^app\\.test\\.tsx: Error: \\[Reanimated\\] `useAnimatedStyle` was used without a dependency array or Babel plugin",
+      "preFixRef": "ece53b3b^"
+    },
+    {
+      "id": "pre-351-gh-preset-off-own-setup",
+      "class": "presets",
+      "title": "Gesture Handler with its preset off loses its own Jest setup",
+      "source": "#351 (rc.1 report)",
+      "fixedBy": "#685",
+      "bugSignature": "^app\\.test\\.tsx: AssertionError: Gesture Handler warnings: expected 1 to be \\+0"
     },
     {
       "id": "pre-351-reanimated-helpers",

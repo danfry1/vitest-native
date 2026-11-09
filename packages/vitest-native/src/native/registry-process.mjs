@@ -83,6 +83,18 @@ const inFlight = new Map();
 let exitHookInstalled = false;
 
 /**
+ * Registries whose compile already failed in this process, by registry file. A failure
+ * (a timeout, the compiler killed, an error) is reported once, and every later project or
+ * config reload that misses the same entry falls back to per-file loading at once instead
+ * of starting another compile that would fail the same way, each up to its timeout.
+ */
+const failed = new Set();
+/** Test seam: forget the failures recorded so far. */
+export function _resetFailedRegistries() {
+  failed.clear();
+}
+
+/**
  * Signals that end this process while a build runs. Vitest handles SIGINT and SIGTERM
  * itself during a run (and turns them into process.exit, which the exit hook covers),
  * but removes its handlers when it starts to close, and a signal while close waits for
@@ -153,6 +165,7 @@ export function startRegistryBuild(options, compiler = compileRegistryInChild) {
       return { registry: warm.registry, libraryRegistry: warm.libraryRegistry };
     }
     if (warm.registry) return { wait: true };
+    if (failed.has(registryFile)) return {};
 
     const controller = new AbortController();
     const started = performance.now();
@@ -192,6 +205,7 @@ export function startRegistryBuild(options, compiler = compileRegistryInChild) {
           return { registry: built.registry, libraryRegistry: built.libraryRegistry };
         }
         if (!result.cancelled) {
+          failed.add(registryFile);
           _warnRegistryUnavailable(
             result.error ?? "bounded compiler completed without a usable cache entry",
           );
@@ -367,6 +381,7 @@ export async function buildRegistryFor(options, compiler = compileRegistryInChil
       }
     }
 
+    if (failed.has(location.registryFile)) return null;
     const result = await compiler(COMPILER_FILE(), compilerInput(options));
 
     // Validate through the same cache contract every reader uses instead of
@@ -412,6 +427,7 @@ export async function buildRegistryFor(options, compiler = compileRegistryInChil
       return { registry: built.registry, libraryRegistry: built.libraryRegistry };
     }
 
+    failed.add(location.registryFile);
     _warnRegistryUnavailable(
       result.error ?? "bounded compiler completed without a usable cache entry",
     );
