@@ -130,7 +130,7 @@ is asked to update rather than the engine carrying a second code path for it.
 | Upstream | Supported | Rule |
 | --- | --- | --- |
 | Node | 22.22.3+ on Node 22, 24.12+ on Node 24, 26+ | Each line from the release where Node's in-thread module hooks (`module.registerHooks`) carry the engine. End-of-life lines (20, 23, 25) are not supported. Lines from 26 on are admitted, and are added to CI as they ship. |
-| Vitest | 5.x | The current major only. A new major is added once it passes the full gate, and the previous one is dropped in the next breaking release. |
+| Vitest | 5.x (5.1.0 or later recommended) | The current major only. A new major is added once it passes the full gate, and the previous one is dropped in the next breaking release. Below 5.1.0, a startup error can hide behind "No test files found" (vitest-dev/vitest#11682): the run warns once, and `doctor` says so. |
 | Vite | 8.x, from 8.0.5 | The major Vitest's current release is built on. 8.0.5 is a security floor. |
 | React Native | 0.86–0.88 (native engine) | The releases the CI matrix runs (`.github/rn-matrix.json`); 0.86 is Expo SDK 57's. A new release is added as it ships; the oldest is dropped in a breaking release. |
 | Expo SDK | 57 and 58 | The SDKs CI installs as packed apps. |

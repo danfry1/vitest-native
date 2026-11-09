@@ -122,6 +122,40 @@ it("leaves retried timeouts as ordinary test failures", async () => {
   expect(output).not.toContain("No test made progress");
 }, 90_000);
 
+it("waits out a slow cold start that keeps loading modules", async () => {
+  // Twenty modules each spending 200 ms at their top level, each loading the next only
+  // then, as a cold start transforms its graph as it goes: about 4 s of imports before the
+  // first test, past the 2 s limit. Each load is progress.
+  const chain = Object.fromEntries(
+    Array.from({ length: 20 }, (_, i) => [
+      `m${i}.js`,
+      i < 19
+        ? `const end = Date.now() + 200; while (Date.now() < end) {}\nexport const { last } = await import("./m${i + 1}.js");\n`
+        : "export const last = true;\n",
+    ]),
+  );
+  const root = project("hangTimeout: 1500", {
+    "slow-imports.check.js": `import { last } from "./m0.js";\ntest("loaded", () => { expect(last).toBe(true); });\n`,
+    ...chain,
+  });
+  const { code, output } = await vitest(root);
+  expect(code, output).toBe(0);
+  expect(output).not.toContain("hangTimeout");
+}, 90_000);
+
+it("fails a file stuck in its imports, saying no test had started", async () => {
+  const root = project("hangTimeout: 2000", {
+    "stuck.check.js": `import "./spin.js";\ntest("never", () => {});\n`,
+    "spin.js": `import fs from "node:fs";\nfs.writeFileSync("worker.pid", String(process.pid));\nfor (;;) {}\n`,
+  });
+  const { code, output } = await vitest(root);
+  expect(code, output).toBe(1);
+  expect(output).toMatch(
+    /Running: \S*stuck\.check\.js \(no test had started; a worker took the file \d+ s ago/,
+  );
+  await expectWorkerGone(root);
+}, 90_000);
+
 it("leaves a healthy run alone", async () => {
   const root = project("hangTimeout: 3000", {
     "slow.check.js": `test("waits 1 s", () => new Promise((r) => setTimeout(r, 1000)));\n`,

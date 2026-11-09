@@ -1068,6 +1068,28 @@
       }
     },
     {
+      "id": "pfs-hot-worker-state",
+      "class": "per-file-state",
+      "title": "Under hot, a later file reads the first file's Vitest worker state and loses RNTL's auto-cleanup",
+      "source": "#690",
+      "fixedBy": "#690's fix: the hot reset leaves Vitest's globals alone, and verifies that Vitest's worker state names the file starting",
+      "bugSignature": "^c-victim\\.test\\.tsx: AssertionError: expected false to be true",
+      "control": {
+        "why": "Per file, every file has its own Vitest worker state.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "hotRuntime: true",
+            "replace": "hotRuntime: false"
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS"
+      }
+    },
+    {
       "id": "pfs-hot-resident-mock",
       "class": "per-file-state",
       "title": "Under hot, RNTL keeps a file's partial react-native mock for the worker's life",
@@ -1191,6 +1213,14 @@
         "proof": "landed proven"
       },
       "preFixRef": "42712528^"
+    },
+    {
+      "id": "pre-351-reanimated-timestamp-get",
+      "class": "presets",
+      "title": "Reanimated's mock gives useTimestamp a value without get()",
+      "source": "#351 (rc.1 report)",
+      "fixedBy": "#684",
+      "bugSignature": "^app\\.test\\.tsx: TypeError: timestamp\\.get is not a function"
     },
     {
       "id": "pre-banner-names-presets",

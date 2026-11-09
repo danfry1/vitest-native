@@ -14,6 +14,7 @@ import {
   installedExpoVersion,
   isBelowSupportedReactNative,
   PEER_REQUIREMENTS,
+  belowRecommendedMessage,
   SUPPORTED_EXPO_SDKS,
   unsupportedExpoSdkMessage,
   unsupportedReactNativeMessage,
@@ -679,6 +680,9 @@ async function startRegistryFor(options: RegistryOptions): Promise<StartedRegist
     return {};
   }
 }
+
+/** Recommended-floor warnings already printed in this process. */
+const warnedRecommended = new Set<string>();
 
 /** Vitest instances whose close already settles the background registry builds. */
 const registrySettlers = new WeakSet<object>();
@@ -3635,6 +3639,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     transform(code, id) {
+      // A module loaded for a worker is progress the hang watch's events cannot show.
+      hangActivity?.();
       warnIfJestMockUnhoisted(code, id);
       // This hook is an ACTUAL observation that Vite claimed the file. A Node-owned
       // package reaching it is therefore not a hypothetical resolver disagreement:
@@ -3776,6 +3782,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           "UNSUPPORTED_PEER",
           `Unsupported peer dependencies:\n- ${error}`,
         );
+      // Below the recommended floor: it runs, with an upstream bug users would meet. Once
+      // per process, as each project of a run reaches this hook.
+      const advice = belowRecommendedMessage("vitest", vitest.version);
+      if (advice && !warnedRecommended.has(advice)) {
+        warnedRecommended.add(advice);
+        console.warn(`[vitest-native] ${advice}`);
+      }
     }
     if (backgroundRegistryRoots.has(directoryKey(root)) && !registrySettlers.has(vitest)) {
       registrySettlers.add(vitest);
@@ -4020,6 +4033,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     console.error(`[vitest-native] hot runtime off: ${reason}; Vitest's settings apply.`);
   }
 
+  /** Tells this run's hang watch a module was loaded (HangWatch.activity). */
+  let hangActivity: (() => void) | undefined;
+
   // hangTimeout (src/hang-watch.mjs): a reporter in the main process that fails a run
   // whose tests stop making progress. Vitest builds its reporters after every
   // configureVitest hook has returned, so one added here is in the run. One watch per
@@ -4058,6 +4074,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       config.reporters.push(watch);
     }
     watch.contribute({ off, active, limit });
+    const current = watch;
+    hangActivity = () => current.activity();
     // The worker side records each test's start (src/hang-watch-setup.mjs), for this
     // project's workers, only while the watch can fire.
     if (
