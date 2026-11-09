@@ -25,6 +25,10 @@ function noOpMock() {
     useScrollOffset: () => ({ value: 0 }),
     useScrollViewOffset: () => ({ value: 0 }),
     useTimestamp: () => ({ value: 0 }),
+    useDerivedValue: (updater: () => number) => ({ value: updater(), get: () => updater() }),
+    useAnimatedKeyboard: () => ({ height: 0, state: 0 }),
+    useAnimatedSensor: () => ({ sensor: { value: { x: 0, y: 0, z: 0 } } }),
+    makeMutable: (value: number) => value,
     useSharedValue: (value: number) => ({ value, get: () => value }),
     default: { interpolate: NOOP, clamp: NOOP, ScrollView: () => null },
   };
@@ -32,7 +36,16 @@ function noOpMock() {
 
 /** The same names, as a mock that does what they say. */
 function workingMock() {
-  const value = { value: 0, get: () => 0, addListener: NOOP, removeListener: NOOP };
+  // Reanimated 4's shared value shape, whole.
+  const value = {
+    _isReanimatedSharedValue: true,
+    value: 0,
+    get: () => 0,
+    set: NOOP,
+    modify: NOOP,
+    addListener: NOOP,
+    removeListener: NOOP,
+  };
   return {
     interpolate: () => "theirs",
     clamp: () => "theirs",
@@ -48,6 +61,10 @@ function workingMock() {
     useScrollOffset: () => value,
     useScrollViewOffset: () => value,
     useTimestamp: () => value,
+    useDerivedValue: () => value,
+    useAnimatedKeyboard: () => ({ height: value, state: value }),
+    useAnimatedSensor: () => ({ sensor: value }),
+    makeMutable: () => value,
     useSharedValue: () => value,
     default: { interpolate: () => "theirs", clamp: () => "theirs", ScrollView: () => null },
   };
@@ -62,6 +79,10 @@ const NAMES = [
   "useScrollOffset",
   "useScrollViewOffset",
   "useTimestamp",
+  "useDerivedValue",
+  "useAnimatedKeyboard",
+  "useAnimatedSensor",
+  "makeMutable",
 ] as const;
 
 describe("reanimated mock corrections", () => {
@@ -83,7 +104,7 @@ describe("reanimated mock corrections", () => {
     shared.removeListener(7);
     shared.value = 3;
     expect(seen).toEqual([2]);
-    expect(shared.get()).toBe(1); // the mock's own get(), over its own state
+    expect(shared.get()).toBe(3); // a whole shared value: get() reads what was written
   });
 
   // Every helper loaded, so each probe runs: in this worker interpolateColor.js does not
