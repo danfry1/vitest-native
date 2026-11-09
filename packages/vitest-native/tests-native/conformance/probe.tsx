@@ -124,7 +124,9 @@ export function probeModule(
             found.push(`${name}: is ${typeof value}, declared class`);
         } else if (declared.kind === "function") {
           if (typeof value !== "function") {
-            found.push(`${name}: is ${typeof value}, declared function`);
+            // A component may be an exotic object (forwardRef, memo): checked, not called.
+            found.push(...differences(value, { kind: "function" }, name));
+            if (found.length === 0) report.unchecked.push(`${name} (a component)`);
           } else if (options.noCall?.[name] !== undefined) {
             report.unchecked.push(`${name} (${options.noCall[name]})`);
           } else if (
