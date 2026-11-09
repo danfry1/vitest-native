@@ -4,11 +4,8 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { nodeVersions, peerVersions, supportItems } from "../../../website/.vitepress/support.ts";
 import { SUPPORTED_NODE } from "../src/node-range";
-import {
-  PEER_REQUIREMENTS,
-  RECOMMENDED_FLOORS,
-  SUPPORTED_REACT_NATIVE,
-} from "../src/peer-requirements";
+import { PEER_REQUIREMENTS, SUPPORTED_REACT_NATIVE } from "../src/peer-requirements";
+import { escapeRegExp, recommendedFloors } from "./support/recommended-floors";
 
 // The landing page's supported-versions line is read from the startup checks at build
 // time (website/.vitepress/support.ts). This holds its formatting to those checks, and the
@@ -116,15 +113,20 @@ describe("the landing page's supported versions", () => {
   it("names each recommended floor on the install page and in the upgrade guide", () => {
     const install = fs.readFileSync(INSTALL, "utf8");
     const upgrading = fs.readFileSync(UPGRADING, "utf8");
-    const LABELS: Record<string, string> = { vitest: "Vitest" };
-    expect(Object.keys(RECOMMENDED_FLOORS).length).toBeGreaterThan(0);
-    for (const [name, floor] of Object.entries(RECOMMENDED_FLOORS)) {
-      const label = LABELS[name] ?? name;
-      const cell = new RegExp(`^\\|\\s*${label}\\s*\\|([^|]+)\\|`, "m").exec(install)?.[1];
-      expect(cell, label).toContain(`${floor.version} or later recommended`);
-      expect(install, label).toContain(floor.issue.replace("vitest-dev/vitest#", "issues/"));
-      expect(upgrading, label).toContain(`\`${name}@^${floor.version}\``);
-      expect(upgrading, label).toContain(`${floor.version} or later is recommended`);
+    const floors = recommendedFloors();
+    // With no recommended floor, the pages recommend nothing above the minimum.
+    if (floors.length === 0) {
+      expect(install).not.toContain("or later recommended");
+      expect(upgrading).not.toContain("or later is recommended");
+    }
+    for (const floor of floors) {
+      const cell = new RegExp(`^\\|\\s*${escapeRegExp(floor.label)}\\s*\\|([^|]+)\\|`, "m").exec(
+        install,
+      )?.[1];
+      expect(cell, floor.label).toContain(`${floor.version} or later recommended`);
+      expect(install, floor.label).toContain(floor.issuePath);
+      expect(upgrading, floor.label).toContain(`\`${floor.name}@^${floor.version}\``);
+      expect(upgrading, floor.label).toContain(`${floor.version} or later is recommended`);
     }
   });
 });
