@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
+import { dependencyFingerprint } from "../fs-module-cache.js";
 import { babelParser, isPlainJavaScript } from "./plain-javascript.js";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
 import { containsPath, dependencyDirOf, type PackageDirOf } from "./match.mjs";
@@ -179,6 +181,109 @@ function runtimeImports(dir: string, manifest: Record<string, unknown>): Set<str
   }
   runtimeMemo.set(dir, names);
   return names;
+}
+
+/**
+ * The packages installed directly in each directory's node_modules, scoped ones included
+ * (`@scope/name`), whose manifest mentions `react-native`, by name. Hidden entries
+ * (`.bin`, `.pnpm`, `.bun`) are not packages. A hoisted install holds thousands, and
+ * reading every manifest cost about 170 ms on 2,700, so each node_modules' answer is kept
+ * in its `.cache/vitest-native`, keyed by the lockfile and the modification times of
+ * node_modules and its scope directories: an install, an upgrade or a new package changes
+ * the key. A hit costs one directory read and a stat per scope.
+ */
+function installedReactNativeCandidates(dirs: string[]): Set<string> {
+  const found = new Set<string>();
+  const list = (dir: string): string[] => {
+    try {
+      return fs.readdirSync(dir);
+    } catch {
+      return [];
+    }
+  };
+  const mtime = (dir: string): number => fs.statSync(dir, { throwIfNoEntry: false })?.mtimeMs ?? 0;
+  const manifestText = (dir: string): string => {
+    try {
+      return fs.readFileSync(path.join(dir, "package.json"), "utf8");
+    } catch {
+      return "";
+    }
+  };
+  for (const dir of dirs) {
+    const modules = path.join(dir, "node_modules");
+    const entries = list(modules).filter((entry) => !entry.startsWith("."));
+    if (entries.length === 0) continue;
+    const scopes = entries.filter((entry) => entry.startsWith("@"));
+    // Made before the times are read: creating it the first time changes node_modules' own.
+    const cacheDir = path.join(modules, ".cache", "vitest-native");
+    ensureDir(cacheDir);
+    const key = createHash("sha1")
+      .update(INSTALLED_SCAN_VERSION)
+      .update(dependencyFingerprint(dir))
+      .update(String(mtime(modules)))
+      .update(scopes.map((scope) => `${scope}:${mtime(path.join(modules, scope))}`).join("\0"))
+      .digest("hex");
+    const cacheFile = path.join(cacheDir, `installed-rn-${key}.json`);
+    const cached = readNames(cacheFile);
+    if (cached) {
+      for (const name of cached) found.add(name);
+      continue;
+    }
+    const names: string[] = [];
+    const consider = (name: string, at: string) => {
+      if (manifestText(at).includes('"react-native"')) names.push(name);
+    };
+    for (const entry of entries) {
+      if (!entry.startsWith("@")) consider(entry, path.join(modules, entry));
+      else {
+        for (const scoped of list(path.join(modules, entry))) {
+          if (!scoped.startsWith("."))
+            consider(`${entry}/${scoped}`, path.join(modules, entry, scoped));
+        }
+      }
+    }
+    writeNames(cacheFile, names);
+    for (const name of names) found.add(name);
+  }
+  return found;
+}
+
+/** Packages whose detection does more than pick an owner; detected only when declared. */
+const UNDECLARED_SCAN_EXEMPT = new Set(["expo"]);
+
+/** Bumped when installedReactNativeCandidates' answer changes for the same install. */
+const INSTALLED_SCAN_VERSION = "installed-rn-1";
+
+function readNames(file: string): string[] | null {
+  try {
+    const names = JSON.parse(fs.readFileSync(file, "utf8"));
+    return Array.isArray(names) ? names : null;
+  } catch {
+    return null;
+  }
+}
+
+function ensureDir(dir: string): boolean {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    return true;
+  } catch {
+    // Read-only node_modules: the scan runs every time.
+    return false;
+  }
+}
+
+/** Written to a temporary name and renamed, so a concurrent reader never sees half. */
+function writeNames(file: string, names: string[]): boolean {
+  try {
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(names));
+    fs.renameSync(tmp, file);
+    return true;
+  } catch {
+    // An unwritable cache only costs the next run the scan.
+    return false;
+  }
 }
 
 /** Manifest fields that make a package part of the React Native ecosystem. */
@@ -719,6 +824,33 @@ export function detectEcosystemPackages(
   // Native peer, optional ones included, added peers nothing loads, with their closures:
   // on one Expo app that declares `expo`, expo-router and its web dependencies (157
   // packages to 206), which the app never imports.
+  // Installed React Native packages the run does not declare (#688): a hoisted package
+  // an app imports without listing it, or one only a sibling declares. Node loads such
+  // a package through any require (a library's Jest setup, a require() in a test), and
+  // left undetected Vite evaluated it again for the test's imports: two copies of every
+  // file, with separate state. Detected, it is Node's, as a declared one is (ADR-0004
+  // rule 5). Its own dependencies are not walked (closure seeds come from declarations,
+  // below), so an unrelated sibling's package costs nothing until something loads it.
+  // Not a package reachable only through one an active preset shadows or transform.exclude
+  // names: its real source never loads, or the project took it out on purpose. Installed
+  // packages only (a real path inside node_modules): a workspace member keeps its rules.
+  const held = closureOf(
+    [...shadowed, ...neverTransform].map((name): [string, Installed | null] => [
+      name,
+      installedOf(name),
+    ]),
+  );
+  for (const name of installedReactNativeCandidates(declaringDirs)) {
+    if (candidates.has(name) || held.has(name) || skip.has(name)) continue;
+    // Detecting `expo` installs Expo's runtime for the whole run (installExpoRuntime), so it
+    // follows what the run declares: where expo merely resolves, a library's expo-* peer
+    // for instance, it is not this project's (#432).
+    if (UNDECLARED_SCAN_EXEMPT.has(name)) continue;
+    if (name.startsWith("@react-native/") || rnOwned.has(name) || toolchain.has(name)) continue;
+    const installed = installedOf(name);
+    if (!installed || !NODE_MODULES_DIR.test(installed.dir) || ownsTheRun(name)) continue;
+    if (dependsOnReactNative(installed.manifest)) detected.push(name);
+  }
   const detectedSet = new Set(detected);
   const inClosure = new Set(detected);
   const walked = new Set<string>();
