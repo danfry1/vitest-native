@@ -104,9 +104,18 @@ describe("fidelity-matrix renderer", () => {
     // A page with data (or any divergent content) must fail the gate.
     const outFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "vn-matrix-check-")), "p.md");
     fs.writeFileSync(outFile, "not the placeholder");
-    expect(() =>
-      execFileSync(process.execPath, [SCRIPT, "--check", "--out", outFile], { encoding: "utf8" }),
-    ).toThrow();
+    // Its stderr is captured, not inherited: the gate's "✗ … is not the placeholder render"
+    // line is the expected result here, and printed in a passing suite it reads as a failure.
+    let stderr = "";
+    try {
+      execFileSync(process.execPath, [SCRIPT, "--check", "--out", outFile], {
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+    } catch (error) {
+      stderr = String((error as { stderr?: string }).stderr);
+    }
+    expect(stderr).toContain("is not the placeholder render");
   });
 
   it("declares the cells green but does not claim the matrix from one cell", () => {
