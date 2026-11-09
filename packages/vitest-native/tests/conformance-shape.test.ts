@@ -78,6 +78,25 @@ describe("differences", () => {
     ]);
   });
 
+  it("counts a member whose getter throws as missing, without failing the check", () => {
+    const value = Object.defineProperty({ value: 0, get: () => 0 }, "modify", {
+      get() {
+        throw new Error("not available in the mock");
+      },
+    });
+    expect(differences(value, sharedValue, "x")).toEqual(["x.modify: missing, declared function"]);
+    const throwing = new Proxy({} as Record<string, unknown>, {
+      get() {
+        throw new Error("no such member");
+      },
+    });
+    expect(differences(throwing, sharedValue, "y")).toEqual([
+      "y.value: missing, declared number",
+      "y.get: missing, declared function",
+      "y.modify: missing, declared function",
+    ]);
+  });
+
   it("lists members beyond the declared ones, but not an enum's reverse mapping", () => {
     expect(extras({ value: 0, get: 0, modify: 0, extra: 1, 0: "A" }, sharedValue, "x")).toEqual([
       "x.extra",
