@@ -280,7 +280,7 @@ export function parseCompareArgs(argv: string[]): Omit<CompareOptions, "log"> | 
   } else if (values.has("runs") || values.has("seed") || flags.has("no-shuffle")) {
     return { error: "--runs, --seed and --no-shuffle apply only with --hot." };
   }
-  const runs = Number(values.get("runs") ?? 2);
+  const runs = Number(values.get("runs") ?? 3);
   if (!Number.isInteger(runs) || runs < 1)
     return { error: "--runs needs a positive whole number." };
   const seed = values.has("seed")

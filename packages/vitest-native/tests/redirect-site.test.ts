@@ -115,7 +115,23 @@ describe("the redirect site at the old address", () => {
 });
 
 describe("links to the docs", () => {
-  it("use the new address everywhere but the release history, the redirect site and its note", () => {
+  // The files that may name the old address: the redirect site itself, and the release
+  // history (CHANGELOG.md), whose released notes link it. A pending release note may name
+  // it, as the one announcing the move does, but not link a page there. Release notes come
+  // and go (a version PR consumes them), so none of these has to exist.
+  const REDIRECT_SITE = new Set([
+    ".github/workflows/pages.yml",
+    "packages/vitest-native/tests/redirect-site.test.ts",
+    "website/scripts/redirect-site.mjs",
+  ]);
+  const OLD_LINK = `https://${OLD_SITE}`;
+  function misplaced(file: string, text: string): boolean {
+    if (REDIRECT_SITE.has(file) || path.basename(file) === "CHANGELOG.md") return false;
+    if (file.startsWith(".changeset/")) return text.includes(OLD_LINK);
+    return true;
+  }
+
+  it("use the new address everywhere but the release history and the redirect site", () => {
     let files: string[] = [];
     try {
       files = execFileSync("git", ["grep", "-lIF", OLD_SITE], {
@@ -128,13 +144,19 @@ describe("links to the docs", () => {
       // git grep exits 1 when nothing matches.
       if ((error as { status?: number }).status !== 1) throw error;
     }
-    // The release note that announces the move names the old address too.
-    expect(files.filter((file) => !file.endsWith("CHANGELOG.md")).sort()).toEqual([
-      ".changeset/docs-domain.md",
-      ".github/workflows/pages.yml",
-      "packages/vitest-native/tests/redirect-site.test.ts",
-      "website/scripts/redirect-site.mjs",
-    ]);
+    // The scan sees the files: the redirect generator names the old address.
+    expect(files).toContain("website/scripts/redirect-site.mjs");
+    const wrong = files.filter((file) =>
+      misplaced(file, fs.readFileSync(path.join(repoRoot, file), "utf8")),
+    );
+    expect(wrong).toEqual([]);
     expect(SITE_URL).toBe("https://vitest-native.danfry.dev");
+  });
+
+  it("lets a release note name the old address but not link it", () => {
+    expect(misplaced(".changeset/x.md", `moved from \`${OLD_SITE}\``)).toBe(false);
+    expect(misplaced(".changeset/x.md", `see ${OLD_LINK}/guide/cli`)).toBe(true);
+    expect(misplaced("packages/vitest-native/CHANGELOG.md", `see ${OLD_LINK}/guide`)).toBe(false);
+    expect(misplaced("README.md", `see ${OLD_SITE}`)).toBe(true);
   });
 });
