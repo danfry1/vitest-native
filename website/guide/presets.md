@@ -130,6 +130,16 @@ CanvasKit loads before each test file, as Skia's Jest environment does, so a pro
 
 ## Mock resets
 
+## Supported library versions
+
+The versions these libraries are supported at under the native engine. Each floor is the version Expo SDK 57 ships; a version outside its range may work, but nothing checks it.
+
+| Library | Supported |
+|---|---|
+| `react-native-reanimated` | `>=4.5.0 <5` |
+| `react-native-worklets` | `>=0.10.0 <1` |
+| `react-native-gesture-handler` | `>=2.32.0 <4` |
+
 Preset mocks keep working through `vi.resetAllMocks()` and `mockReset: true`. A reset clears the calls each spy recorded, but a builder still chains, so `LinearTransition.springify().damping(20)` returns the transition, and a `Gesture.Pan()` built at module scope keeps its `onStart(...)`. Every preset's mock functions are built with their implementation (`vi.fn(impl)`), which Vitest restores on a reset. A package test (`tests/preset-mock-reset.test.ts`) walks every preset and fails if a reset drops one.
 
 ## Migrating from manual mocks

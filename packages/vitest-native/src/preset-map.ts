@@ -93,6 +93,20 @@ export const NATIVE_ENGINE_RUNS_PACKAGES: readonly PresetName[] = [
 ];
 
 /**
+ * The versions supported of each library the native engine serves a mock for or runs with
+ * its own Jest support: one table, which the conformance gate's latest-supported CI axis
+ * reads (tests-native/conformance/) and tests/library-versions.test.ts holds to the presets
+ * guide. Ranges use engines-style comparators (node-range.ts satisfiesNodeRange). Each
+ * floor is the version Expo SDK 57, the oldest supported SDK, ships (consumer-tests/
+ * expo-sdk57); each ceiling is the next major, which is untested until the table says so.
+ */
+export const SUPPORTED_LIBRARY_VERSIONS: Readonly<Record<string, string>> = {
+  "react-native-reanimated": ">=4.5.0 <5",
+  "react-native-worklets": ">=0.10.0 <1",
+  "react-native-gesture-handler": ">=2.32.0 <4",
+};
+
+/**
  * The Jest setup files libraries ship for their real JavaScript, which the native engine
  * runs before the project's own setup files for each installed package whose preset
  * steps aside (NATIVE_ENGINE_RUNS_PACKAGES), as a Jest suite lists them in `setupFiles`.
