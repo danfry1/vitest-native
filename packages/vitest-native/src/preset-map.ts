@@ -96,9 +96,12 @@ export const NATIVE_ENGINE_RUNS_PACKAGES: readonly PresetName[] = [
  * The versions supported of each library the native engine serves a mock for or runs with
  * its own Jest support: one table, which the conformance gate's latest-supported CI axis
  * reads (tests-native/conformance/) and tests/library-versions.test.ts holds to the presets
- * guide. Ranges use engines-style comparators (node-range.ts satisfiesNodeRange). Each
- * floor is the version Expo SDK 57, the oldest supported SDK, ships (consumer-tests/
- * expo-sdk57); each ceiling is the next major, which is untested until the table says so.
+ * guide. Ranges use engines-style comparators (node-range.ts satisfiesNodeRange).
+ *
+ * The rule (latest-only support, support-floors 0.15): each floor is the version the
+ * oldest supported Expo SDK ships (SUPPORTED_EXPO_SDKS.minimum, now 57: consumer-tests/
+ * expo-sdk57), and each ceiling is below the library's next major. When the Expo SDK floor
+ * moves, these floors move to what the new oldest SDK ships, in the same change.
  */
 export const SUPPORTED_LIBRARY_VERSIONS: Readonly<Record<string, string>> = {
   "react-native-reanimated": ">=4.5.0 <5",
