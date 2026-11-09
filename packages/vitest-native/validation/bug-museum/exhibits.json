@@ -1180,7 +1180,7 @@
       "class": "presets",
       "title": "Reanimated's mock gives useTimestamp a value without get()",
       "source": "#351 (rc.1 report)",
-      "fixedBy": "open",
+      "fixedBy": "#684",
       "bugSignature": "^app\\.test\\.tsx: TypeError: timestamp\\.get is not a function"
     },
     {
