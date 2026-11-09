@@ -550,11 +550,7 @@ export function installOwnershipLedger({ projectRoot = process.cwd() } = {}) {
   channel.nodeEsm = (url) => {
     const file = fileOf(url);
     if (file === null) return;
-    ledger.recordNode(
-      file,
-      { via: "esm", generation: stampOf(url) },
-      { key: keyOf(file) },
-    );
+    ledger.recordNode(file, { via: "esm", generation: stampOf(url) }, { key: keyOf(file) });
   };
   // The marker viteMarkerFor writes into each module Vite evaluates.
   channel.vite = (key, file) => ledger.recordVite(key, file);
