@@ -8,7 +8,6 @@
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { stripVTControlCharacters } from "node:util";
 // @ts-expect-error — runtime .mjs, no types
@@ -17,29 +16,12 @@ import {
   museumRoot,
   packageRoot,
 } from "../../validation/bug-museum/lib/materialise.mjs";
+import { runTempRoot } from "./run-temp-root";
 
 export interface Edit {
   file: string;
   find: string;
   replace: string;
-}
-
-/**
- * The run's own temporary root (tests/support/temp-root.global.ts), which global teardown
- * removes with everything in it. Each materialised app lives there, and nothing deletes it
- * per file. Deleting one per file, node_modules included, took longer than Vitest's 10 s
- * hook timeout on Windows runners: it failed 5 of 53 Windows native jobs in a day, after
- * the tests had passed. Global teardown has no hook timeout.
- */
-function runTempRoot(): string {
-  const root = os.tmpdir();
-  if (!/[\\/]vn-test-run-[^\\/]+$/.test(root)) {
-    throw new Error(
-      `runApp materialises apps under the run's temporary root, which this config does not set ` +
-        `(os.tmpdir() is ${root}). Add tests/support/temp-root.global.ts to its globalSetup.`,
-    );
-  }
-  return root;
 }
 
 export function runApp(
