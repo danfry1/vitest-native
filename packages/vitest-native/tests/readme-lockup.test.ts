@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 // Both READMEs open with the logo and name: a light and a dark SVG for GitHub's themes, and a
 // plain <img> of the light one, which is what npm's page keeps. They are linked by absolute
 // raw.githubusercontent.com URLs because npm shows the README away from the repository.
+// Every published README links these paths, so the SVGs must never move or be renamed.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const READMES = ["README.md", "packages/vitest-native/README.md"];
 const RAW = "https://raw.githubusercontent.com/danfry1/vitest-native/main/";
