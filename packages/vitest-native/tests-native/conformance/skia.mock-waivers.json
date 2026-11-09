@@ -298,5 +298,11 @@
     "path": "useVideo()",
     "reason": "Skia's mock returns null, not the video's shared values",
     "issue": "#709"
+  },
+  {
+    "export": "useImageAsTexture",
+    "path": "useImageAsTexture()",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
   }
 ]

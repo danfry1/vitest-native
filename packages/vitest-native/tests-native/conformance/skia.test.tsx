@@ -2,6 +2,7 @@
  * @shopify/react-native-skia as the native engine serves it, against the API the installed package declares.
  * See probe.tsx; waivers in skia.waivers.json (native) and skia.mock-waivers.json (mock).
  */
+import React from "react";
 import fs from "node:fs";
 import path from "node:path";
 import * as Served from "@shopify/react-native-skia";
@@ -20,7 +21,7 @@ const waivers: Waiver[] = JSON.parse(
   ),
 );
 
-const { Skia } = Served;
+const { Fill, Skia } = Served;
 const rect = () => Skia.XYWHRect(0, 0, 10, 10);
 // A data source Node's fetch loads offline (a 1x1 PNG): the loaders' `source` parameter is
 // a URL or a required asset, and an empty one makes their fetch reject after the test.
@@ -48,6 +49,17 @@ probeModule(
       useAnimatedImage: () => [PNG],
       useAnimatedImageValue: () => [PNG],
       useImageAsTexture: () => [PNG],
+      // A drawing and a size Skia can render offscreen. Made-up ones (an element `{}`, a
+      // 0×0 size) left Skia's own React root with failing work that RNTL 14's act flushed
+      // during the NEXT export's render, so the next export's result went unchecked.
+      useTexture: () => [<Fill color="red" />, { width: 1, height: 1 }],
+      usePictureAsTexture: () => [
+        Served.createPicture((canvas) => canvas.drawColor(Skia.Color("red")), {
+          width: 1,
+          height: 1,
+        }),
+        { width: 1, height: 1 },
+      ],
       useTypeface: () => [PNG],
       useSVG: () => [SVG],
     },
