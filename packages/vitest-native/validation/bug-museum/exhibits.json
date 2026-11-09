@@ -1068,6 +1068,28 @@
       }
     },
     {
+      "id": "pfs-hot-esm-import-require",
+      "class": "per-file-state",
+      "title": "Under hot, an import and a require() of one ES package are two instances",
+      "source": "#722 (and #719 under freshRuntime)",
+      "fixedBy": "#722's fix: one spelling per generation for an ES package, imported or required",
+      "bugSignature": "^[ab]\\.test\\.ts: AssertionError: (the require and the import are one instance|a new instance in each file|import\\.meta\\.(url|filename|dirname) names the file): expected .*",
+      "control": {
+        "why": "Per file, every file has its own Node registry, so the import and the require meet once.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "hotRuntime: { allowUnboundedMemory: true }",
+            "replace": "hotRuntime: false"
+          }
+        ]
+      },
+      "status": {
+        "main": "FAIL (bug)",
+        "control": "PASS"
+      }
+    },
+    {
       "id": "pfs-hot-worker-state",
       "class": "per-file-state",
       "title": "Under hot, a later file reads the first file's Vitest worker state and loses RNTL's auto-cleanup",
