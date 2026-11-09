@@ -2,7 +2,7 @@
 
 - **Class:** presets
 - **Source:** #351 (a user's app on 0.15.0-rc.1)
-- **Fixed by:** open
+- **Fixed by:** #685
 - **Needs:** nothing beyond this repository's install
 
 ## The bug
