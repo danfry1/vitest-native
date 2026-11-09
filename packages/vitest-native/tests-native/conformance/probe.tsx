@@ -176,6 +176,9 @@ export function probeModule(
           (report.extra.length ? `\n  beyond the types: ${report.extra.join(", ")}` : ""),
       );
     }
-    expect(stale, "waivers that no longer fail (remove them)").toEqual([]);
+    // One line per waiver, in full: an array in an assertion message is truncated.
+    if (stale.length > 0) {
+      throw new Error(`waivers that no longer fail (remove them):\n${stale.join("\n")}`);
+    }
   });
 }
