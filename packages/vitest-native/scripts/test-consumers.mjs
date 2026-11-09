@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import "./release-age.mjs";
 import { CANARY_INSTALL_FLAGS } from "./release-age.mjs";
 import { HERO_RUN, HERO_TEST, heroRunLines, writeSnippets } from "./doc-snippets.mjs";
+import { scratchInstall } from "./scratch-install.mjs";
+import { floorBannerProblem } from "./support/engine-banner.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixturesRoot = path.join(packageRoot, "consumer-tests");
@@ -217,6 +219,58 @@ function runExpoPnpmSuite(tarball, sdk) {
   return failures;
 }
 
+/**
+ * Reanimated at its supported floor (4.5.3, on React Native 0.86.3), with the worklets
+ * Babel plugin from the project's own config (consumer-tests/reanimated-floor). On 4.5
+ * and 4.6 the preset stands in for the library, and a project mock that spreads
+ * `jest.requireActual` runs the real `useAnimatedStyle`, which throws without the plugin.
+ * The repository does not install these versions, so the fixture goes through
+ * scratch-install: its pins, the repository's resolutions, and the release cooldown.
+ *
+ * Each row must pass and print the engine it asked for: a silent fallback to the mock
+ * engine, or a hot row that ran per-file, fails the leg.
+ */
+const REANIMATED_FLOOR_ROWS = [
+  { config: "mock", env: { VN_HOT: "false" }, engine: "native" },
+  { config: "mock", env: { VN_HOT: "true" }, engine: "native", hot: true },
+  { config: "preset", env: { VN_HOT: "false" }, engine: "native" },
+  { config: "preset", env: { VN_HOT: "true" }, engine: "native", hot: true },
+  { config: "preset", env: { VN_HOT: "false", VN_ENGINE: "mock" }, engine: "mock" },
+];
+
+async function runLibraryFloors(tarball) {
+  const fixtureRoot = path.join(tempRoot, "reanimated-floor");
+  fs.cpSync(path.join(fixturesRoot, "reanimated-floor"), fixtureRoot, { recursive: true });
+  addPackedDependency(fixtureRoot, tarball);
+  await scratchInstall(fixtureRoot);
+  const reactNativeVersion = JSON.parse(
+    fs.readFileSync(path.join(fixtureRoot, "node_modules/react-native/package.json"), "utf8"),
+  ).version;
+  const failures = [];
+  for (const row of REANIMATED_FLOOR_ROWS) {
+    const name = `${row.config} config, ${Object.entries(row.env)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(" ")}`;
+    try {
+      const output = runCaptured(
+        process.execPath,
+        ["node_modules/vitest/vitest.mjs", "run", "--config", `vitest.${row.config}.config.mts`],
+        fixtureRoot,
+        row.env,
+      );
+      const problem = floorBannerProblem(output, row, reactNativeVersion);
+      if (problem) failures.push(`${name}: ${problem}`);
+    } catch (error) {
+      failures.push(`${name}: ${error.message}`);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(
+      `Reanimated floor: ${failures.length} row(s) failed\n- ${failures.join("\n- ")}`,
+    );
+  }
+}
+
 function runExpoPnpmSuites(tarball) {
   const failures = [...runExpoPnpmSuite(tarball, 58), ...runExpoPnpmSuite(tarball, 57)];
   if (failures.length > 0) {
@@ -363,14 +417,26 @@ try {
   // VN_CONSUMERS=expo-pnpm-suite runs only the real-suite Expo workspace (its own CI
   // cell); VN_CONSUMERS=fixtures everything else, the doc snippets included;
   // VN_CONSUMERS=doc-snippets only the snippets (to run them locally, and for a
-  // docs-only pull request that changes a page carrying snippets).
+  // docs-only pull request that changes a page carrying snippets);
+  // VN_CONSUMERS=library-floors only the library-floor fixtures (also in fixtures).
   // Unset runs all of them, as prepublishOnly does.
   const only = process.env.VN_CONSUMERS;
-  const LEGS = ["fixtures", "doc-snippets", "expo-pnpm-suite", "expo-latest", "expo-next"];
+  const LEGS = [
+    "fixtures",
+    "doc-snippets",
+    "library-floors",
+    "expo-pnpm-suite",
+    "expo-latest",
+    "expo-next",
+  ];
   if (only && !LEGS.includes(only)) {
     throw new Error(`VN_CONSUMERS=${only} is not one of ${LEGS.join(", ")}`);
   }
-  const runs = (leg) => !only || only === leg || (leg === "doc-snippets" && only === "fixtures");
+  // The doc snippets and the library floors run in the fixtures cell.
+  const runs = (leg) =>
+    !only ||
+    only === leg ||
+    ((leg === "doc-snippets" || leg === "library-floors") && only === "fixtures");
   if (runs("fixtures")) {
     for (const fixture of [
       "bare",
@@ -523,6 +589,7 @@ try {
     run("npm", ["test"], migrateFixture);
   }
   if (runs("doc-snippets")) runDocSnippets(tarball);
+  if (runs("library-floors")) await runLibraryFloors(tarball);
   if (runs("expo-pnpm-suite")) runExpoPnpmSuites(tarball);
   // Only when asked for: they install the newest Expo patches, or an Expo prerelease, so
   // they run on a schedule (compat-check.yml), never as part of a pull request's gate.
