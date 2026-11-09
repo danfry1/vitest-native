@@ -191,6 +191,7 @@ Reuses test workers across files instead of starting a fresh one for each, while
 | `memoryLimit` | retire a worker when its JS heap reaches this many bytes; `0` turns the threshold off; by default the memory plan picks it |
 | `preserveGlobals` | exact `globalThis` property names a resident library owns, kept between files (Storybook's preview registry is kept automatically) |
 | `esmGeneration` | `true` by default: re-run, for each file, the packages Node loads for a test file's `import`s (not the React Native packages vitest-native compiles), so their state does not carry over; `false` keeps them loaded |
+| `freshRuntime` | experimental, `false` by default: re-run React, its renderers, `scheduler` and React Native Testing Library for every file instead of keeping them loaded, so the first five [known differences](/guide/hot-runtime#known-differences) go away; costs about 5 ms per file at four workers and 17 ms at one, and some memory per worker. Needs `esmGeneration` |
 | `allowUnboundedMemory` | permit a run where recycling cannot be enforced, such as one worker; also turns off the automatic worker cap and memory hard stop. Only when something outside the run bounds its memory. Not with `mode: 'auto'` |
 
 ```ts
@@ -246,7 +247,7 @@ reactNative({ registryBuild: 'wait' })
 
 Fails a run whose tests have stopped making progress, naming the file and test that were running.
 
-**When it fires.** While test files are running, nothing has made progress (no file picked up, started or finished, and no test started or finished) for `hangTimeout` ms, and every running test is past its own budget. A test's budget is its timeout (from `it(name, fn, ms)`, `{ timeout }`, a `describe` option, `vi.setConfig` or `testTimeout`) plus two hook timeouts and a second. Each retry gets its own budget, so a slow test, or a retried one, isn't cut short. Global setup, coverage, and typecheck mode's compiler run happen outside that window and aren't timed.
+**When it fires.** While test files are running, nothing has made progress (no file picked up, started or finished, no test started or finished, and no module loaded through Vite) for `hangTimeout` ms, and every running test is past its own budget. A module load counts because a file still importing (a cold start, or a hot worker booting) reports nothing else until its first test. A test's budget is its timeout (from `it(name, fn, ms)`, `{ timeout }`, a `describe` option, `vi.setConfig` or `testTimeout`) plus two hook timeouts and a second. Each retry gets its own budget, so a slow test, or a retried one, isn't cut short. Global setup, coverage, and typecheck mode's compiler run happen outside that window and aren't timed.
 
 **The limit.** The default is 60 s, or twice the larger of `testTimeout` and `hookTimeout` across all projects, if that's longer.
 

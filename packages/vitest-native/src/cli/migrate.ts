@@ -35,6 +35,7 @@ import {
 } from "./jest-discovery.js";
 import { resolveJestPreset, withPresetSettings } from "./jest-preset.js";
 import { projectBabelTrigger } from "../project-babel.js";
+import { mockFactoryForwardReads } from "./mock-factory-reads.js";
 import { libraryResolver, onlyCallsSetUpTests, stripsOnlyReanimatedProps } from "./superseded.js";
 import {
   babelRecipe,
@@ -1000,6 +1001,22 @@ export function analyzeJestConfig(root: string): MigrationReport {
   }
 
   // The project's Babel config ran on every file under babel-jest and does not here.
+  // jest.mock factories that read a module-level const/let/class while they run.
+  const factoryReads = mockFactoryForwardReads(root);
+  if (factoryReads.length) {
+    const shown = factoryReads
+      .slice(0, 5)
+      .map((r) => `${r.file}:${r.line} (jest.mock('${r.module}') reads ${r.names.join(", ")})`);
+    attention.push(
+      `${factoryReads.length} jest.mock() ${factoryReads.length === 1 ? "factory reads" : "factories read"} a ` +
+        `const, let or class from the test file's module body while it runs: ${shown.join("; ")}` +
+        `${factoryReads.length > 5 ? `; and ${factoryReads.length - 5} more` : ""}. Mock factories run before ` +
+        `the module body, so when the mocked module is imported at the top of the test file (the usual case) ` +
+        `this throws "Cannot access '…' before initialization" under Vitest. Under babel-jest with React ` +
+        `Native's preset it read undefined instead, because the preset compiles const to var. Move the value ` +
+        `into the factory, or create it with vi.hoisted().`,
+    );
+  }
   const babel = readBabelConfig(root);
   if (babel.source) {
     const classified = classifyBabelPlugins(babel, root, active);

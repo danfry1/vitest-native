@@ -1,4 +1,5 @@
 import { VitestNativeTypeError } from "./errors.mjs";
+import { satisfiesMinimum } from "./peer-requirements.js";
 import { createRequire } from "node:module";
 import path from "node:path";
 
@@ -27,6 +28,7 @@ const KNOWN_HOT_RUNTIME_OPTIONS = [
   "allowUnboundedMemory",
   "preserveGlobals",
   "esmGeneration",
+  "freshRuntime",
 ];
 const KNOWN_METRO_CONFIG_OPTIONS = ["configFile"];
 
@@ -342,28 +344,23 @@ export function validateOptions(options: Record<string, unknown>): void {
       `"hotRuntime.esmGeneration" must be a boolean.`,
     );
   }
-}
-
-function satisfiesMinimum(version: string, minimum: string): boolean {
-  // Strip prerelease/build metadata before splitting — "4.0.0-beta.3" split
-  // on "." as ["4","0","0-beta","3"] put NaN in the PATCH slot, so a
-  // prerelease sharing the minimum's major.minor (e.g. vitest 4.0.0-beta.x
-  // against the 4.0.0 floor) failed the check and hard-errored at startup —
-  // exactly the early-adopter installs that run betas. A prerelease of the
-  // minimum itself is accepted (deliberate: rejecting it would re-break that
-  // cohort; vite/vitest don't publish patch-level prereleases, so the
-  // security-floor bypass this theoretically allows doesn't occur on npm).
-  const parse = (v: string) =>
-    v
-      .replace(/^[^0-9]*/, "")
-      .split(/[-+]/)[0]
-      .split(".")
-      .map(Number);
-  const [aMaj, aMin = 0, aPat = 0] = parse(version);
-  const [bMaj, bMin = 0, bPat = 0] = parse(minimum);
-  if (aMaj !== bMaj) return aMaj > bMaj;
-  if (aMin !== bMin) return aMin > bMin;
-  return aPat >= bPat;
+  if (hotOptions.freshRuntime !== undefined && typeof hotOptions.freshRuntime !== "boolean") {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"hotRuntime.freshRuntime" must be a boolean.`,
+    );
+  }
+  // React's ES entry points are re-evaluated per file only through ESM generations; without
+  // them an ES import of React would keep the first file's instance while the CommonJS
+  // graph got a new one.
+  if (hotOptions.freshRuntime === true && hotOptions.esmGeneration === false) {
+    throw new VitestNativeTypeError(
+      "INVALID_OPTION",
+      `"hotRuntime.freshRuntime" needs "hotRuntime.esmGeneration": React's ES entry points ` +
+        `are re-run per file through ESM generations. Remove "esmGeneration: false", or ` +
+        `"freshRuntime: true".`,
+    );
+  }
 }
 
 export function validatePeerDependency(

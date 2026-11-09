@@ -25,6 +25,7 @@ import Animated, {
   useAnimatedScrollHandler,
   useScrollOffset,
   useSharedValue,
+  useTimestamp,
 } from "react-native-reanimated";
 import { describe, expect, it, vi } from "vitest";
 
@@ -105,8 +106,10 @@ describe("the reanimated preset, with gesture-handler 3", () => {
   it("runs a scroll handler's drag events, and offsets are shared values", async () => {
     const seen: string[] = [];
     let offset: unknown;
+    let timestamp: unknown;
     function List() {
       offset = useScrollOffset();
+      timestamp = useTimestamp();
       const onScroll = useAnimatedScrollHandler({
         onScroll: (e) => seen.push(`scroll ${e.contentOffset.y}`),
         onBeginDrag: () => seen.push("begin"),
@@ -123,6 +126,8 @@ describe("the reanimated preset, with gesture-handler 3", () => {
     await fireEvent.scroll(list, { nativeEvent: { contentOffset: { y: 5 } } });
     expect(seen).toEqual(["begin", "scroll 5"]);
     expect(isSharedValue(offset)).toBe(true);
+    // An app reads the timestamp with .get() (#351).
+    expect((timestamp as { get(): number }).get()).toBe(0);
   });
 
   it("gives a scroll handler a test can spy on, that still runs after a reset", async () => {

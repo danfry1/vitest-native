@@ -49,8 +49,9 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: .github/scripts/release-gate.sh "$TAG_NAME"
 
-      # The npm the packed consumer fixtures have always been installed with here.
-      - run: npm i -g npm@11.15.0
+      # The npm the packed consumer fixtures have always been installed with here,
+      # checked against its published integrity.
+      - run: node .github/scripts/install-global.mjs npm 11.15.0
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -155,21 +156,12 @@ jobs:
         run: node packages/vitest-native/scripts/release-channel.mjs "${TAG_NAME#v}" --notes-file "$RUNNER_TEMP/release-notes.md" >> "$GITHUB_OUTPUT"
 
       # npm >= 11.15 is required for staged publishing (`npm stage`). Installed from its
-      # tarball after checking it against the integrity npm published for it, so the npm
-      # that runs with the publish token is exactly that release. Its dependencies are
-      # all bundled in the tarball, so nothing else is fetched.
+      # tarball after checking it against the integrity npm published for it
+      # (.github/scripts/install-global.mjs), so the npm that runs with the publish token is
+      # exactly that release. Its dependencies are all bundled in the tarball, so nothing
+      # else is fetched.
       - name: npm 11.15.0, checked against its published integrity
-        env:
-          NPM_INTEGRITY: sha512-+k0tk7lRnpMUPnC7kTuU/yrV/mnFoPhJQ75VfLtZ6fwbzOVXaPsTE/Il9Pn1DHi482byMyqkHv/XsQ76mNjXLw==
-        run: |
-          curl -fsSL -o "$RUNNER_TEMP/npm.tgz" https://registry.npmjs.org/npm/-/npm-11.15.0.tgz
-          actual="sha512-$(openssl dgst -sha512 -binary "$RUNNER_TEMP/npm.tgz" | base64 -w0)"
-          if [ "$actual" != "$NPM_INTEGRITY" ]; then
-            echo "::error::npm-11.15.0.tgz does not match its published integrity ($actual)."
-            exit 1
-          fi
-          npm install -g "$RUNNER_TEMP/npm.tgz" --ignore-scripts --no-audit --no-fund
-          npm --version
+        run: node .github/scripts/install-global.mjs npm 11.15.0
 
       # The lockfile pins every package and its integrity; --ignore-scripts runs no
       # package's lifecycle scripts (the build does not need any).

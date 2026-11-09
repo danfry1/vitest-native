@@ -4,12 +4,15 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { nodeVersions, peerVersions, supportItems } from "../../../website/.vitepress/support.ts";
 import { SUPPORTED_NODE } from "../src/node-range";
+import { PEER_REQUIREMENTS, SUPPORTED_REACT_NATIVE } from "../src/peer-requirements";
+import { escapeRegExp, recommendedFloors } from "./support/recommended-floors";
 
 // The landing page's supported-versions line is read from the startup checks at build
 // time (website/.vitepress/support.ts). This holds its formatting to those checks, and the
 // install page's requirements table, which is written by hand, to the same line.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const INSTALL = path.join(repoRoot, "website/guide/install.md");
+const UPGRADING = path.join(repoRoot, "website/migration/upgrading-to-0-15.md");
 
 describe("the landing page's supported versions", () => {
   it("lists one floor for each Node line the package accepts", () => {
@@ -38,6 +41,63 @@ describe("the landing page's supported versions", () => {
     ]);
   });
 
+  it("agrees with the upgrade guide's table, row for row", () => {
+    // Each row of the table, keyed by its first cell: [versions, what an older one does].
+    const rows = new Map(
+      fs
+        .readFileSync(UPGRADING, "utf8")
+        .split("\n")
+        .filter((line) => line.startsWith("|") && !/^\|\s*(\||-)/.test(line))
+        .map((line) =>
+          line
+            .split("|")
+            .slice(1, -1)
+            .map((cell) => cell.trim()),
+        )
+        .map(([name, versions, older]) => [name, { versions, older }]),
+    );
+    const LABELS: Record<string, string> = {
+      vitest: "Vitest",
+      vite: "Vite",
+      react: "React",
+      "@testing-library/react-native": "React Native Testing Library",
+    };
+    const items = new Map(supportItems().map((item) => [item.name, item.versions]));
+    const { minimumMinor, maximumMinor } = SUPPORTED_REACT_NATIVE;
+    const expected = new Map<string, { versions: string; older: RegExp }>([
+      ["Node", { versions: "", older: /^stops at startup with .*UNSUPPORTED_NODE/ }],
+      ...PEER_REQUIREMENTS.map(
+        (peer) =>
+          [
+            LABELS[peer.name] ?? peer.name,
+            {
+              versions: peerVersions(peer),
+              older: peer.optional ? /^warns$/ : /^stops with .*UNSUPPORTED_PEER/,
+            },
+          ] as const,
+      ),
+      [
+        "React Native (native engine)",
+        {
+          versions: items.get("React Native")!,
+          older: new RegExp(
+            `^below 0\\.${minimumMinor} stops with .*UNSUPPORTED_PEER.*; above 0\\.${maximumMinor} warns$`,
+          ),
+        },
+      ],
+      ["Expo SDK", { versions: items.get("Expo SDK")!, older: /^warns$/ }],
+    ]);
+    expect([...rows.keys()].sort()).toEqual([...expected.keys()].sort());
+    for (const [name, { versions, older }] of expected) {
+      const row = rows.get(name)!;
+      if (name === "Node")
+        for (const floor of nodeVersions().split(/, | or /))
+          expect(row.versions, name).toContain(floor.replace(/\+$/, ""));
+      else expect(row.versions, name).toBe(versions);
+      expect(row.older, name).toMatch(older);
+    }
+  });
+
   it("agrees with the install page's requirements table", () => {
     const table = fs.readFileSync(INSTALL, "utf8");
     const row = (name: string) =>
@@ -46,5 +106,27 @@ describe("the landing page's supported versions", () => {
     expect(row("React Native")).toContain(items.get("React Native"));
     expect(row("Expo SDK")).toContain(items.get("Expo SDK"));
     expect(row("Vitest")).toContain(`${items.get("Vitest")}.x`);
+  });
+
+  // A peer's recommended floor (a release below it runs, with a startup warning) is named
+  // where a reader picks a version: the install page's table and the upgrade guide's steps.
+  it("names each recommended floor on the install page and in the upgrade guide", () => {
+    const install = fs.readFileSync(INSTALL, "utf8");
+    const upgrading = fs.readFileSync(UPGRADING, "utf8");
+    const floors = recommendedFloors();
+    // With no recommended floor, the pages recommend nothing above the minimum.
+    if (floors.length === 0) {
+      expect(install).not.toContain("or later recommended");
+      expect(upgrading).not.toContain("or later is recommended");
+    }
+    for (const floor of floors) {
+      const cell = new RegExp(`^\\|\\s*${escapeRegExp(floor.label)}\\s*\\|([^|]+)\\|`, "m").exec(
+        install,
+      )?.[1];
+      expect(cell, floor.label).toContain(`${floor.version} or later recommended`);
+      expect(install, floor.label).toContain(floor.issuePath);
+      expect(upgrading, floor.label).toContain(`\`${floor.name}@^${floor.version}\``);
+      expect(upgrading, floor.label).toContain(`${floor.version} or later is recommended`);
+    }
   });
 });
