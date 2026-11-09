@@ -26,7 +26,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -56,7 +56,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -74,7 +74,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "6defadb3^"
@@ -104,7 +104,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -134,7 +134,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -164,7 +164,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -195,7 +195,7 @@
         "main": "FAIL (bug)",
         "control": "PASS",
         "fix": "PASS",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "mainSignature": "split.test.ts: Cannot find module '@m/validator/store'",
         "proof": "fix proven"
       }
@@ -226,7 +226,7 @@
         "main": "FAIL (bug)",
         "control": "PASS",
         "fix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "mainSignature": "split.test.ts: Cannot find module '@m/validator/store'",
         "proof": "open (control passes)"
       }
@@ -256,7 +256,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -286,7 +286,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -317,7 +317,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -360,7 +360,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "mainSignature": "node-require.test.ts: AssertionError: museum-requires-feature reads the store the test wrote: expected 'built copy' to be 'written by the test' // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -375,7 +375,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "dae3119e^"
@@ -390,7 +390,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "5f819d6^"
@@ -409,7 +409,7 @@
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "guard proven"
       }
     },
@@ -438,7 +438,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -468,7 +468,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "a5592d2^"
@@ -497,7 +497,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "mainSignature": "require-first.test.ts: AssertionError: one store instance, whichever side loaded it first: expected null to be 'written by the test' // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -516,7 +516,7 @@
       "bugSignature": "^(cjs-import-first|legacy)\\.test\\.ts: AssertionError: one module\\.exports: |^(require-first|reset)\\.test\\.ts: AssertionError: one store(?: after the reset)?: |^(in-flight|mock-pending|failed)\\.test\\.ts: AssertionError: expected function to throw an error, but it didn't|^dep-mock\\.test\\.ts: AssertionError: the mock's label: |^builtin-mock\\.test\\.ts: AssertionError: the mocked builtin: |^mock-direct\\.test\\.ts: AssertionError: the require gets the mock: |^cycle\\.test\\.ts: AssertionError: one cyc-a: |^node-(cycle|loop)\\.test\\.ts: TypeError: \\(0 , _feature\\.require(Back|LoopY)\\) is not a function|^node-deep\\.test\\.ts: AssertionError: the exports so far, two hops deep: |^in-flight-importer\\.test\\.ts: AssertionError: refused from outside the evaluation: |^failed\\.test\\.ts: AssertionError: expected Error: boom-original to match object |^(top-level-await|for-await)\\.test\\.ts: AssertionError: expected error to match asymmetric matcher",
       "status": {
         "main": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "mainSignature": "builtin-mock.test.ts: AssertionError: the mocked builtin: expected '/' to be 'MOCK-SEP' // Object.is equality",
         "proof": "NOT PROVEN"
       }
@@ -534,7 +534,7 @@
       "bugSignature": "^coverage\\.test\\.ts: AssertionError: expected \\[Function pick\\] to be \\[Function pick\\]|^check\\.mjs: no coverage report was written",
       "status": {
         "main": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "mainSignature": "coverage.test.ts: AssertionError: expected [Function pick] to be [Function pick] // Object.is equality",
         "proof": "NOT PROVEN"
       }
@@ -552,7 +552,7 @@
       "bugSignature": "^node-first\\.test\\.ts: AssertionError: expected \\{\\} to match object \\{ threadStarts: 1",
       "status": {
         "main": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "mainSignature": "node-first.test.ts: AssertionError: expected {} to match object { threadStarts: 1, …(2) }",
         "proof": "NOT PROVEN"
       }
@@ -582,7 +582,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "b9c9c5d4^"
@@ -612,7 +612,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "mainSignature": "vi-mock.test.ts: AssertionError: museum-linking reads the mocked museum-constants: expected 'real://home' to be 'mocked://home' // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -637,7 +637,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "mainSignature": "dual-export.test.ts: AssertionError: one museum-dual, whichever condition loaded it: expected null to be 'configured' // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -665,7 +665,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "mainSignature": "react-alias.test.tsx: TypeError: Cannot read properties of null (reading 'useState')",
         "proof": "open (control passes)"
       }
@@ -696,7 +696,7 @@
       "status": {
         "main": "PASS",
         "control": "PASS",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "NOT PROVEN"
       }
     },
@@ -722,7 +722,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -748,7 +748,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -762,7 +762,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -777,7 +777,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -792,7 +792,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -807,7 +807,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -826,7 +826,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -843,7 +843,7 @@
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "guard proven"
       }
     },
@@ -857,7 +857,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -872,7 +872,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -898,7 +898,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -925,7 +925,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -961,7 +961,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -986,7 +986,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "mainSignature": "b.test.tsx: AssertionError: the timer-driven update rendered within 300 ms: expected 'waiting' to be 'done' // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -1013,7 +1013,7 @@
         "main": "PASS",
         "control": "PASS",
         "fix": "PASS",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "NOT PROVEN"
       }
     },
@@ -1037,7 +1037,7 @@
       "status": {
         "main": "FAIL (other)",
         "control": "PASS",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "mainSignature": "b.test.tsx: [vitest-native] hotRuntime: this worker cannot run this file: React's act() scope is still open (react.act-scope) since <exhibit>/a.test.tsx ended, and it did not close within 10000 ms. Renders would queue inside it and never co",
         "proof": "NOT PROVEN"
       }
@@ -1062,7 +1062,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "mainSignature": "b.test.tsx: AssertionError: this file's first useId is the earlier file's first useId: expected '_r_1_' to be '_r_0_' // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -1086,7 +1086,9 @@
       },
       "status": {
         "main": "PASS",
-        "control": "PASS"
+        "control": "PASS",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
+        "proof": "NOT PROVEN"
       }
     },
     {
@@ -1108,7 +1110,9 @@
       },
       "status": {
         "main": "PASS",
-        "control": "PASS"
+        "control": "PASS",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
+        "proof": "NOT PROVEN"
       }
     },
     {
@@ -1131,7 +1135,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "mainSignature": "b.test.tsx: AssertionError: React warned about the missing key in this file: expected false to be true // Object.is equality",
         "proof": "open (control passes)"
       }
@@ -1146,7 +1150,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "42712528^"
@@ -1163,7 +1167,7 @@
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "guard proven"
       }
     },
@@ -1174,7 +1178,13 @@
       "source": "#351 (rc.1 report)",
       "fixedBy": "#597 (merged)",
       "bugSignature": "^app\\.test\\.tsx: Error: \\[Reanimated\\] `useAnimatedStyle` was used without a dependency array or Babel plugin",
-      "preFixRef": "ece53b3b^"
+      "preFixRef": "ece53b3b^",
+      "status": {
+        "main": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
+        "proof": "landed proven"
+      }
     },
     {
       "id": "pre-351-gh-preset-off-own-setup",
@@ -1182,7 +1192,12 @@
       "title": "Gesture Handler with its preset off loses its own Jest setup",
       "source": "#351 (rc.1 report)",
       "fixedBy": "#685",
-      "bugSignature": "^app\\.test\\.tsx: AssertionError: Gesture Handler warnings: expected 1 to be \\+0"
+      "bugSignature": "^app\\.test\\.tsx: AssertionError: Gesture Handler warnings: expected 1 to be \\+0",
+      "status": {
+        "main": "PASS",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
+        "proof": "NOT PROVEN"
+      }
     },
     {
       "id": "pre-351-reanimated-helpers",
@@ -1194,7 +1209,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "42712528^"
@@ -1209,7 +1224,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "42712528^"
@@ -1220,7 +1235,12 @@
       "title": "Reanimated's mock gives useTimestamp a value without get()",
       "source": "#351 (rc.1 report)",
       "fixedBy": "#684",
-      "bugSignature": "^app\\.test\\.tsx: TypeError: timestamp\\.get is not a function"
+      "bugSignature": "^app\\.test\\.tsx: TypeError: timestamp\\.get is not a function",
+      "status": {
+        "main": "PASS",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
+        "proof": "NOT PROVEN"
+      }
     },
     {
       "id": "pre-banner-names-presets",
@@ -1232,7 +1252,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1247,7 +1267,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "c50112c^"
@@ -1276,7 +1296,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1294,7 +1314,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1312,7 +1332,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1328,7 +1348,7 @@
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "guard proven"
       }
     },
@@ -1353,7 +1373,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "4bda491^"
@@ -1368,7 +1388,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "4bda491^"
@@ -1394,7 +1414,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "4bda491^"
@@ -1410,7 +1430,7 @@
       "status": {
         "main": "PASS",
         "buggy": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "guard proven"
       }
     },
@@ -1425,7 +1445,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -1459,7 +1479,7 @@
         "fix": "PASS",
         "buggy": "FAIL (bug)",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "guard proven"
       },
       "preFixRef": "0f2400e",
@@ -1485,7 +1505,7 @@
         "main": "PASS",
         "fix": "FAIL (other)",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1500,7 +1520,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "97615f3^"
@@ -1526,7 +1546,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "43139a6^"
@@ -1551,7 +1571,7 @@
       "status": {
         "main": "PASS",
         "control": "PASS",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "NOT PROVEN"
       }
     },
@@ -1576,7 +1596,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "43139a6^"
@@ -1614,7 +1634,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "c4f31b0^"
@@ -1640,7 +1660,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "42712528^"
@@ -1658,7 +1678,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1679,7 +1699,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1694,7 +1714,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1728,7 +1748,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       },
       "preFixRef": "0f2400e"
@@ -1753,7 +1773,7 @@
       "status": {
         "main": "FAIL (bug)",
         "control": "PASS",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "mainSignature": "outer.test.ts: AssertionError: jest.mock under globals: false works or names the setting: expected 'fails: vi is not defined' to match /^(works|names the setting)$/",
         "proof": "open (control passes)"
       }
@@ -1783,7 +1803,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -1812,7 +1832,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -1841,7 +1861,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -1867,7 +1887,7 @@
         "main": "PASS",
         "control": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -1893,7 +1913,7 @@
         "main": "PASS",
         "control": "PASS",
         "fix": "PASS",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "NOT PROVEN"
       }
     },
@@ -1908,7 +1928,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -1923,7 +1943,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -1938,7 +1958,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -1949,7 +1969,13 @@
       "source": "react-native-paper trial (#583)",
       "fixedBy": "#585 (merged)",
       "bugSignature": "^rerender\\.test\\.tsx: Error: Argument appears to not be a ReactComponent\\. Keys: instance",
-      "preFixRef": "e5173880^"
+      "preFixRef": "e5173880^",
+      "status": {
+        "main": "PASS",
+        "preFix": "FAIL (bug)",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
+        "proof": "landed proven"
+      }
     },
     {
       "id": "res-project-js-jsx",
@@ -1962,7 +1988,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -1977,7 +2003,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -1988,7 +2014,13 @@
       "source": "review of #566 (#621)",
       "fixedBy": "#656",
       "bugSignature": "^automock-require\\.test\\.ts: AssertionError: museum-analytics, required: expected false to be true",
-      "fixRef": "5417c1f29c6226212c6f5cec600f4adf2a58b20b"
+      "fixRef": "5417c1f29c6226212c6f5cec600f4adf2a58b20b",
+      "status": {
+        "main": "PASS",
+        "fix": "PASS",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
+        "proof": "NOT PROVEN"
+      }
     },
     {
       "id": "own-jest-factory-require-source",
@@ -2001,7 +2033,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -2016,7 +2048,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -2031,7 +2063,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     },
@@ -2046,7 +2078,7 @@
       "status": {
         "main": "PASS",
         "preFix": "FAIL (bug)",
-        "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
         "proof": "landed proven"
       }
     }
