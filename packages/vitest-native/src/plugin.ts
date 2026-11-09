@@ -2794,12 +2794,25 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
                 );
               }
             },
-            onImportedUndeclared: (importer, name, dir) => {
+            onImportedUndeclared: (importer, name, dir, listed) => {
+              if (diagnostics) {
+                const how =
+                  listed === "devDependency"
+                    ? `lists it only in devDependencies`
+                    : `does not list it in its dependencies`;
+                console.log(
+                  `[vitest-native] ${importer} imports ${name} (${dir}) and ${how}. Node ` +
+                    `loads ${name} with ${importer}, so it is compiled for Node and the tests' ` +
+                    `imports share that copy; listing it in dependencies makes that explicit.`,
+                );
+              }
+            },
+            onImportScanTruncated: (pkg, limit) => {
               if (diagnostics) {
                 console.log(
-                  `[vitest-native] ${importer} imports ${name} (${dir}) without declaring ` +
-                    `it. Node loads ${name} with ${importer}, so it is compiled for Node and ` +
-                    `the tests' imports share that copy; declaring it makes the dependency explicit.`,
+                  `[vitest-native] ${pkg}: its imports were read from its first ${limit} ` +
+                    `files only. Workspace packages it imports from files past that, without ` +
+                    `listing them, are not compiled for Node.`,
                 );
               }
             },
@@ -4163,6 +4176,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               // by the worker at run time and never change a transform: kept out of the
               // key, so neither switching the mode or `allow` nor a cold cache
               // re-transforms anything.
+              // The worker context includes the ownership policy, so the packages Node
+              // compiles are in the key: source can change them without the lockfile (a
+              // workspace package importing a library it does not list, #692).
               withoutOwnershipGuard(
                 options,
                 (test as { env?: Record<string, string> }).env,

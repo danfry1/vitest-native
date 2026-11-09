@@ -337,10 +337,19 @@ describe("ecosystem detection: whose closure gets walked", () => {
  * A React Native workspace package that imports a workspace library without declaring
  * it (#692). Node loads the library through the package's source, so it belongs to the
  * closure (ADR-0004 rule 7) as a declared one does; left out, Vite evaluated it for the
- * test's own import and the two copies kept separate state.
+ * test's own import and the two copies kept separate state. Only unconditional,
+ * top-level imports count, read with the project's Babel parser.
  */
 describe("ecosystem detection: a workspace member imported but not declared", () => {
-  function workspace(featureSource: string): string {
+  type Options = {
+    /** packages/feature's own files, by path below it; src/index.ts is its entry. */
+    files: Record<string, string>;
+    feature?: Record<string, unknown>;
+    lib?: Record<string, unknown>;
+    /** Where the workspace links live: hoisted (node_modules) or per member (pnpm). */
+    layout?: "hoisted" | "pnpm";
+  };
+  function workspace({ files, feature = {}, lib = {}, layout = "hoisted" }: Options): string {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-undeclared-"));
     roots.push(root);
     const write = (rel: string, value: unknown) => {
@@ -354,53 +363,166 @@ describe("ecosystem detection: a workspace member imported but not declared", ()
       name: "@w/feature",
       main: "src/index.ts",
       peerDependencies: { "react-native": "*" },
+      ...feature,
     });
-    write("packages/feature/src/index.ts", featureSource);
-    write("packages/lib/package.json", { name: "@w/lib", main: "src/index.ts" });
+    for (const [rel, code] of Object.entries(files)) write(`packages/feature/${rel}`, code);
+    write("packages/lib/package.json", { name: "@w/lib", main: "src/index.ts", ...lib });
     write("packages/lib/src/index.ts", "export const store = { value: null };\n");
     write("packages/unused/package.json", { name: "@w/unused", main: "index.js" });
     write("node_modules/plain-installed/package.json", { name: "plain-installed" });
-    // The workspace's links, as an install makes them.
-    for (const [name, dir] of [
-      ["@w/feature", "packages/feature"],
-      ["@w/lib", "packages/lib"],
-      ["@w/unused", "packages/unused"],
-    ]) {
-      const link = path.join(root, "node_modules", ...name.split("/"));
+    // The workspace's links, as an install makes them: hoisted to the root, or (pnpm)
+    // only into the package that declares each one, here the app.
+    const linksAt = layout === "hoisted" ? "node_modules" : "apps/app/node_modules";
+    const links =
+      layout === "hoisted"
+        ? [
+            ["@w/feature", "packages/feature"],
+            ["@w/lib", "packages/lib"],
+            ["@w/unused", "packages/unused"],
+          ]
+        : [
+            ["@w/feature", "packages/feature"],
+            ["@w/lib", "packages/lib"],
+          ];
+    for (const [name, dir] of links) {
+      const link = path.join(root, linksAt, ...name.split("/"));
       fs.mkdirSync(path.dirname(link), { recursive: true });
       fs.symlinkSync(path.join(root, dir), link, "dir");
     }
     return path.join(root, "apps", "app");
   }
+  const detect = (app: string, reported: string[] = [], truncated: string[] = []) =>
+    detectEcosystemPackages(app, [], [], [], undefined, dependencyDirOf, {
+      onImportedUndeclared: (importer, name, _dir, listed) =>
+        reported.push(`${importer} imports ${name} (${listed})`),
+      onImportScanTruncated: (pkg, limit) => truncated.push(`${pkg} ${limit}`),
+    });
 
   it("joins the closure of the package that imports it, and is reported", () => {
     const reported: string[] = [];
-    const detected = detectEcosystemPackages(
-      workspace('import { store } from "@w/lib";\nimport "plain-installed";\nexport { store };\n'),
-      [],
-      [],
-      [],
-      undefined,
-      dependencyDirOf,
-      {
-        onImportedUndeclared: (importer, name) => reported.push(`${importer} imports ${name}`),
-      },
+    const detected = detect(
+      workspace({
+        files: {
+          "src/index.ts":
+            'import { store } from "@w/lib";\nimport "plain-installed";\nexport { store };\n',
+        },
+      }),
+      reported,
     );
     expect(detected).toContain("@w/feature");
     expect(detected).toContain("@w/lib");
-    expect(reported).toEqual(["@w/feature imports @w/lib"]);
+    expect(reported).toEqual(["@w/feature imports @w/lib (undeclared)"]);
     // An installed package's undeclared import is not this edge's business, and a member
     // nothing imports stays out.
     expect(detected).not.toContain("plain-installed");
     expect(detected).not.toContain("@w/unused");
   });
 
-  it("is not added for a type-only import", () => {
-    const detected = detectEcosystemPackages(
-      workspace('import type { Store } from "@w/lib";\nexport type { Store };\n'),
+  it("counts a top-level require and a re-export, and follows relative imports", () => {
+    for (const files of [
+      { "src/index.ts": 'const { store } = require("@w/lib");\nexport { store };\n' },
+      { "src/index.ts": 'export { store } from "@w/lib";\n' },
+      { "src/index.ts": 'export * from "./inner";\n', "src/inner.ts": 'export * from "@w/lib";\n' },
+    ]) {
+      expect(detect(workspace({ files })), JSON.stringify(files)).toContain("@w/lib");
+    }
+  });
+
+  it("does not count a conditional require, a string, a comment or a type-only import", () => {
+    // Each would have joined the closure under a text scan; a parse sees none of them as
+    // an unconditional import. The control above is the same workspace with a real one.
+    for (const code of [
+      'declare const __DEV__: boolean;\nif (__DEV__) require("@w/lib");\nexport {};\n',
+      'export const sample = `import { store } from "@w/lib"`;\n',
+      '// import { store } from "@w/lib";\nexport {};\n',
+      'export function load() {\n  return require("@w/lib");\n}\n',
+      'import type { Store } from "@w/lib";\nexport type { Store };\n',
+      'import { type Store } from "@w/lib";\nexport type { Store };\n',
+    ]) {
+      const detected = detect(workspace({ files: { "src/index.ts": code } }));
+      expect(detected, code).toContain("@w/feature");
+      expect(detected, code).not.toContain("@w/lib");
+    }
+  });
+
+  it("reads every exports subpath, not only the root", () => {
+    const detected = detect(
+      workspace({
+        feature: {
+          exports: {
+            ".": "./src/index.ts",
+            "./native": "./src/native.ts",
+            // A workspace member is found through its manifest request (dependencyDirOf).
+            "./package.json": "./package.json",
+          },
+        },
+        files: {
+          "src/index.ts": "export const root = 1;\n",
+          "src/native.ts": 'export { store } from "@w/lib";\n',
+        },
+      }),
     );
+    expect(detected).toContain("@w/lib");
+  });
+
+  it("applies the gate a declared dependency passes: an ES-module-only member stays out", () => {
+    // Declaring the dependency must not change the member's owner, so both edges agree.
+    const esmOnly = {
+      type: "module",
+      main: "src/index.js",
+      exports: { ".": "./src/index.js", "./package.json": "./package.json" },
+    };
+    const files = { "src/index.ts": 'import { store } from "@w/lib";\nexport { store };\n' };
+    const undeclared = detect(workspace({ files, lib: esmOnly }));
+    const declared = detect(
+      workspace({ files, lib: esmOnly, feature: { dependencies: { "@w/lib": "*" } } }),
+    );
+    expect(undeclared.includes("@w/lib")).toBe(declared.includes("@w/lib"));
+    expect(undeclared).not.toContain("@w/lib");
+  });
+
+  it("says when the library is listed only in devDependencies", () => {
+    const reported: string[] = [];
+    detect(
+      workspace({
+        feature: { devDependencies: { "@w/lib": "*" } },
+        files: { "src/index.ts": 'export { store } from "@w/lib";\n' },
+      }),
+      reported,
+    );
+    expect(reported).toEqual(["@w/feature imports @w/lib (devDependency)"]);
+  });
+
+  it("names a scan the file limit cut short", () => {
+    const files: Record<string, string> = {};
+    const imports: string[] = [];
+    for (let i = 0; i < 5001; i++) {
+      files[`src/f${i}.ts`] = "export {};\n";
+      imports.push(`import "./f${i}";`);
+    }
+    files["src/index.ts"] = `${imports.join("\n")}\n`;
+    const truncated: string[] = [];
+    detect(workspace({ files }), [], truncated);
+    expect(truncated).toEqual(["@w/feature 5000"]);
+  });
+
+  it("does nothing under pnpm's layout, where Node cannot resolve the member from the package either", () => {
+    // pnpm links a workspace member only into the packages that declare it. @w/feature
+    // does not, so `@w/lib` resolves from neither the scan nor Node's require from
+    // feature's source: Node fails to load it there, so there is no second copy to avoid.
+    // Out of scope for this edge; the require's own error names the missing package.
+    const app = workspace({
+      layout: "pnpm",
+      files: { "src/index.ts": 'export { store } from "@w/lib";\n' },
+    });
+    const detected = detect(app);
     expect(detected).toContain("@w/feature");
     expect(detected).not.toContain("@w/lib");
+    expect(() =>
+      createRequire(path.join(app, "..", "..", "packages", "feature", "src", "index.ts")).resolve(
+        "@w/lib",
+      ),
+    ).toThrow();
   });
 });
 
