@@ -1,0 +1,8 @@
+[
+  {
+    "export": "useHoverGesture",
+    "path": "useHoverGesture().config.hoverEffect",
+    "reason": "Gesture Handler's own code sets it only from the `effect` option, while its type declares it always: the package's declaration, not the served module, differs",
+    "issue": "n/a (upstream declaration)"
+  }
+]
