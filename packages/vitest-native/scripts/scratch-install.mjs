@@ -1,8 +1,9 @@
 import "./release-age.mjs";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import {
   BUN_RELEASE_AGE_SECONDS,
   bunfigWithReleaseAge,
@@ -152,14 +153,17 @@ function bunSatisfies(pairs) {
 }
 
 /** The registry's publish time for one version (a read; nothing is installed). */
-function registryPublishTime(name, version) {
-  const times = JSON.parse(
-    execFileSync("npm", ["view", name, "time", "--json"], { encoding: "utf8" }),
-  );
-  const time = times[version];
+async function registryPublishTime(name, version) {
+  const { stdout } = await promisify(execFile)("npm", ["view", name, "time", "--json"], {
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  const time = JSON.parse(stdout)[version];
   if (!time) throw new Error(`the registry has no publish time for ${name}@${version}`);
   return Date.parse(time);
 }
+
+/** Registry reads at once: a React Native tree has a few hundred packages to look up. */
+const LOOKUPS = 8;
 
 function runCommand(command, args, cwd) {
   console.log(`\n> ${command} ${args.join(" ")}`);
@@ -226,8 +230,11 @@ export async function scratchInstall(dir, options = {}) {
   const fresh = newPackages(repoLock, scratchLock);
   const floor = BUN_RELEASE_AGE_SECONDS * 1000;
   const aged = [];
-  for (const pkg of fresh)
-    aged.push({ ...pkg, age: now - (await publishTime(pkg.name, pkg.version)) });
+  for (let i = 0; i < fresh.length; i += LOOKUPS) {
+    const batch = fresh.slice(i, i + LOOKUPS);
+    const times = await Promise.all(batch.map((pkg) => publishTime(pkg.name, pkg.version)));
+    batch.forEach((pkg, k) => aged.push({ ...pkg, age: now - times[k] }));
+  }
   const young = aged.filter(({ age }) => age < floor);
   if (young.length > 0) {
     throw new Error(
