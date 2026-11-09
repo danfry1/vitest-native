@@ -334,6 +334,77 @@ describe("ecosystem detection: whose closure gets walked", () => {
 });
 
 /**
+ * A React Native workspace package that imports a workspace library without declaring
+ * it (#692). Node loads the library through the package's source, so it belongs to the
+ * closure (ADR-0004 rule 7) as a declared one does; left out, Vite evaluated it for the
+ * test's own import and the two copies kept separate state.
+ */
+describe("ecosystem detection: a workspace member imported but not declared", () => {
+  function workspace(featureSource: string): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-undeclared-"));
+    roots.push(root);
+    const write = (rel: string, value: unknown) => {
+      const file = path.join(root, rel);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, typeof value === "string" ? value : JSON.stringify(value));
+    };
+    write("package.json", { name: "w", private: true, workspaces: ["packages/*", "apps/*"] });
+    write("apps/app/package.json", { name: "@w/app", dependencies: { "@w/feature": "*" } });
+    write("packages/feature/package.json", {
+      name: "@w/feature",
+      main: "src/index.ts",
+      peerDependencies: { "react-native": "*" },
+    });
+    write("packages/feature/src/index.ts", featureSource);
+    write("packages/lib/package.json", { name: "@w/lib", main: "src/index.ts" });
+    write("packages/lib/src/index.ts", "export const store = { value: null };\n");
+    write("packages/unused/package.json", { name: "@w/unused", main: "index.js" });
+    write("node_modules/plain-installed/package.json", { name: "plain-installed" });
+    // The workspace's links, as an install makes them.
+    for (const [name, dir] of [
+      ["@w/feature", "packages/feature"],
+      ["@w/lib", "packages/lib"],
+      ["@w/unused", "packages/unused"],
+    ]) {
+      const link = path.join(root, "node_modules", ...name.split("/"));
+      fs.mkdirSync(path.dirname(link), { recursive: true });
+      fs.symlinkSync(path.join(root, dir), link, "dir");
+    }
+    return path.join(root, "apps", "app");
+  }
+
+  it("joins the closure of the package that imports it, and is reported", () => {
+    const reported: string[] = [];
+    const detected = detectEcosystemPackages(
+      workspace('import { store } from "@w/lib";\nimport "plain-installed";\nexport { store };\n'),
+      [],
+      [],
+      [],
+      undefined,
+      dependencyDirOf,
+      {
+        onImportedUndeclared: (importer, name) => reported.push(`${importer} imports ${name}`),
+      },
+    );
+    expect(detected).toContain("@w/feature");
+    expect(detected).toContain("@w/lib");
+    expect(reported).toEqual(["@w/feature imports @w/lib"]);
+    // An installed package's undeclared import is not this edge's business, and a member
+    // nothing imports stays out.
+    expect(detected).not.toContain("plain-installed");
+    expect(detected).not.toContain("@w/unused");
+  });
+
+  it("is not added for a type-only import", () => {
+    const detected = detectEcosystemPackages(
+      workspace('import type { Store } from "@w/lib";\nexport type { Store };\n'),
+    );
+    expect(detected).toContain("@w/feature");
+    expect(detected).not.toContain("@w/lib");
+  });
+});
+
+/**
  * An isolated install (pnpm, bun) links only the project's direct dependencies into
  * its node_modules. Each package's real directory sits in a store, with its own
  * dependencies linked beside it, so a transitive dependency resolves from the package

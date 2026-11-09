@@ -381,6 +381,12 @@ export interface ReachedPackages {
   reachedPaths?: readonly string[];
   /** Called once per workspace member reached through `reachedPaths` but not declared. */
   onReachedUndeclared?: (name: string, dir: string) => void;
+  /**
+   * Called once per workspace member a detected workspace package's source imports
+   * without declaring it (`importer` imports `name`, found at `dir`). It joins the
+   * closure all the same.
+   */
+  onImportedUndeclared?: (importer: string, name: string, dir: string) => void;
 }
 
 /**
@@ -419,7 +425,12 @@ export function detectEcosystemPackages(
   neverTransform: string[] = [],
   activePresets?: readonly string[],
   dirOf: PackageDirOf = dependencyDirOf,
-  { reachedPaths = [], onReachedUndeclared, compileReactNativeFieldSource }: ReachedPackages = {},
+  {
+    reachedPaths = [],
+    onReachedUndeclared,
+    onImportedUndeclared,
+    compileReactNativeFieldSource,
+  }: ReachedPackages = {},
 ): string[] {
   // Per detection, so a reinstall in a watch session is read afresh.
   runtimeMemo.clear();
@@ -802,6 +813,27 @@ export function detectEcosystemPackages(
           dependsOnReactNative(installed.manifest) &&
           runtimeImports(pkg.dir, pkg.manifest).has(peer);
         if (detectedSet.has(peer) || loadedReactNativePeer) reach(peer, installed);
+      }
+      // A workspace member this workspace package imports at run time without declaring
+      // it (#692): its source imports `@w/lib`, resolved through the workspace's links,
+      // and `@w/lib` is not among its dependencies. Node loads `@w/lib` through this
+      // package's source as surely as a declared one, so it joins the closure (ADR-0004
+      // rule 7), as a declared one does; left out, Vite evaluated it for the test's own
+      // import and the two copies kept separate state. Workspace members only, on both
+      // ends: an installed package's undeclared imports are its own business, and
+      // installed targets are what the walk's other edges cover.
+      if (!NODE_MODULES_DIR.test(pkg.dir)) {
+        const declared = new Set([
+          ...Object.keys((deps as object | undefined) ?? {}),
+          ...Object.keys((peers as object | undefined) ?? {}),
+        ]);
+        for (const name of runtimeImports(pkg.dir, pkg.manifest)) {
+          if (declared.has(name) || walked.has(name) || excluded(name)) continue;
+          const installed = dependencyOf(pkg, name);
+          if (!installed || NODE_MODULES_DIR.test(installed.dir) || !admits(installed)) continue;
+          onImportedUndeclared?.(pkg.manifest.name as string, name, installed.dir);
+          reach(name, installed);
+        }
       }
     }
   };

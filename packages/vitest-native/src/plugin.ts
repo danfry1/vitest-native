@@ -2794,6 +2794,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
                 );
               }
             },
+            onImportedUndeclared: (importer, name, dir) => {
+              if (diagnostics) {
+                console.log(
+                  `[vitest-native] ${importer} imports ${name} (${dir}) without declaring ` +
+                    `it. Node loads ${name} with ${importer}, so it is compiled for Node and ` +
+                    `the tests' imports share that copy; declaring it makes the dependency explicit.`,
+                );
+              }
+            },
           },
         );
         // The directories Vite owns outright. Handed to the worker so the require
