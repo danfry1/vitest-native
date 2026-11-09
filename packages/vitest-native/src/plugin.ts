@@ -2642,6 +2642,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       if (hotRuntimeRequested && hotRecycle.esmGeneration === false) {
         fields.hotEsmGeneration = false;
       }
+      // Only the opt-in is recorded: React and its renderer stay resident by default.
+      if (hotRuntimeRequested && hotRecycle.freshRuntime === true) {
+        fields.hotFreshRuntime = true;
+      }
       // A released module generation is safe to read only through Vitest's interop proxy,
       // which falls back to the module's default export (loader.mjs, releaseGenerations).
       // Without it a test file's late callback would read a cleared binding, so nothing is
@@ -2698,8 +2702,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // run ahead of the project's own.
         let ownJestSupport: string[] = [];
         if (!selection.listed) {
+          // Kept with the preset turned off (`presets: { gestureHandler: false }`): under
+          // this engine the library runs as itself either way, and its own Jest support
+          // is what replaces the native layer Node cannot load (#351).
           const librarySetupFiles = autoDetectPresetNames(resolvedRoot, diagnostics)
-            .filter((n) => !disabledNative.has(n) && !nativePresetNames.includes(n))
+            .filter((n) => !nativePresetNames.includes(n))
             .map((n) => LIBRARY_SETUP_FILES[n as PresetName])
             .filter((file): file is string => typeof file === "string");
           if (librarySetupFiles.length > 0) {

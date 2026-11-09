@@ -30,7 +30,7 @@ import {
   normalizeBabelName,
   readBabelConfig,
 } from "./babel-config.js";
-import { projectBabelTrigger } from "../project-babel.js";
+import { missingBabelCoreNotice, projectBabelTrigger } from "../project-babel.js";
 import {
   activePresets,
   installedManifest,
@@ -520,14 +520,15 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     // 'auto'), so they need nothing from the project.
     const byEngine = (name: string, kind: "plugin" | "preset", options: unknown) =>
       projectBabelTrigger({ name, kind, options }, root, active);
-    // projectBabel runs only where @babel/core resolves from the project.
+    // projectBabel runs only where @babel/core resolves from the project. The engine's own
+    // startup notice says so once; doctor repeats it, then names what it leaves unapplied.
     const babelCore = installedManifest(root, "@babel/core") !== null;
+    const notice = babelCore ? null : missingBabelCoreNotice(root, "auto");
+    if (notice) warn(notice.replace(/^\[vitest-native\] /, ""));
     for (const p of babel.presetEntries ?? []) {
       const reason = byEngine(p.name, "preset", p.options);
       if (reason && !babelCore) {
-        warn(
-          `preset ${p.name} needs projectBabel (${reason}), which needs @babel/core installed in the project.`,
-        );
+        lines.push(`  · preset ${p.name}: not applied without @babel/core (${reason}).`);
       } else if (reason) {
         lines.push(`  · preset ${p.name}: applied by the engine where needed (${reason}).`);
       }
@@ -538,10 +539,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     for (const p of classified) {
       const reason = byEngine(p.name, "plugin", p.options);
       if (reason && !babelCore) {
-        warn(
-          `${p.written} needs projectBabel (${reason}), which needs @babel/core installed in the project; ` +
-            `it does not resolve from here. Add @babel/core as a devDependency.`,
-        );
+        lines.push(`  · ${p.written}: not applied without @babel/core (${reason}).`);
       } else if (reason) {
         lines.push(`  · ${p.written}: applied by the engine where needed (${reason}).`);
         engineAppliedPlugins.push(p.name);

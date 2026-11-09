@@ -257,6 +257,7 @@ export interface HotRuntimeRecycleOptions {
   memoryLimit?: number;
   preserveGlobals?: string[];
   esmGeneration?: boolean;
+  freshRuntime?: boolean;
 }
 
 export interface VitestNativeOptions {
@@ -468,6 +469,13 @@ export interface VitestNativeOptions {
    *   is on, hot workers leave Node's V8 compile cache off, because every file
    *   would add an entry per re-evaluated module (unless `NODE_COMPILE_CACHE` is
    *   set, which turns the cache on before vitest-native runs).
+   * - `freshRuntime` (experimental, off by default): React, its renderers, `scheduler`
+   *   and React Native Testing Library run again for every test file, as React Native
+   *   does, instead of staying loaded for the worker's life. State they hold at module
+   *   level (`useId` counters, warning de-duplication, scheduler timers) then starts
+   *   fresh in each file, as under per-file isolation. It costs re-execution: about
+   *   20 ms per file with one worker and 5 ms with four, on a 135-file suite. Requires
+   *   `esmGeneration`.
    *
    * `'auto'` selects the bounded hot runtime when the configuration has recyclable
    * task boundaries (enough memory headroom for at least two workers) and no

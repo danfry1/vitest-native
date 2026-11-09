@@ -100,11 +100,9 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           node-version: 22.22.3
-
-      # As in the packed cells: the npm 10 that Node 22 bundles crashes on these fixtures'
-      # dependency graphs.
-      - name: Use an npm without the arborist edgesOut bug
-        run: npm install -g npm@11.20.0
+          # As in the packed cells: the npm 10 that Node 22 bundles crashes on these fixtures'
+          # dependency graphs.
+          npm-version: 11.20.0
 
       - name: Run the documented snippets against the packed package
         env:
@@ -459,17 +457,15 @@ jobs:
       - uses: ./.github/actions/setup
         with:
           node-version: 22.22.3
-
-      # Every packed cell installs fixtures with npm. Node 22 bundles npm 10.9,
-      # whose arborist crashes with "Cannot read properties of null (reading
-      # 'edgesOut')" on these fixtures' dependency graphs. It is not this package:
-      # a fixture with vitest-native removed entirely crashes the same way, and the
-      # commit that passed on 2026-07-27 fails on re-run with no code change, so a
-      # republished transitive dependency started tripping the bug. npm 11 installs
-      # all of them. It runs first in every cell: on the old shared leg, the packed
-      # CJS reset gate passed only because it happened to run after this step.
-      - name: Use an npm without the arborist edgesOut bug
-        run: npm install -g npm@11.20.0
+          # Every packed cell installs fixtures with npm. Node 22 bundles npm 10.9,
+          # whose arborist crashes with "Cannot read properties of null (reading
+          # 'edgesOut')" on these fixtures' dependency graphs. It is not this package:
+          # a fixture with vitest-native removed entirely crashes the same way, and the
+          # commit that passed on 2026-07-27 fails on re-run with no code change, so a
+          # republished transitive dependency started tripping the bug. npm 11 installs
+          # all of them. It runs first in every cell: on the old shared leg, the packed
+          # CJS reset gate passed only because it happened to run after this step.
+          npm-version: 11.20.0
 
       - name: Build
         run: bun run build
@@ -556,9 +552,37 @@ jobs:
   # on a push to main.
   # needs.<job>.result is one of success, failure, cancelled, skipped (GitHub Actions
   # contexts reference).
+  # The global installs that only tag and scheduled runs make (release.yml's npm,
+  # bakeoff-ratchet.yml's corepack), run here on every pull request as those jobs run
+  # them, so a broken path is found before a tag, which cannot be moved, depends on it.
+  release-tools:
+    name: Release-path tool installs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # release.yml's setup-node pin and Node version.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          package-manager-cache: false
+          node-version: 22.22.3
+
+      - name: npm 11.15.0, as the release jobs install it
+        run: |
+          node .github/scripts/install-global.mjs npm 11.15.0
+          test "$(npm --version)" = 11.15.0
+
+      - name: corepack 0.35.0, as the bake-off ratchet installs it
+        run: |
+          node .github/scripts/install-global.mjs corepack 0.35.0
+          test "$(corepack --version)" = 0.35.0
+
   verdict:
     name: CI verdict
-    needs: [classify, docs, snippets, changeset, unit, check, packed]
+    needs: [classify, docs, snippets, changeset, unit, check, packed, release-tools]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2

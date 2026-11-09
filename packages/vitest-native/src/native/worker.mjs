@@ -19,7 +19,12 @@ import { installKnownNativeModules } from "./native-modules.mjs";
 import { installRequireHooks, resetExpoSdkWarnings, verifyExpoSdkWarningsReset } from "./hooks.mjs";
 import { installHotReset } from "./reset.mjs";
 import { installRegistry } from "./registry.mjs";
-import { captureModuleBaseline, resetEvaluatedModules } from "./module-reset.mjs";
+import {
+  captureModuleBaseline,
+  resetEvaluatedModules,
+  trackCjsResolutions,
+} from "./module-reset.mjs";
+import { isFreshRuntime } from "./ownership.mjs";
 import { registerRntlHooksOnImport } from "./rntl-hooks.mjs";
 import { residentProblems } from "./resident-health.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
@@ -84,6 +89,9 @@ installRequireHooks(
 );
 // After the hooks: the polyfill is Flow-typed and compiled by them (see globals.mjs).
 installErrorUtils(projectRoot);
+// With the runtime packages re-run per file, the preload's lookups into them must be
+// drained too, so resolution tracking starts before it.
+const earlyResolutions = isFreshRuntime() ? trackCjsResolutions() : undefined;
 try {
   const req = createRequire(path.join(projectRoot, "package.json"));
   const RN = req("react-native");
@@ -118,7 +126,7 @@ try {
     { cause: error },
   );
 }
-const resetModules = captureModuleBaseline();
+const resetModules = captureModuleBaseline(earlyResolutions);
 const { hotReset, bless, registerState, stateEntries } = installHotReset({
   projectRoot,
   diagnostics,
