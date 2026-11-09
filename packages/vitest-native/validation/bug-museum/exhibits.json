@@ -1100,6 +1100,28 @@
       }
     },
     {
+      "id": "pfs-hot-resident-mock",
+      "class": "per-file-state",
+      "title": "Under hot, RNTL keeps a file's partial react-native mock for the worker's life",
+      "source": "#670 (Rocket.Chat, cold hot runs only)",
+      "fixedBy": "#670's fix: a require from a package the hot worker keeps resident is not served a file's mock",
+      "bugSignature": "^b\\.test\\.tsx: TypeError: Cannot read properties of undefined \\(reading 'flatten'\\)",
+      "control": {
+        "why": "The stock runtime (hotRuntime: false) loads RNTL again in every file, as Jest does: the mock stays in its file.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "hotRuntime: { allowUnboundedMemory: true }",
+            "replace": "hotRuntime: false"
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS"
+      }
+    },
+    {
       "id": "pfs-hot-warning-dedupe",
       "class": "per-file-state",
       "title": "Under hot, React's warning dedupe hides a warning the file asserts",
@@ -1906,6 +1928,15 @@
       }
     },
     {
+      "id": "env-jest-real-reanimated-rerender",
+      "class": "env-contract",
+      "title": "Re-rendering Reanimated's real Animated.Text throws",
+      "source": "react-native-paper trial (#583)",
+      "fixedBy": "#585 (merged)",
+      "bugSignature": "^rerender\\.test\\.tsx: Error: Argument appears to not be a ReactComponent\\. Keys: instance",
+      "preFixRef": "e5173880^"
+    },
+    {
       "id": "res-project-js-jsx",
       "class": "transform/resolution",
       "title": "JSX in a project's own .js files does not compile",
@@ -1934,6 +1965,15 @@
         "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
         "proof": "landed proven"
       }
+    },
+    {
+      "id": "env-jest-automock-require",
+      "class": "env-contract",
+      "title": "require() gets the real package after a factory-less jest.mock",
+      "source": "review of #566 (#621)",
+      "fixedBy": "#656",
+      "bugSignature": "^automock-require\\.test\\.ts: AssertionError: museum-analytics, required: expected false to be true",
+      "fixRef": "5417c1f29c6226212c6f5cec600f4adf2a58b20b"
     },
     {
       "id": "own-jest-factory-require-source",

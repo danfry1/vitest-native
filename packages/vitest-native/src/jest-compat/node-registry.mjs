@@ -26,6 +26,7 @@ import { resetEvaluatedModules, restoreEvaluatedModules } from "../native/module
 import { VitestNativeError } from "../errors.mjs";
 import { activeRegistry, projectContext } from "../context.mjs";
 import { nodeDispatch } from "../node-dispatch.mjs";
+import { isRuntimeResidentFile } from "../native/ownership.mjs";
 import { jestMockInterop } from "./interop.mjs";
 import { owningPackageOfFile, packageNameOf } from "../native/match.mjs";
 
@@ -1154,6 +1155,20 @@ function installLoadHook(state) {
           !NODE_MODULES.test(parent.filename) &&
           state.isResettable(parent.filename);
         if (Module.isBuiltin(request)) return next(request, parent, ...rest);
+        // A hot worker keeps React, its renderers, scheduler and RNTL for its whole life. A
+        // require they make is answered once and kept, so a file's mock would stay theirs
+        // in every later file: RNTL first loaded in a file that mocks react-native as
+        // `{ Platform }` read StyleSheet.flatten from that mock in later files' fireEvent
+        // (#670). They get the actual module; the file's own code still gets its mock.
+        // Per file, and under hotRuntime.freshRuntime, they load again in every file, and
+        // see its mocks as under Jest.
+        if (
+          globalThis.__vitest_native_hot_reset &&
+          typeof parent?.filename === "string" &&
+          isRuntimeResidentFile(parent.filename)
+        ) {
+          return next(request, parent, ...rest);
+        }
         const viMocks = nodeMocks && !madeByVitest(parent?.filename) ? vitestMocks() : null;
         const pendingMocks = nodeMocks && !madeByVitest(parent?.filename) && pendingCount() > 0;
         // A jest.mock this request can reach (mayIntercept), or a vi.mock: otherwise the
