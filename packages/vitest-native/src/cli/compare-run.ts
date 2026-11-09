@@ -225,7 +225,18 @@ const SWITCHES = ["show-output", "strict", "hot", "no-shuffle"];
 export const COMPARE_SWITCHES = SWITCHES.map((f) => `--${f}`);
 
 /** `compare`'s options from argv (after the command), or an error to print. */
-export function parseCompareArgs(argv: string[]): Omit<CompareOptions, "log"> | { error: string } {
+/**
+ * What the command line gives: every option `parseCompareArgs` always sets is required here,
+ * so its defaults (`--runs 3`, shuffled, a random seed) are the only ones.
+ */
+export type ParsedCompareArgs = Omit<CompareOptions, "log"> & {
+  hot: boolean;
+  runs: number;
+  shuffle: boolean;
+  seed: number;
+};
+
+export function parseCompareArgs(argv: string[]): ParsedCompareArgs | { error: string } {
   const values = new Map<string, string>();
   const flags = new Set<string>();
   for (let i = 0; i < argv.length; i++) {
