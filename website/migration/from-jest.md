@@ -199,7 +199,7 @@ Under Jest, babel-jest ran your `babel.config.js` on every file. vitest-native c
 | Plugin | Under vitest-native |
 |---|---|
 | `@babel/plugin-proposal-decorators`, `babel-plugin-macros` (`'macros'`), `@lingui/babel-plugin-lingui-macro`, `react-native-dotenv`, inline-environment plugins, plugins vitest-native does not know | **Applied by the engine** to the files that need it. Nothing to add. |
-| `react-native-worklets/plugin`, `react-native-reanimated/plugin` | **Applied by the engine** under the native engine with Reanimated 4.7+ and Worklets 0.9+, where Reanimated runs as its own mock and its hooks need the plugin. Not needed with an older Reanimated or the mock engine, where the preset's module replaces the library. |
+| `react-native-worklets/plugin`, `react-native-reanimated/plugin` | **Applied by the engine** to the files that need it whenever Reanimated or Worklets is installed, as under Jest. Reanimated 4.7+ runs as its own mock, whose hooks are the real ones; with an older Reanimated, a mock that spreads `jest.requireActual('react-native-reanimated')` also runs the real hooks. Left out only when neither library is installed. |
 | `babel-plugin-module-resolver` (`'module-resolver'`) | Its `alias` entries become `resolve.alias` (same exact-or-`key/` prefix rule). `migrate` writes them. |
 | `babel-plugin-react-compiler` | Not needed: it only adds memoization, and components render the same without it. |
 

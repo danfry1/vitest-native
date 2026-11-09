@@ -310,3 +310,66 @@ describe("plugin keys from an expanded preset (#597 round 3)", () => {
     expect(trigger(pluginNameOfKey("transform-flow-enums"), "plugin")).toBeNull();
   });
 });
+
+describe("the worklets plugin is kept wherever real Reanimated can run (#738)", () => {
+  /**
+   * A native-engine project root with `installed` packages (name → version). Reanimated
+   * 4.7+ and Worklets 0.13 ship Jest resolvers (Reanimated then runs as its own mock); 4.5
+   * and 4.6 do not, so the preset's own module stands in.
+   */
+  const projectWith = (installed: Record<string, string>) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-738-"));
+    const write = (file: string, text: string) => {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(path.join(root, file), text);
+    };
+    const manifest = (name: string, version: string) =>
+      write(`node_modules/${name}/package.json`, JSON.stringify({ name, version }));
+    manifest("react-native", "0.86.3");
+    // What the native engine needs to be detected (detectEngine): React Native's Babel
+    // preset and @babel/core.
+    for (const [name, version] of [
+      ["@react-native/babel-preset", "0.86.3"],
+      ["@babel/core", "7.29.0"],
+    ]) {
+      write(
+        `node_modules/${name}/package.json`,
+        JSON.stringify({ name, version, main: "index.js" }),
+      );
+      write(`node_modules/${name}/index.js`, "module.exports = {};");
+    }
+    for (const [name, version] of Object.entries(installed)) {
+      manifest(name, version);
+      const ownMock = name === "react-native-reanimated" ? !/^4\.[56]\./.test(version) : true;
+      if (ownMock) write(`node_modules/${name}/jest/resolver.js`, "module.exports = () => {};");
+      if (name === "react-native-worklets")
+        write(`node_modules/${name}/lib/module/mock.js`, "module.exports = {};");
+    }
+    return root;
+  };
+  const kept = (root: string, name: string, kind: "plugin" | "preset") =>
+    projectBabelTrigger({ name, kind }, root, ["reanimated", "worklets"]);
+
+  it.each([
+    ["4.5.3", "0.11.3"],
+    ["4.6.0", "0.11.3"],
+    ["4.7.1", "0.13.1"],
+  ])(
+    "Reanimated %s: the project's worklets plugin, and babel-preset-expo's",
+    (reanimated, worklets) => {
+      const root = projectWith({
+        "react-native-reanimated": reanimated,
+        "react-native-worklets": worklets,
+      });
+      expect(kept(root, "react-native-worklets/plugin", "plugin")).not.toBeNull();
+      expect(kept(root, "react-native-reanimated/plugin", "plugin")).not.toBeNull();
+      expect(kept(root, "babel-preset-expo", "preset")).not.toBeNull();
+    },
+  );
+
+  it("is left out when neither Reanimated nor Worklets is installed", () => {
+    const root = projectWith({});
+    expect(kept(root, "react-native-worklets/plugin", "plugin")).toBeNull();
+    expect(kept(root, "babel-preset-expo", "preset")).toBeNull();
+  });
+});
