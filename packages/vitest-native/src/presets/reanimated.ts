@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
@@ -479,16 +480,20 @@ function registryHolds(file: string): boolean {
 }
 
 /**
- * Reanimated's own index, which its mock imports (`from './index'`): only from the
- * library registry, which holds it beside the mock, so it is the same module the mock
- * loaded and not a second copy loaded through Node. Null elsewhere (unit tests, a
- * registry without it), where the corrections that need it stay off.
+ * Reanimated's own index, which its mock imports (`from './index'`): the module the mock
+ * loaded, from the library registry that holds it beside the mock, or from Node's cache
+ * where the index loaded through Node (per-file module loading). Never a second copy:
+ * null where neither holds it (unit tests), and the corrections that need it stay off.
  */
 function ownIndex(dir: string, fromRegistry: boolean): Record<string, any> | null {
   if (!fromRegistry) return null;
   const index = path.join(dir, "src/index.ts");
-  if (!registryHolds(index)) return null;
-  return loadOrNull(() => createRequire(path.join(dir, "package.json"))(index));
+  const required = createRequire(path.join(dir, "package.json"));
+  // Without the library registry (per-file module loading), Node loaded the index for
+  // the mock already: its cached module, under Node's real-path spelling, is the same one.
+  const real = loadOrNull(() => ({ path: fs.realpathSync(index) }))?.path ?? index;
+  if (!registryHolds(index) && !required.cache[real] && !required.cache[index]) return null;
+  return loadOrNull(() => required(index));
 }
 
 /** What `load` returns, or null when it throws: not this version's layout, or not loadable here. */
