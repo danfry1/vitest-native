@@ -1792,7 +1792,8 @@
       "title": "An installed React Native package the app does not declare is loaded twice",
       "source": "reproducing #351 (#688)",
       "fixedBy": "#688's fix",
-      "bugSignature": "^one-instance\\.test\\.ts: AssertionError: one GestureDetector: expected \\[Function GestureDetector\\] to be \\[Function GestureDetector\\]"
+      "bugSignature": "^one-instance\\.test\\.ts: AssertionError: one GestureDetector: expected \\[Function GestureDetector\\] to be \\[Function GestureDetector\\]",
+      "fixRef": "0e9c75715735c11729526551e3fb1b704c9d16b6"
     },
     {
       "id": "res-workspace-member-closure",
