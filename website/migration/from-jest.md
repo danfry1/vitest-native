@@ -140,6 +140,11 @@ Some libraries run as themselves instead:
 - **Expo modules**, under the native engine, run their own JavaScript, as under jest-expo. The `expo` preset applies only under the mock engine, or when you turn it on with `presets: { expo: true }`.
 - **react-native-mmkv 3 and later** switches to its own in-memory storage when it detects Vitest, so its preset steps aside under both engines.
 
+Two kinds of library mock from a Jest setup need a closer look:
+
+- **A Reanimated mock that spreads `jest.requireActual('react-native-reanimated')`** runs Reanimated's real hooks under the native engine, and those need the worklets Babel plugin, as under Jest. Deleting the mock works with every supported Reanimated: the engine already provides Reanimated's API, as Reanimated's own test mock from 4.7 and as its own preset before that. With Reanimated 4.7+ you can keep the mock instead: the engine applies `react-native-worklets/plugin` (or `react-native-reanimated/plugin`) from your Babel config to the files that need it. Otherwise `useAnimatedStyle` throws that it was "used without a dependency array or Babel plugin".
+- **`jest.mock('react-native-gesture-handler', …)` lines** can usually go. Under the native engine Gesture Handler runs with its own `jestSetup.js`, which mocks its native module and host components. A `presets: { gestureHandler: false }` added for those mocks can go too; it [keeps that setup](/guide/presets#turning-a-preset-off).
+
 A mock you wrote for your own app's modules stays.
 
 ### Keep Jest's and Vitest's snapshots apart {#snapshots}
