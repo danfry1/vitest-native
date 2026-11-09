@@ -26,6 +26,11 @@ previous="${VERCEL_GIT_PREVIOUS_SHA:-}"
 base=""
 if [ -n "$previous" ] && git cat-file -e "${previous}^{commit}" 2>/dev/null; then
   base="$(git merge-base "$previous" "$head" 2>/dev/null || true)"
+  # No common history (the previous deployment was another branch's orphan commit): build.
+  if [ -z "$base" ]; then
+    echo "No common history with the previous deployment ${previous}: building."
+    exit 1
+  fi
 fi
 # Otherwise, the commit before this one.
 [ -n "$base" ] || base="${head}^"

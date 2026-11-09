@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // Vercel runs website/scripts/skip-unless-site-changed.sh before each deployment: exit 0
 // skips it. A pull request's branch used to build whenever main had changed the site since
@@ -14,8 +14,16 @@ const SCRIPT = path.join(repoRoot, "website/scripts/skip-unless-site-changed.sh"
 
 const repo = fs.mkdtempSync(path.join(os.tmpdir(), "site-skip-"));
 afterAll(() => fs.rmSync(repo, { recursive: true, force: true }));
+// Run outside any git hook's environment: GIT_DIR and the like would point at this repository.
+const env = Object.fromEntries(
+  Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
+);
 const git = (...args: string[]) =>
-  execFileSync("git", args, { cwd: repo, encoding: "utf8" }).trim();
+  execFileSync("git", ["-c", "commit.gpgsign=false", ...args], {
+    cwd: repo,
+    encoding: "utf8",
+    env,
+  }).trim();
 function commit(file: string, text: string): string {
   fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true });
   fs.writeFileSync(path.join(repo, file), text);
@@ -28,7 +36,7 @@ function skipScript(head: string, previous?: string): number {
   const run = spawnSync("bash", [SCRIPT], {
     cwd: repo,
     encoding: "utf8",
-    env: { ...process.env, VERCEL_GIT_COMMIT_SHA: head, VERCEL_GIT_PREVIOUS_SHA: previous ?? "" },
+    env: { ...env, VERCEL_GIT_COMMIT_SHA: head, VERCEL_GIT_PREVIOUS_SHA: previous ?? "" },
   });
   return run.status ?? -1;
 }
@@ -37,17 +45,33 @@ const SKIP = 0;
 const BUILD = 1;
 
 describe.skipIf(process.platform === "win32")("the Vercel skip script", () => {
-  git("init", "-q", "-b", "main");
-  git("config", "user.email", "test@example.com");
-  git("config", "user.name", "test");
-  const start = commit("website/index.md", "# one\n");
-  git("checkout", "-q", "-b", "feature");
-  const featureCode = commit("packages/vitest-native/src/plugin.ts", "// code\n");
-  git("checkout", "-q", "main");
-  const mainDocs = commit("website/index.md", "# two\n");
-  const mainCode = commit("packages/vitest-native/src/other.ts", "// code\n");
-  git("checkout", "-q", "-b", "docs-branch", start);
-  const branchDocs = commit("website/guide.md", "# guide\n");
+  let start = "";
+  let featureCode = "";
+  let mainDocs = "";
+  let mainCode = "";
+  let branchDocs = "";
+  let orphan = "";
+  let mainTwoCommits = "";
+  beforeAll(() => {
+    git("init", "-q");
+    git("checkout", "-q", "-b", "main");
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "test");
+    start = commit("website/index.md", "# one\n");
+    git("checkout", "-q", "-b", "feature");
+    featureCode = commit("packages/vitest-native/src/plugin.ts", "// code\n");
+    git("checkout", "-q", "main");
+    mainDocs = commit("website/index.md", "# two\n");
+    mainCode = commit("packages/vitest-native/src/other.ts", "// code\n");
+    // A push of two commits whose site change is not in the last one.
+    commit("website/index.md", "# three\n");
+    mainTwoCommits = commit("packages/vitest-native/src/third.ts", "// code\n");
+    git("checkout", "-q", "-b", "docs-branch", start);
+    branchDocs = commit("website/guide.md", "# guide\n");
+    git("checkout", "-q", "--orphan", "site-data");
+    git("rm", "-q", "-rf", ".");
+    orphan = commit("fidelity-matrix.md", "matrix\n");
+  });
 
   it("skips a branch that changes no site input, though main changed the site since", () => {
     expect(skipScript(featureCode, mainDocs)).toBe(SKIP);
@@ -64,8 +88,14 @@ describe.skipIf(process.platform === "win32")("the Vercel skip script", () => {
     expect(skipScript(mainCode, mainDocs)).toBe(SKIP);
   });
 
+  it("builds a push of several commits when one of them changed the site", () => {
+    expect(skipScript(mainTwoCommits, mainCode)).toBe(BUILD);
+  });
+
   it("builds when there is nothing to compare with", () => {
     expect(skipScript(start)).toBe(BUILD);
+    // The previous deployment shares no history with this one (site-data's orphan commit).
+    expect(skipScript(featureCode, orphan)).toBe(BUILD);
   });
 });
 
