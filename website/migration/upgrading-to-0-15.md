@@ -19,14 +19,17 @@ npx vitest-native doctor
 | Expo SDK                     | 57 and 58                                      | warns                                                                      |
 | React Native Testing Library | 13–14                                          | warns                                                                      |
 
-1. Update Node in your machine, CI images and `.nvmrc` or `engines`.
+1. Update Node in your machine, CI images and `.nvmrc` or `engines`. Avoid Node 24.13.0, which can
+   crash a run at startup (`doctor` warns); use 24.14 or later. The native engine needs Node: Bun
+   stops with `UNSUPPORTED_NODE`.
 2. Install `vitest@^5.1.0` with matching `@vitest/*` packages, and `vite@^8.0.5`. Vitest 5.0.x runs, with a
    startup warning: 5.1.0 or later is recommended.
 3. Upgrade React Native to 0.86 or later (Expo SDK 57 or later) and React to 19, and move from
    React Native Testing Library 12 to 13 or 14. Testing Library 14 makes `render`, `fireEvent`
    and `act` async: `await render(<App />)`.
 4. Vitest 5 clears mock calls before every test. A suite that asserts on calls made before the
-   test started sets `test.clearMocks: false`.
+   test started sets `test.clearMocks: false`. The plugin also turns on Vitest 5's
+   `fsModuleCache`; set `test.fsModuleCache: false` to keep it off.
 5. Babel plugins your tests need go through `babel()` from `@rolldown/plugin-babel`:
    `@vitejs/plugin-react` 6 removed its `babel` option.
 6. Remove `VITEST_NATIVE_LOADER_THREAD` from scripts and CI. It no longer has an effect.
@@ -82,16 +85,42 @@ their installed packages, with the Jest setup each ships, as a Jest suite runs t
   no longer resolve.
 - A `FlashList` renders a window of rows, as under Jest, where it used to render every row.
 - To keep a preset, set `presets: { gestureHandler: true }` or `presets: { flashList: true }`.
+- A `presets: { gestureHandler: false }` carried over from older mocks can go: it keeps Gesture
+  Handler's own Jest setup.
+
+## Other libraries' own mocks
+
+Under the native engine, the worklets, safe-area-context, keyboard-controller, bottom-sheet and
+netinfo presets are now each library's own Jest mock, and Reanimated 4.7+ is its own mock.
+Snapshots of their output may change; review the diff and re-record with `vitest -u`.
+
+- Safe-area insets are zero unless `<SafeAreaProvider initialMetrics>` sets them. A test that
+  expects other insets passes `initialMetrics`, or calls `setInsets()`.
+- Worklets' `runOnJS` and `scheduleOnRN` run a tick later, as under Jest: await the result, or
+  advance fake timers.
+- Implementations a library sets up in its own mocks survive `vi.resetAllMocks()` and
+  `mockReset: true`. Update a test that expected them to be blank after a reset.
+- Reanimated's `interpolate`, `interpolateColor` and `clamp` return real values, so snapshots of
+  interpolated styles may change.
+
+## Workarounds you can delete
+
+- `vi.stubEnv('RNTL_SKIP_AUTO_CLEANUP', 'true')` added for the hot runtime:
+  `@testing-library/react-native/dont-cleanup-after-each` now works in every file.
+- A mock of a `react-native/Libraries/...` file's `.ios.js` copy: a `jest.mock` of the plain path
+  now reaches the platform file.
+- Renames to `.jsx`, or `oxc.include` overrides, added so your own `.js` files with JSX compile:
+  they now compile as under Metro and babel-jest.
 
 ## Also new
 
 - **The hot runtime fails a stuck run instead of waiting forever,** naming the file and test.
   Set [`hangTimeout`](/guide/plugin-options#hangtimeout) to change or turn this off.
-- **Several presets are now each library's own Jest mock** under the native engine
-  (worklets, safe-area-context, keyboard-controller, bottom-sheet, netinfo), and Reanimated 4.7+
-  is its own mock. Snapshots of the presets' own output may change.
-- **Reanimated's `interpolate`, `interpolateColor` and `clamp` return real values.** Snapshots of
-  interpolated styles may change.
+- **A factory-less `jest.mock('pkg')` automocks `pkg` for `require()` too,** as under Jest. A test
+  that relied on `require` getting the real package gives `jest.mock` a factory.
+- **`SOURCE_EVALUATED_TWICE`** is a new warning under the native engine, naming a file Vite and
+  Node both load; its message gives the fix. Set `reactNative({ ownership: 'error' })` to fail on
+  it.
 - **`init`, `doctor` and `migrate` exit 1 on a flag they do not take,** instead of ignoring it.
   Check scripts that pass extra flags to them.
 
