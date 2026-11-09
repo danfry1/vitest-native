@@ -305,6 +305,35 @@ describe("the running Vitest", () => {
     expect(error.code).toBe("UNSUPPORTED_PEER");
     expect(error.message).toMatch(/vitest >= 5\.0\.0 and < 6, but found 4\.1\.11/);
   });
+
+  it("warns once below the recommended Vitest, and runs", async () => {
+    // Only the version check is under test: later checks may refuse this partial context.
+    const call = async (version: string) => {
+      const plugin = reactNative({ engine: "mock" }) as any;
+      try {
+        await plugin.configureVitest({
+          vitest: { version, distPath: running.distPath, config: { cliOptions: {} } },
+          project: { config: { root: PACKAGE_ROOT } },
+        });
+      } catch (error) {
+        expect((error as { code?: string }).code).not.toBe("UNSUPPORTED_PEER");
+      }
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await call("5.1.0");
+      await call("5.0.5");
+      await call("5.0.5");
+      const advice = warn.mock.calls
+        .map(([text]) => String(text))
+        .filter((text) => text.includes("below the recommended"));
+      expect(advice).toHaveLength(1);
+      expect(advice[0]).toContain("vitest 5.0.5 is below the recommended 5.1.0");
+      expect(advice[0]).toContain("vitest-dev/vitest#11682");
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
 
 describe("doctor, init and migrate under Vite+", () => {

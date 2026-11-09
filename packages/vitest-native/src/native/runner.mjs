@@ -45,7 +45,7 @@ export default class NativeHotRunner extends NativeTestRunner {
     this.vitestNativeCauseReported = false;
     const unusable = await this.residentUnusable(previousFile);
     try {
-      globalThis.__vitest_native_reset_module_runner?.();
+      globalThis.__vitest_native_reset_module_runner?.(paths[0]);
     } catch (error) {
       this.vitestNativeResetError = error;
     }
