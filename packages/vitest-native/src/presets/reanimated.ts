@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
@@ -199,6 +200,7 @@ export function mockCorrections(
   dir: string,
   fromRegistry = false,
   helpers: Helpers = ownHelpers(dir, fromRegistry),
+  real: Record<string, any> | null = ownIndex(dir, fromRegistry),
 ): Record<string, any> {
   const probes: Record<keyof Helpers, (f: Fn) => unknown> = {
     interpolate: (f) => f(5, [0, 10], [0, 100]),
@@ -286,6 +288,61 @@ export function mockCorrections(
         const reading = given.sensor?.value ?? given.sensor;
         return { ...given, sensor: sharedValue(reading) };
       });
+  }
+  // Layout animations and Keyframe: the mock gives one shared object per builder, with
+  // its methods returning itself, so `new FadeIn()`, `instanceof FadeIn` and a class that
+  // extends a builder fail. Reanimated's own classes, from the index the mock itself
+  // imports, wherever a real export is a builder class (BaseAnimationBuilder or a class
+  // that extends it; Keyframe by name) and the mock serves something else (#696).
+  if (real) {
+    const base = real.BaseAnimationBuilder;
+    for (const [name, own] of Object.entries(real)) {
+      const builder =
+        typeof own === "function" &&
+        (own === base ||
+          (typeof base === "function" && own.prototype instanceof base) ||
+          name === "Keyframe");
+      if (builder && name in mock && mock[name] !== own) fixed[name] = own;
+    }
+  }
+  // useAnimatedRef: the mock's is `{ current }`; Reanimated's is a function ref (React
+  // calls it with the node, and with null on unmount) with `current`, `observe` and
+  // `getTag`, kept per component (#696).
+  if (
+    typeof mock.useAnimatedRef === "function" &&
+    typeof gives("useAnimatedRef", (hook) => hook()) === "object"
+  ) {
+    fixed.useAnimatedRef = () =>
+      perComponent(() => {
+        const ref: any = (node?: unknown) => {
+          if (node !== undefined) ref.current = node;
+          return ref.current;
+        };
+        ref.current = null;
+        ref.observe = () => () => {};
+        ref.getTag = () => null;
+        return ref;
+      });
+  }
+  // Worklet runtimes, while the mock's are no-ops: createWorkletRuntime gives a runtime
+  // (its name and an id, as Reanimated's WorkletRuntime has), and runOnRuntime gives the
+  // function to call, which runs the worklet, as the mock's runOnUI does (#696).
+  const runtime = gives("createWorkletRuntime", (hook) => hook({ name: "probe" })) as any;
+  if (typeof mock.createWorkletRuntime === "function" && typeof runtime?.runtimeId !== "number") {
+    let next = 1;
+    fixed.createWorkletRuntime = (config?: string | { name?: string }) => ({
+      name: (typeof config === "string" ? config : config?.name) ?? "",
+      runtimeId: next++,
+    });
+  }
+  if (
+    typeof mock.runOnRuntime === "function" &&
+    typeof gives("runOnRuntime", (hook) => hook({}, () => {})) !== "function"
+  ) {
+    fixed.runOnRuntime =
+      (_runtime: unknown, worklet: Fn) =>
+      (...args: unknown[]) =>
+        worklet(...args);
   }
   // Reanimated's setUpTests() registers its own toHaveAnimatedStyle and
   // toHaveAnimatedProps on the global `expect` (or on Jest's `expect` package when there
@@ -420,6 +477,23 @@ function useRefOrNull<T>(): { current: T | null } | null {
 function registryHolds(file: string): boolean {
   const dispatch = (globalThis as Record<symbol, any>)[Symbol.for("vitest-native.node-dispatch")];
   return dispatch?.channel("registry").libraryHolds?.(file) === true;
+}
+
+/**
+ * Reanimated's own index, which its mock imports (`from './index'`): the module the mock
+ * loaded, from the library registry that holds it beside the mock, or from Node's cache
+ * where the index loaded through Node (per-file module loading). Never a second copy:
+ * null where neither holds it (unit tests), and the corrections that need it stay off.
+ */
+function ownIndex(dir: string, fromRegistry: boolean): Record<string, any> | null {
+  if (!fromRegistry) return null;
+  const index = path.join(dir, "src/index.ts");
+  const required = createRequire(path.join(dir, "package.json"));
+  // Without the library registry (per-file module loading), Node loaded the index for
+  // the mock already: its cached module, under Node's real-path spelling, is the same one.
+  const real = loadOrNull(() => ({ path: fs.realpathSync(index) }))?.path ?? index;
+  if (!registryHolds(index) && !required.cache[real] && !required.cache[index]) return null;
+  return loadOrNull(() => required(index));
 }
 
 /** What `load` returns, or null when it throws: not this version's layout, or not loadable here. */

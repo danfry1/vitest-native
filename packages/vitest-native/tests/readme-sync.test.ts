@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { expoSdkList, PEER_REQUIREMENTS, SUPPORTED_EXPO_SDKS } from "../src/peer-requirements.js";
+import { recommendedFloors } from "./support/recommended-floors";
 
 // GitHub shows the repository's README.md and npm shows the package's, so the two are
 // one document kept in two places. They had drifted to 575 and 1045 lines with
@@ -60,7 +61,7 @@ describe("README.md", () => {
       const short = floor.replace(/(\.0)+$/, "");
       return range.includes("<") ? `${short}+ on Node ${floor.split(".")[0]}` : `${short}+`;
     });
-    return new Map([
+    const rows = new Map([
       [
         "Node.js",
         nodeRow.length === 1
@@ -85,6 +86,13 @@ describe("README.md", () => {
         `${list(majors("@testing-library/react-native"))} (optional)`,
       ],
     ]);
+    // A recommended floor (a release below it runs, with a startup warning) follows the range.
+    for (const floor of recommendedFloors()) {
+      const row = rows.get(floor.label);
+      if (row === undefined) throw new Error(`no requirements row for ${floor.label}`);
+      rows.set(floor.label, `${row} (${floor.version} or later recommended)`);
+    }
+    return rows;
   }
 
   it.each([
