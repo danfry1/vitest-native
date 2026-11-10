@@ -29,7 +29,11 @@ export default defineConfig({
   // The tsconfig-paths-style alias requireactual-alias.test.tsx exercises.
   resolve: { alias: { "@vn-app": path.resolve(here, "fixtures/alias-app") } },
   test: {
-    globalSetup: [path.resolve(here, "support/dispatch-fixtures.global.ts")],
+    globalSetup: [
+      // One temporary root per run, removed at its end (runApp materialises apps there).
+      path.resolve(here, "../tests/support/temp-root.global.ts"),
+      path.resolve(here, "support/dispatch-fixtures.global.ts"),
+    ],
     globals: true,
     environment: "node",
     setupFiles: NATIVE_SUITE_SETUP_FILES,

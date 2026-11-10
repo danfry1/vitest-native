@@ -52,7 +52,8 @@ export function differences(value: unknown, shape: Shape, path: string): string[
         const here = `${path}.${name}`;
         if (!(name in (value as object))) {
           // A member declared `never` (a type-level brand) cannot exist at runtime.
-          if (!member.optional && member.kind !== "never") found.push(`${here}: missing, declared ${describeShape(member)}`);
+          if (!member.optional && member.kind !== "never")
+            found.push(`${here}: missing, declared ${describeShape(member)}`);
           continue;
         }
         found.push(...differences((value as Record<string, unknown>)[name], member, here));

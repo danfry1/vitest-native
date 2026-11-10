@@ -609,11 +609,20 @@ export default defineConfig({ plugins: [reactNative(), babel({ plugins: [] })] }
       expect(report.dropped.join("\n")).not.toContain("react-native-worklets/plugin");
     });
 
-    it("stays unneeded where the preset's own module serves Reanimated", () => {
-      // Reanimated 4.6 ships no Jest resolver, so the preset's module replaces it.
-      const report = analyzeJestConfig(blueskyLike({ ...nativeReanimated(false), ...pluginBabel }));
-      expect(report.dropped.join("\n")).toContain("react-native-worklets/plugin");
-      expect(report.suggestedConfig).not.toContain("react-native-worklets/plugin");
+    it("is kept where the preset's own module serves Reanimated (#738)", () => {
+      // Reanimated 4.6 ships no Jest resolver, so the preset's module replaces it; a mock
+      // that spreads jest.requireActual('react-native-reanimated') still runs the real hooks
+      // in the project's components, which need the plugin.
+      const root = blueskyLike({ ...nativeReanimated(false), ...pluginBabel });
+      const classified = classifyBabelPlugins(readBabelConfig(root), root, ["reanimated"]);
+      expect(
+        classified.filter((p) => p.name.endsWith("/plugin")).map((p) => [p.name, p.verdict]),
+      ).toEqual([["react-native-worklets/plugin", "required"]]);
+      const report = analyzeJestConfig(root);
+      expect(report.dropped.join("\n")).not.toContain("react-native-worklets/plugin");
+      expect(report.automatic.join("\n")).toContain(
+        "plugin react-native-worklets/plugin → applied by the engine",
+      );
     });
   });
 });

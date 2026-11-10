@@ -19,11 +19,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { Rollup } from "vite";
-import {
-  classifyBabelPlugins,
-  normalizeBabelName,
-  reanimatedRunsItsOwnMock,
-} from "./babel-plugins.js";
+import { classifyBabelPlugins, normalizeBabelName, realWorkletsCanRun } from "./babel-plugins.js";
 import { rootBabelConfigFile } from "./fs-module-cache.js";
 import { installedManifest } from "./installed-manifest.js";
 import { projectBabelCaller } from "./native/babel-caller.mjs";
@@ -322,12 +318,13 @@ export function classifyProjectBabelEntry(
     }
     const changes = optionKeys(options).find((key) => !allowed.has(key));
     if (changes) return needed(`${name}'s \`${changes}\` option`, null);
-    // babel-preset-expo adds the worklets plugin itself unless told not to.
+    // babel-preset-expo adds the worklets plugin itself unless told not to; it matters
+    // whenever real Reanimated or Worklets can run (realWorkletsCanRun).
     if (
       name === "babel-preset-expo" &&
       opts.worklets !== false &&
       opts.reanimated !== false &&
-      reanimatedRunsItsOwnMock(root, active)
+      realWorkletsCanRun(root)
     ) {
       return needed("babel-preset-expo's worklets plugin", WORKLET);
     }
