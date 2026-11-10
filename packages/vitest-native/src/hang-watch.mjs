@@ -215,6 +215,8 @@ export class HangWatch {
     /** When the last progress restarted the limit. */
     this.progressAt = 0;
     this.suspension = suspension;
+    /** The tracker's total time asleep when the watch last read it. */
+    this.seenSuspendedMs = suspension.suspendedMs;
     /** Each suspension seen during the run: when it was noticed (`now`), and how long. */
     this.suspensions = [];
     this.poller = undefined;
@@ -246,6 +248,7 @@ export class HangWatch {
   onTestRunStart() {
     this.running.clear();
     this.takenAt.clear();
+    this.seenSuspendedMs = this.suspension.suspendedMs;
     this.suspensions = [];
     this.disarm();
     this.stopPolling();
@@ -310,9 +313,12 @@ export class HangWatch {
 
   /** Read the suspension tracker, recording any new time asleep. */
   pollSuspensions() {
-    const before = this.suspension.suspendedMs;
+    // Measured from the last reading, not from just before this tick: the tracker can
+    // record a sleep between polls (its own timer, or a tick from elsewhere), and a
+    // before/after pair around this tick would never see it.
     this.suspension.tick();
-    const slept = this.suspension.suspendedMs - before;
+    const slept = this.suspension.suspendedMs - this.seenSuspendedMs;
+    this.seenSuspendedMs = this.suspension.suspendedMs;
     if (slept > 0) this.suspensions.push({ at: this.now(), ms: slept });
   }
 

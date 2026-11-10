@@ -193,6 +193,27 @@ describe("HangWatch", () => {
     expect(exit).toHaveBeenCalledWith(1);
   });
 
+  it("does not credit a sleep from before the run to the run's limit", () => {
+    vi.useFakeTimers();
+    const asleep = { suspendedMs: 0, tick() {} };
+    const exit = vi.fn();
+    const w = new HangWatch({
+      timeoutMs: 1000,
+      exit,
+      write: vi.fn(),
+      cli: true,
+      graceMs: 0,
+      now: () => Date.now(),
+      suspension: asleep,
+    });
+    w.contribute({ active: true, limit: 1000 });
+    asleep.suspendedMs = 600_000; // the machine slept before this run began
+    w.onTestRunStart();
+    w.onTestModuleQueued(file("/app/a.test.ts"));
+    vi.advanceTimersByTime(1000);
+    expect(exit).toHaveBeenCalledWith(1);
+  });
+
   it("without a sleep, still fails at the limit", () => {
     vi.useFakeTimers();
     const exit = vi.fn();
