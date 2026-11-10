@@ -339,7 +339,16 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
       if (!module) return null;
       // Read here, not in config(): reactNative() decides its presets in configResolved.
       const owner = projectsByRoot.get(module.root) ?? project;
-      return rootMocksSource(module, (spec) => owner.coveredBy(spec));
+      const code = rootMocksSource(module, (spec) => owner.coveredBy(spec));
+      // The module has no file on disk. Without a map that carries its source, Vite reads
+      // the source from disk when it transforms the module and warns that the sourcemap
+      // "points to missing source files" on every cold run.
+      const map = new MagicString(code).generateMap({
+        hires: true,
+        includeContent: true,
+        source: id,
+      });
+      return { code, map };
     },
     // No `enforce` (normal order): this must run AFTER Vite's esbuild strips
     // TS/JSX (so `this.parse`, which is acorn, gets plain JS) but BEFORE Vitest's

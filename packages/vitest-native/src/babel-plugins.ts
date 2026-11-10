@@ -2,13 +2,7 @@
  * Babel plugin classification shared by the engine (projectBabel) and the CLI (doctor,
  * migrate): what a project's Babel plugins do under vitest-native.
  */
-import { detectEngine } from "./native/detect.js";
-import {
-  AUTO_DETECT_PRESETS,
-  libraryMockUsable,
-  presetShadowing,
-  type PresetName,
-} from "./preset-map.js";
+import type { PresetName } from "./preset-map.js";
 import path from "node:path";
 import { installedManifest } from "./installed-manifest.js";
 
@@ -65,34 +59,19 @@ interface KnownPlugin {
 }
 
 /**
- * Whether the generated config runs Reanimated as its own mock: the native engine (as
- * `engine: 'auto'` resolves it) with Reanimated 4.7+ and Worklets 0.9+ (libraryMockUsable).
- * That mock runs Reanimated's real hooks, which need the worklets Babel plugin; only the
- * preset's own module (the mock engine, or an older Reanimated) makes the plugin unneeded.
+ * Whether real Reanimated or Worklets code can run in a test, so the worklets Babel plugin
+ * matters: whenever either is installed. A preset standing in for the library does not
+ * change that: Reanimated 4.7+ runs as its own mock, whose hooks are the real ones, and with
+ * an older Reanimated (or the mock engine) a mock that loads the library itself
+ * (`jest.requireActual('react-native-reanimated')`) hands the real hooks to the components
+ * it renders. Those components are compiled where they live, not where the mock is, so no
+ * file can be told apart; the plugin is kept for every file it applies to, as under Jest.
  */
-export function reanimatedRunsItsOwnMock(root: string, active: readonly PresetName[]): boolean {
+export function realWorkletsCanRun(root: string): boolean {
   return (
-    active.includes("reanimated") &&
-    detectEngine("auto", root).engine === "native" &&
-    libraryMockUsable(root)
+    installedManifest(root, "react-native-reanimated") !== null ||
+    installedManifest(root, "react-native-worklets") !== null
   );
-}
-
-/** Why a worklet plugin is not needed — only when the preset replacing its library is active. */
-function workletReason(pkg: string, active: readonly PresetName[], root: string): string | null {
-  const preset = presetShadowing(pkg);
-  if (preset && active.includes(preset)) {
-    const detectedBy = Object.entries(AUTO_DETECT_PRESETS)
-      .filter(([, name]) => name === preset)
-      .map(([detect]) => detect);
-    return (
-      `transforms worklets for ${pkg}; the active ${preset} preset (auto-detected from ` +
-      `${detectedBy.join(", ")}) replaces ${pkg} with a mock, so no worklet runs.`
-    );
-  }
-  if (!installedManifest(root, pkg))
-    return `transforms worklets for ${pkg}, which is not installed.`;
-  return null;
 }
 
 /** Whether `name` is one of the plugins this module knows by name. */
@@ -138,21 +117,23 @@ export function classifyBabelPlugins(
 ): ClassifiedPlugin[] {
   return report.plugins.map((entry) => {
     const worklets = /^(react-native-worklets|react-native-reanimated)\/plugin$/.exec(entry.name);
-    if (worklets && reanimatedRunsItsOwnMock(root, active)) {
+    if (worklets) {
+      if (!realWorkletsCanRun(root)) {
+        return {
+          ...entry,
+          verdict: "unneeded",
+          reason: `${entry.written} transforms worklets for ${worklets[1]}, which is not installed.`,
+        };
+      }
       return {
         ...entry,
         verdict: "required",
         reason:
-          `${entry.written} gives Reanimated's hooks their dependencies. Under the native engine, ` +
-          `Reanimated runs as its own mock, whose useAnimatedStyle throws without it ` +
-          `("used without a dependency array or Babel plugin").`,
+          `${entry.written} gives Reanimated's hooks their dependencies. Real Reanimated runs in ` +
+          `tests (as its own mock from 4.7, or through a mock that loads ` +
+          `jest.requireActual('react-native-reanimated')), and its useAnimatedStyle throws ` +
+          `without it ("used without a dependency array or Babel plugin").`,
       };
-    }
-    if (worklets) {
-      const reason = workletReason(worklets[1], active, root);
-      return reason
-        ? { ...entry, verdict: "unneeded", reason }
-        : { ...entry, verdict: "unknown", reason: unknownReason(entry) };
     }
     const known = KNOWN_PLUGINS.find((k) => k.names.includes(entry.name));
     if (known) return { ...entry, verdict: known.verdict, reason: known.reason(entry, active) };
