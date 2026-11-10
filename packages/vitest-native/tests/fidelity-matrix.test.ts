@@ -3,7 +3,7 @@
  * into the published probes-across-versions page.
  */
 import { describe, it, expect } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
 import os from "node:os";
@@ -95,7 +95,13 @@ describe("fidelity-matrix renderer", () => {
     const d = path.join(reports, "crosscheck-report-rn0.82-locked");
     fs.mkdirSync(d, { recursive: true });
     fs.writeFileSync(path.join(d, "report.json"), "{ not json");
-    expect(() => render(["--reports", reports])).toThrow();
+    // Captured, not inherited: the script's expected stack trace otherwise lands in every
+    // CI log as if something had failed.
+    const result = spawnSync(process.execPath, [SCRIPT, "--reports", reports], {
+      encoding: "utf8",
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("JSON");
   });
 
   it("--check passes on the committed placeholder and fails on drift", () => {
