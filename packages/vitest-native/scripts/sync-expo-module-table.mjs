@@ -122,9 +122,10 @@ try {
     }
     writeIndex();
     // In the repository's format, so the committed files are what this writes.
+    // The repository's own oxfmt (`bun run` puts node_modules/.bin on PATH), never npx.
     execFileSync(
-      "npx",
-      ["--no-install", "oxfmt", indexFile, ...committedSdks().map((sdk) => tableFile(sdk))],
+      "bun",
+      ["run", "oxfmt", indexFile, ...committedSdks().map((sdk) => tableFile(sdk))],
       { cwd: packageRoot, stdio: "ignore" },
     );
   }

@@ -131,6 +131,18 @@
 
 ### Patch Changes
 
+- 98381c9: **Reanimated's layout animations, `Keyframe`, `useAnimatedRef` and worklet runtimes behave as Reanimated's own under the native engine.** Its test mock gave one shared object per builder, so `new FadeIn()`, `instanceof FadeIn` and a class that extends a builder failed; `useAnimatedRef()` was not a function ref; and `createWorkletRuntime` / `runOnRuntime` did nothing. No action needed.
+
+  - Builders are Reanimated's own classes; the static chains (`FadeIn.duration(300)`) work as before.
+  - `runOnRuntime(runtime, worklet)` returns a function that runs the worklet.
+
+- cf43f5f: **A cold run with root `__mocks__` no longer warns that a sourcemap points to missing source files.** The module jest-compat generates for root manual mocks, `vitest-native.root-mocks.mjs`, has no file on disk, so Vite looked for its source there on the first run after a cache clear and in CI. No action needed.
+- c0e54bd: **The presets guide lists the supported Reanimated, Worklets and Gesture Handler versions.** Each floor is what Expo SDK 57, the oldest supported SDK, ships, and each ceiling is below the next major. No action needed.
+
+  - `react-native-reanimated` `>=4.5.0 <5`, `react-native-worklets` `>=0.10.0 <1`, `react-native-gesture-handler` `>=2.32.0 <4`.
+
+- e37eaf7: **A Reanimated mock that spreads `jest.requireActual('react-native-reanimated')` works on Reanimated 4.5 and 4.6.** On those versions the engine dropped the project's `react-native-worklets/plugin` (and the one `babel-preset-expo` adds), so the real `useAnimatedStyle` threw "used without a dependency array or Babel plugin" where Jest passed. The plugin is now applied whenever Reanimated or Worklets is installed. No action needed.
+
 - f8d18c2: **`presets: { gestureHandler: false }` no longer turns off Gesture Handler's own Jest setup under the native engine.** A project that kept the setting from older mocks lost the setup too, so Gesture Handler's native module was the engine's generic stub and it warned `Failed to install UI runtime bindings`. `flashList: false` behaves the same. No action needed.
 - e88bbd0: **Under the hot runtime, RNTL's auto-cleanup works in every file again.** The hot reset put back Vitest's own worker state from the first file on a worker, so later files read that file's module graph. When the first file opted out with `dont-cleanup-after-each`, every later file on the worker lost auto-cleanup, and a test's components stayed mounted into the next. The reset now leaves Vitest's globals alone, and fails a file by name if Vitest's worker state names another file. No action needed.
 - 6d8ec6a: **Every Reanimated hook that gives a shared value now gives one with Reanimated 4's shape under the native engine.** Reanimated's test mock gave plain values from `useTimestamp`, the scroll offsets, `useAnimatedKeyboard` and `useAnimatedSensor`, and shared values without `modify()`, listeners or the `isSharedValue()` mark, so app code calling `.get()` failed. No action needed.
@@ -175,6 +187,7 @@
   - App source Node loads uses your Babel config again, with its presets, macros and plugins, including `babel-preset-expo`. Files `projectBabel` compiles parse, and `.babelrc` files are read. Asset locations resolve too.
   - The checks that decide whether Vite or Node loads a file, the require bridge, the warning about Node resolving the package under test, the setup-file check and `vitest-native compare` match either spelling.
   - The `SOURCE_EVALUATED_TWICE` guard reports a file evaluated twice, and `ownership.allow` entries match either spelling.
+
 - d406ffe: **Under the native engine, each test worker works out which packages Node compiles once, from directories the plugin already resolved.** A worker used to resolve the directory of every package Node compiles twice per test file, once for its ES module loader and once for its `require` hooks. With per-file isolation every test file has a new worker, so the cost grew with the number of test files. The plugin now records those directories for its workers, and the two hooks share one answer per worker. No action needed.
 
 - a107e3a: **`vitest-native init`, `doctor` and `migrate` now refuse a flag they do not take, instead of ignoring it.** A typo such as `migrate --wirte` used to run a dry report without saying so; it now exits 1 with `✗ unknown option --wirte for migrate. Valid: --root, --help, --write, --force.` Check scripts that pass extra flags to these commands. Change any misspelled flag to one the error lists.

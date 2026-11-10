@@ -15,6 +15,18 @@ const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vitest-native-consumers-
 const packRoot = path.join(tempRoot, "package");
 fs.mkdirSync(packRoot);
 
+/**
+ * A package's installed bin in `root`'s node_modules, as the script for Node to run: the
+ * fixture's own copy, never npx, which resolves a missing one from the registry.
+ */
+function installedBin(root, name, bin = name) {
+  const dir = path.join(root, "node_modules", name);
+  const manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+  const entry = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.[bin];
+  if (!entry) throw new Error(`${name} has no "${bin}" bin in ${dir}`);
+  return path.join(dir, entry);
+}
+
 function run(command, args, cwd) {
   console.log(`\n> ${command} ${args.join(" ")}`);
   const result = spawnSync(command, args, {
@@ -492,8 +504,12 @@ try {
           path.join(fixtureRoot, "jest.config.json"),
           `${JSON.stringify({ preset: "jest-expo", testMatch: ["<rootDir>/router-tests/**/*.test.tsx"] }, null, 2)}\n`,
         );
-        run("npx", ["--no-install", "vitest-native", "migrate", "--write"], fixtureRoot);
-        run("npx", ["--no-install", "vitest", "run"], fixtureRoot);
+        run(
+          process.execPath,
+          [installedBin(fixtureRoot, "vitest-native"), "migrate", "--write"],
+          fixtureRoot,
+        );
+        run(process.execPath, [installedBin(fixtureRoot, "vitest"), "run"], fixtureRoot);
       }
       if (fixture === "current-rn") {
         // npm installs the fixture's local probe packages as SYMLINKS (and npm 11
@@ -546,7 +562,7 @@ try {
     // engine detection, and preset scanning against the fixture's real installs;
     // migrate analyzes a minimal Jest config planted for the smoke).
     const cliFixture = path.join(tempRoot, "bare");
-    run("npx", ["--no-install", "vitest-native", "doctor"], cliFixture);
+    run(process.execPath, [installedBin(cliFixture, "vitest-native"), "doctor"], cliFixture);
 
     // `init` writes the config a new user starts from, so run a suite against exactly
     // what it produces rather than only asserting on its text. Nothing executed the
@@ -565,14 +581,18 @@ try {
     addPackedDependency(initFixture, tarball);
     run("npm", ["install"], initFixture);
     // The bare fixture's suite uses jest globals, so it needs the jest-compat shape.
-    run("npx", ["--no-install", "vitest-native", "init", "--jest-compat"], initFixture);
+    run(
+      process.execPath,
+      [installedBin(initFixture, "vitest-native"), "init", "--jest-compat"],
+      initFixture,
+    );
     run("npm", ["test"], initFixture);
 
     fs.writeFileSync(
       path.join(cliFixture, "jest.config.json"),
       `${JSON.stringify({ preset: "react-native", testTimeout: 10000 }, null, 2)}\n`,
     );
-    run("npx", ["--no-install", "vitest-native", "migrate"], cliFixture);
+    run(process.execPath, [installedBin(cliFixture, "vitest-native"), "migrate"], cliFixture);
 
     // The same treatment for `migrate --write`, whose template has far more moving
     // parts than init's: a setup file, an alias derived from moduleNameMapper, a
@@ -585,7 +605,11 @@ try {
     fs.cpSync(path.join(fixturesRoot, "jest-migration"), migrateFixture, { recursive: true });
     addPackedDependency(migrateFixture, tarball);
     run("npm", ["install"], migrateFixture);
-    run("npx", ["--no-install", "vitest-native", "migrate", "--write"], migrateFixture);
+    run(
+      process.execPath,
+      [installedBin(migrateFixture, "vitest-native"), "migrate", "--write"],
+      migrateFixture,
+    );
     run("npm", ["test"], migrateFixture);
   }
   if (runs("doc-snippets")) runDocSnippets(tarball);

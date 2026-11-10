@@ -1,5 +1,5 @@
 {
-  "name": "reanimated-floor",
+  "name": "vitest-native-consumer-reanimated-floor",
   "private": true,
   "description": "Reanimated at the supported floor (4.5.3) with the worklets Babel plugin from the project's own config. Installed only through scripts/scratch-install.mjs.",
   "devDependencies": {

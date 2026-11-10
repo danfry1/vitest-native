@@ -272,7 +272,9 @@ jobs:
           git init -q -b site-data
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add fidelity-matrix.md
+          # The branch holds data, not a site: Vercel must not deploy it.
+          printf '{ "git": { "deploymentEnabled": false } }\n' > vercel.json
+          git add fidelity-matrix.md vercel.json
           git commit -q -m "Fidelity matrix from run $GITHUB_RUN_ID ($GITHUB_SHA)"
           # The token goes in a header, not the URL, so no git message can print it.
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
