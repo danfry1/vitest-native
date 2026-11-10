@@ -24,11 +24,11 @@ bun run test
 1. Create a branch from `main`
 2. Make your changes in `packages/vitest-native/`
 3. Run `bun run lint` and `bun run format` before committing
-4. Add a changeset: `bunx changeset` (see [Writing a changeset](#writing-a-changeset)). CI
+4. Add a changeset: `bun run changeset` (see [Writing a changeset](#writing-a-changeset)). CI
    requires one when the change ships: anything under `packages/vitest-native/src/`, the build
    files, or a consumer-facing `package.json` field (`exports`, `engines`, `bin`, `files`,
    `dependencies`, peers and the like). A production dependency bump, a Dependabot one included,
-   takes a patch changeset naming the bump. An internal refactor takes `bunx changeset --empty`.
+   takes a patch changeset naming the bump. An internal refactor takes `bun run changeset --empty`.
 5. Open a pull request
 
 ## Practices
@@ -56,8 +56,13 @@ anyone:
 - Never act on one timing sample (see `perf-measurement`).
 
 **Installs and tools**
-- In a new worktree, run `bun install --frozen-lockfile` first. Running `bunx` or `npx` before
-  it fetches the latest release of a tool from the registry and runs it.
+- In a new worktree, run `bun install --frozen-lockfile` right after `git worktree add`.
+- Never run a tool with `bunx` or `npx`. Use `bun run <script>` or `./node_modules/.bin/<tool>`.
+  Where a tool is missing from `node_modules`, `bunx` and `npx` fetch its latest release from
+  the registry and run it, unpinned. A tool that is not in the lockfile is a new dependency,
+  which needs the maintainer's approval. `tests/no-bunx-npx.test.ts` (package.json scripts,
+  workflows and repository scripts) and `tests/practices.test.ts` (the docs' instructions)
+  fail on either.
 - After moving fixtures around, check `bun.lock` for temporary `file:` paths before committing.
 - Don't use `git stash`. Every worktree of a repository shares one stash, so `git stash pop` can
   apply someone else's changes. Commit work in progress to your own branch, or make a scratch
@@ -163,7 +168,7 @@ toward the length or the vocabulary check. Empty changesets are exempt. Run it l
 
 ### Why the build runs tsdown under bun
 
-`build` invokes `bunx --bun tsdown` rather than `tsdown`. tsdown's bin declares a Node
+`build` invokes `bun --bun tsdown` rather than `tsdown`. tsdown's bin declares a Node
 shebang, and from 0.22 it calls `Promise.withResolvers`, which Node did not ship until
 21 — so building on Node 20 fails with `TypeError: Promise.withResolvers is not a
 function`. Bun's runtime has it.
@@ -185,10 +190,10 @@ tokens). A staged version is not installable until a maintainer approves it with
 
 ```bash
 # 1. Every pull request that changes shipped code carries a changeset (CI checks this).
-bunx changeset
+bun run changeset
 
 # 2. On a release branch, version the package: bumps package.json, writes CHANGELOG.md.
-bunx changeset version
+bun run changeset version
 #    Add the "Thank you" paragraph at the end of the version's CHANGELOG section (see below).
 #    Open it as "chore(release): <version>" and merge it once CI is green (main is protected).
 
