@@ -20,7 +20,8 @@ npx vitest-native doctor
 | React Native Testing Library | 13–14                                          | warns                                                                      |
 
 1. Update Node in your machine, CI images and `.nvmrc` or `engines`.
-2. Install `vitest@^5` with matching `@vitest/*` packages, and `vite@^8.0.5`.
+2. Install `vitest@^5.1.0` with matching `@vitest/*` packages, and `vite@^8.0.5`. Vitest 5.0.x runs, with a
+   startup warning: 5.1.0 or later is recommended.
 3. Upgrade React Native to 0.86 or later (Expo SDK 57 or later) and React to 19, and move from
    React Native Testing Library 12 to 13 or 14. Testing Library 14 makes `render`, `fireEvent`
    and `act` async: `await render(<App />)`.
