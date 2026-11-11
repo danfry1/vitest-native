@@ -63,6 +63,32 @@ const argument = (name) => {
 };
 const flag = (name) => process.argv.includes(`--${name}`);
 
+const VALUED = ["only", "class", "build", "work", "json", "ownership", "hot"];
+const FLAGS = ["keep", "control", "allow-na"];
+
+/**
+ * Throws on any argument the runner does not read. It used to ignore one: `--build <dir>`
+ * passed as a single word (a shell variable zsh does not split) left the default build in
+ * place, and a run meant for main measured the current checkout, with nothing to say so.
+ */
+export function checkArguments(args) {
+  for (let i = 0; i < args.length; i++) {
+    const name = args[i].startsWith("--") ? args[i].slice(2) : null;
+    if (name !== null && FLAGS.includes(name)) continue;
+    if (name !== null && VALUED.includes(name)) {
+      const value = args[i + 1];
+      if (value === undefined || value.startsWith("--")) {
+        throw new Error(`run.mjs: --${name} needs a value`);
+      }
+      i++;
+      continue;
+    }
+    throw new Error(
+      `run.mjs: unknown argument ${JSON.stringify(args[i])} (flags: ${[...VALUED, ...FLAGS].map((f) => `--${f}`).join(", ")}; a flag and its value are separate words)`,
+    );
+  }
+}
+
 export const CLASSES = [
   "ownership",
   "env-contract",
@@ -259,6 +285,7 @@ function hotModeArgument(value) {
 }
 
 function main() {
+  checkArguments(process.argv.slice(2));
   const exhibits = readExhibits();
   const only = argument("only")?.split(",");
   const classes = argument("class")?.split(",");
