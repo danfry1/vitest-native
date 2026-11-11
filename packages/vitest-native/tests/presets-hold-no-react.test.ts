@@ -3,15 +3,15 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { HOLD_REACT } from "../src/fresh-runtime-presets";
 import { RUNTIME_RESIDENT_PACKAGES } from "../src/native/ownership.mjs";
 
-// HOLD_REACT decides when hotRuntime.freshRuntime declines (#719), so it must name every
-// preset whose module captures React at module scope: a static value import of React or
-// another package freshRuntime evaluates per file (RUNTIME_RESIDENT_PACKAGES), directly or
-// through vitest-native's own modules it imports (mocks/host.ts, say). Derived here from
-// the source, so a preset that starts importing React fails this test instead of escaping
-// the guard.
+// vitest-native's presets load once per worker and stay resident under the hot runtime,
+// while hotRuntime.freshRuntime evaluates React (RUNTIME_RESIDENT_PACKAGES) again for each
+// file. A preset module that imports React as a value at module scope, directly or through
+// vitest-native's own modules it imports (mocks/host.ts, say), keeps the first file's copy
+// (#719): a factory takes the file's React from its context instead. The lint rule
+// preset-react-per-file reports a direct import; this follows the indirect ones, from the
+// presets index and from every preset module it names.
 const src = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src");
 const parse = (
   createRequire(createRequire(import.meta.url).resolve("@babel/core"))("@babel/parser") as {
@@ -88,14 +88,14 @@ function presetFiles(): Map<string, string> {
   return files;
 }
 
-describe("the presets that make freshRuntime decline", () => {
-  it("are exactly the presets whose module captures React", () => {
+describe("vitest-native's presets", () => {
+  it("import no React at module scope, directly or through their own modules", () => {
     const presets = presetFiles();
     expect(presets.size, "presets read from presets/index.ts").toBeGreaterThan(10);
-    const derived = [...presets]
-      .filter(([, file]) => capturesReact(file))
-      .map(([name]) => name)
-      .sort();
-    expect(derived).toEqual([...HOLD_REACT].sort());
+    const files = [path.join(src, "presets/index.ts"), ...presets.values()];
+    const holding = files
+      .filter((file) => capturesReact(file))
+      .map((file) => path.relative(src, file));
+    expect(holding).toEqual([]);
   });
 });

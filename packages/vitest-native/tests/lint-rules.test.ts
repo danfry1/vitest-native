@@ -197,3 +197,51 @@ tester.run("no-doc-urls-in-src", rule("no-doc-urls-in-src"), {
     },
   ],
 });
+
+const ts = new RuleTester({
+  languageOptions: { sourceType: "module", parserOptions: { lang: "ts" } },
+});
+const preset = () => src("src/presets/example.ts");
+ts.run("preset-react-per-file", rule("preset-react-per-file"), {
+  valid: [
+    { filename: preset(), code: `import type React from "react";` },
+    { filename: preset(), code: `import { type ReactNode } from "react";` },
+    { filename: preset(), code: `export type { ViewProps } from "react-native";` },
+    { filename: preset(), code: `import { hosts } from "../mocks/host-classes.js";` },
+    { filename: preset(), code: `import x from "react-native-svg";` },
+    { filename: preset(), code: `const f = ({ React }) => React.createElement("View");` },
+    { filename: preset(), code: `function rn() { return require("react-native"); }` },
+  ],
+  invalid: [
+    {
+      filename: preset(),
+      code: `import React from "react";`,
+      errors: [{ messageId: "import" }],
+    },
+    {
+      filename: preset(),
+      code: `import { useState, type ReactNode } from "react";`,
+      errors: [{ messageId: "import" }],
+    },
+    {
+      filename: preset(),
+      code: `import { View } from "react-native";`,
+      errors: [{ messageId: "import" }],
+    },
+    {
+      filename: preset(),
+      code: `import "react/jsx-runtime";`,
+      errors: [{ messageId: "import" }],
+    },
+    {
+      filename: preset(),
+      code: `export { useState } from "react";`,
+      errors: [{ messageId: "import" }],
+    },
+    {
+      filename: preset(),
+      code: `const React = require("react");`,
+      errors: [{ messageId: "import" }],
+    },
+  ],
+});

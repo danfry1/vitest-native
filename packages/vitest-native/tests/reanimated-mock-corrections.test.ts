@@ -4,6 +4,7 @@
  * does better keeps its own. The no-op mock here is shaped as 4.7.1's (src/mock.ts);
  * the native suite runs the installed one (tests-native/reanimated.test.tsx).
  */
+import React from "react";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -88,7 +89,7 @@ const NAMES = [
 describe("reanimated mock corrections", () => {
   it("replace each name the mock answers with a no-op", () => {
     const mock = noOpMock();
-    const fixed = mockCorrections(mock, dir);
+    const fixed = mockCorrections(React, mock, dir);
     for (const name of NAMES) expect(fixed[name], name).not.toBe(mock[name]);
     expect(fixed.interpolate(5, [0, 10], [0, 100])).toBe(50);
     expect(fixed.clamp(5, 0, 3)).toBe(3);
@@ -117,7 +118,7 @@ describe("reanimated mock corrections", () => {
 
   it("keep each name the mock answers itself", () => {
     const mock = workingMock();
-    const fixed = mockCorrections(mock, dir, false, allHelpers);
+    const fixed = mockCorrections(React, mock, dir, false, allHelpers);
     for (const name of [...NAMES, "interpolateColor"] as const) {
       expect(fixed[name], name).toBe(mock[name]);
     }
@@ -126,7 +127,7 @@ describe("reanimated mock corrections", () => {
   });
 
   it("replace a no-op interpolateColor with reanimated's own", () => {
-    const fixed = mockCorrections(noOpMock(), dir, false, allHelpers);
+    const fixed = mockCorrections(React, noOpMock(), dir, false, allHelpers);
     expect(fixed.interpolateColor).toBe(allHelpers.interpolateColor);
   });
 
@@ -140,7 +141,7 @@ describe("reanimated mock corrections", () => {
       useComposedEventHandler: needsRender,
       useScrollOffset: needsRender,
     };
-    const fixed = mockCorrections(mock, dir);
+    const fixed = mockCorrections(React, mock, dir);
     expect(fixed.useAnimatedScrollHandler).toBe(needsRender);
     expect(fixed.useComposedEventHandler).toBe(needsRender);
     expect(fixed.useScrollOffset).toBe(needsRender);
@@ -156,6 +157,7 @@ describe("reanimated mock corrections", () => {
     console.error = spy;
     try {
       mockCorrections(
+        React,
         {
           ...noOpMock(),
           useAnimatedScrollHandler: needsRender,

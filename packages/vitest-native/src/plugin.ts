@@ -1,6 +1,6 @@
 import type { Plugin, ResolvedConfig, UserConfig } from "vite";
 import type { PoolRunnerInitializer } from "vitest/node";
-import type { VitestNativeOptions, ResolvedOptions, Preset } from "./types.js";
+import type { VitestNativeOptions, ResolvedOptions, Preset, PresetModule } from "./types.js";
 import { getConfiguredPlatformExtensions, getPlatformExtensions } from "./resolve.js";
 import { firstExact, platformSubpathFile } from "./native/resolve.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -24,7 +24,6 @@ import { VitestNativeError, VitestNativeTypeError } from "./errors.mjs";
 import { assertSupportedNode } from "./node-range.js";
 import { presetFromModule } from "./preset-modules.mjs";
 import { BUILT_IN_PRESET } from "./presets/built-in.js";
-import { freshRuntimeDeclinedNotice, presetsHoldingReact } from "./fresh-runtime-presets.js";
 import { serializableAliases } from "./jest-compat/aliases.mjs";
 import { tsconfigPathAliases } from "./native/tsconfig-paths.mjs";
 import {
@@ -684,8 +683,6 @@ async function startRegistryFor(options: RegistryOptions): Promise<StartedRegist
 
 /** Recommended-floor warnings already printed in this process. */
 const warnedRecommended = new Set<string>();
-// The freshRuntime decline notices already printed, once per process (fresh-runtime-presets.ts).
-const freshRuntimeNotices = new Set<string>();
 
 /** Vitest instances whose close already settles the background registry builds. */
 const registrySettlers = new WeakSet<object>();
@@ -2085,7 +2082,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // configureProject has is `C:\…`, and both must find the same route.
   const projectBabelFor = (root: string | undefined): ProjectBabel | undefined =>
     root === undefined ? undefined : projectBabels.get(path.resolve(root));
-  const presetModules = new Map<string, () => Record<string, any>>();
+  const presetModules = new Map<string, PresetModule["factory"]>();
   // The preset that shadows each module (configResolved), and the Jest setup files of
   // the libraries that run as themselves under the native engine (config()).
   const presetNameByModule = new Map<string, string>();
@@ -2698,18 +2695,6 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             );
         if (nativePresetNames.length > 0) {
           fields.presetNames = nativePresetNames;
-        }
-        // freshRuntime declines while a preset's module holds React per worker (#719).
-        if (fields.hotFreshRuntime === true) {
-          const holding = presetsHoldingReact(nativePresetNames, resolvedRoot);
-          if (holding.length > 0) {
-            delete fields.hotFreshRuntime;
-            const notice = freshRuntimeDeclinedNotice(holding);
-            if (!freshRuntimeNotices.has(notice)) {
-              freshRuntimeNotices.add(notice);
-              console.warn(notice);
-            }
-          }
         }
         // 'resolution' implies nodeMocks: the bridge serves a mocked dependency as the
         // test's instance, so Node's own require of it must be served the same.

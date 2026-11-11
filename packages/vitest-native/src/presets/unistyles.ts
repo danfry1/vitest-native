@@ -1,7 +1,7 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
-import React from "react";
-import { asHost } from "../mocks/host.js";
+import type React from "react";
+import { hosts } from "../mocks/host-classes.js";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { builtInPreset } from "./built-in.js";
@@ -318,7 +318,7 @@ export function unistyles(): Preset {
           "getServerUnistyles",
           "resetServerUnistyles",
         ],
-        factory: () => buildUnistyles(),
+        factory: ({ React }) => buildUnistyles(React),
       },
       "react-native-unistyles/reanimated": {
         exports: ["useAnimatedTheme", "useAnimatedVariantColor"],
@@ -352,7 +352,8 @@ type Config = {
   };
 };
 
-function buildUnistyles(): Record<string, any> {
+function buildUnistyles(React: typeof import("react")): Record<string, any> {
+  const { asHost } = hosts(React);
   // The configured state, and what configure() left it as, so `_reset` (run by
   // vitest-native's resetAllMocks()) returns to it rather than to a second constant.
   const configured = () => ({

@@ -1,8 +1,7 @@
 import fs from "node:fs";
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
-import React from "react";
-import { asHost } from "../mocks/host.js";
+import { hosts } from "../mocks/host-classes.js";
 import { createRequire, Module } from "node:module";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
@@ -44,7 +43,7 @@ const REANIMATED_MOCK: LibraryMock = {
   // replaced: the helpers by reanimated's own (ownHelpers), the rest by ones that work
   // (scrollHandlers, sharedValue). A reanimated whose mock does better keeps its own.
   // Under the native engine, beside the mock its library registry serves.
-  extend: (mock, dir) => mockCorrections(mock, dir, true),
+  extend: (mock, dir, { React }) => mockCorrections(React, mock, dir, true),
 };
 
 type Fn = (...args: any[]) => any;
@@ -184,8 +183,8 @@ export function sharedValue<T>(init: T) {
  * write made through a later render's value. Outside a render, which the mock allows, a
  * new one each call.
  */
-function perComponent<T>(create: () => T): T {
-  const held = useRefOrNull<T>();
+function perComponent<T>(React: typeof import("react"), create: () => T): T {
+  const held = useRefOrNull<T>(React);
   if (held === null) return create();
   if (held.current === null) held.current = create();
   return held.current;
@@ -196,6 +195,7 @@ function perComponent<T>(create: () => T): T {
  * REANIMATED_MOCK). Exported for its tests.
  */
 export function mockCorrections(
+  React: typeof import("react"),
   mock: Record<string, any>,
   dir: string,
   fromRegistry = false,
@@ -218,7 +218,7 @@ export function mockCorrections(
     }
     return fixed;
   };
-  const handlers = scrollHandlers(mock.useSharedValue);
+  const handlers = scrollHandlers(React, mock.useSharedValue);
   const fixed: Record<string, any> = { ...fixHelpers(mock) };
   const scrollFixed = neverCalls((h) => mock.useAnimatedScrollHandler?.({ onScroll: h }));
   if (scrollFixed) fixed.useAnimatedScrollHandler = handlers.useAnimatedScrollHandler;
@@ -244,7 +244,7 @@ export function mockCorrections(
     return given !== NEEDS_RENDER && !isSharedValueShaped(given);
   };
   if (wrong("useSharedValue", (hook) => hook(0))) {
-    fixed.useSharedValue = (init: unknown) => perComponent(() => sharedValue(init));
+    fixed.useSharedValue = (init: unknown) => perComponent(React, () => sharedValue(init));
   }
   if (wrong("makeMutable", (hook) => hook(0))) {
     fixed.makeMutable = (init: unknown) => sharedValue(init);
@@ -253,14 +253,14 @@ export function mockCorrections(
     // Recomputed on every render, as the mock's is; listeners hear a changed result.
     fixed.useDerivedValue = (updater: () => unknown) => {
       const next = updater();
-      const derived = perComponent(() => sharedValue(next));
+      const derived = perComponent(React, () => sharedValue(next));
       if (!Object.is(derived.value, next)) derived.value = next;
       return derived;
     };
   }
   for (const name of ["useScrollOffset", "useScrollViewOffset", "useTimestamp"]) {
     if (wrong(name, (hook) => hook())) {
-      fixed[name] = () => perComponent(() => sharedValue(0));
+      fixed[name] = () => perComponent(React, () => sharedValue(0));
     }
   }
   const keyboard = gives("useAnimatedKeyboard", (hook) => hook()) as Record<string, unknown>;
@@ -272,7 +272,11 @@ export function mockCorrections(
     const own = mock.useAnimatedKeyboard as Fn;
     // height 0 and state 0 (KeyboardState.UNKNOWN), as the mock's numbers are.
     fixed.useAnimatedKeyboard = (...args: unknown[]) =>
-      perComponent(() => ({ ...own(...args), height: sharedValue(0), state: sharedValue(0) }));
+      perComponent(React, () => ({
+        ...own(...args),
+        height: sharedValue(0),
+        state: sharedValue(0),
+      }));
   }
   const sensor = gives("useAnimatedSensor", (hook) => hook(0)) as Record<string, unknown>;
   if (
@@ -283,7 +287,7 @@ export function mockCorrections(
     const own = mock.useAnimatedSensor as Fn;
     // The mock's own reading (x, y, z, interfaceOrientation …), as the value.
     fixed.useAnimatedSensor = (...args: unknown[]) =>
-      perComponent(() => {
+      perComponent(React, () => {
         const given = own(...args) ?? {};
         const reading = given.sensor?.value ?? given.sensor;
         return { ...given, sensor: sharedValue(reading) };
@@ -313,7 +317,7 @@ export function mockCorrections(
     typeof gives("useAnimatedRef", (hook) => hook()) === "object"
   ) {
     fixed.useAnimatedRef = () =>
-      perComponent(() => {
+      perComponent(React, () => {
         const ref: any = (node?: unknown) => {
           if (node !== undefined) ref.current = node;
           return ref.current;
@@ -369,7 +373,7 @@ export function mockCorrections(
   // The scroll views pass a handler's drag and momentum handlers on (withScrollEvents).
   if (scrollFixed) {
     for (const name of ["ScrollView", "FlatList"]) {
-      if (defaults[name]) defaults[name] = withScrollEvents(defaults[name]);
+      if (defaults[name]) defaults[name] = withScrollEvents(React, defaults[name]);
     }
   }
   return { ...mock, ...fixed, default: defaults };
@@ -465,7 +469,7 @@ const EVENT_PROPS: Record<string, keyof ScrollHandlers> = {
 };
 
 /** React's `useRef` in a render, or null outside one (where hooks cannot run). */
-function useRefOrNull<T>(): { current: T | null } | null {
+function useRefOrNull<T>(React: typeof import("react")): { current: T | null } | null {
   try {
     return React.useRef<T | null>(null);
   } catch {
@@ -510,7 +514,8 @@ function loadOrNull(load: () => Record<string, any>): Record<string, any> | null
  * drag and momentum events, as reanimated's animated scroll views do (they subscribe
  * a handler to every event it handles). A prop the test gives itself still runs.
  */
-function withScrollEvents(Component: any): any {
+function withScrollEvents(React: typeof import("react"), Component: any): any {
+  const { asHost } = hosts(React);
   const Wrapped = React.forwardRef((props: any, ref: any) => {
     const events = props.onScroll?.[SCROLL_EVENTS] as Record<string, Fn> | undefined;
     if (!events) return React.createElement(asHost(Component), { ...props, ref });
@@ -539,7 +544,7 @@ function withScrollEvents(Component: any): any {
  * and so the drag and momentum events of the scroll handlers among them. The offset
  * hooks return a shared value (`useSharedValue(0)`, kept across renders).
  */
-function scrollHandlers(useSharedValue?: Fn) {
+function scrollHandlers(React: typeof import("react"), useSharedValue?: Fn) {
   function useAnimatedScrollHandler(handlers: Handler | ScrollHandlers | undefined) {
     const latest = React.useRef<ScrollHandlers>({});
     latest.current = typeof handlers === "function" ? { onScroll: handlers } : (handlers ?? {});
@@ -704,7 +709,8 @@ export function reanimated(): Preset {
           "ReduceMotion",
           "KeyboardState",
         ],
-        factory: () => {
+        factory: ({ React }) => {
+          const { asHost } = hosts(React);
           // Reanimated 4's shared value shape (sharedValue above), as the corrections give.
           const createSharedValue = (init: any) => sharedValue(init);
 
@@ -726,7 +732,7 @@ export function reanimated(): Preset {
           }
 
           const { useAnimatedScrollHandler, useComposedEventHandler, useScrollOffset } =
-            scrollHandlers(createSharedValue);
+            scrollHandlers(React, createSharedValue);
           // Reanimated's own, from the installed package (ownHelpers). Where its file
           // does not load, `interpolate` keeps the stand-in it always had (the first
           // output value), and `clamp` and `interpolateColor` say why they fail.
@@ -886,8 +892,8 @@ export function reanimated(): Preset {
           const View = makeAnimatedHost("View");
           const Text = makeAnimatedHost("Text");
           const Image = makeAnimatedHost("Image");
-          const ScrollView = withScrollEvents(makeAnimatedHost("ScrollView"));
-          const FlatList = withScrollEvents(makeAnimatedHost("FlatList"));
+          const ScrollView = withScrollEvents(React, makeAnimatedHost("ScrollView"));
+          const FlatList = withScrollEvents(React, makeAnimatedHost("FlatList"));
 
           // Helper to create chainable layout animation presets. Each modifier is
           // `vi.fn(impl)`, not `.mockReturnValue()`: mockReset() (and `mockReset: true`)

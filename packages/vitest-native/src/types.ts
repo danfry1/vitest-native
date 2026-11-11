@@ -198,9 +198,23 @@ export interface ReactNativeMock {
 
 // ─── Plugin Types ────────────────────────────────────────────────────────────
 
+/** What a preset module's factory is given when it builds its mock. */
+export interface PresetFactoryContext {
+  /**
+   * The React the test file renders with, required from the shadowed package's
+   * directory. A mock that creates components, contexts or hooks uses this one rather
+   * than a React it imported itself: under the hot runtime's `freshRuntime` each file
+   * has its own React, and a hook or context from another file's React fails there.
+   */
+  React: typeof import("react");
+}
+
 export interface PresetModule {
-  /** Factory that builds the mock object. Only called in Vitest worker processes. */
-  factory: () => Record<string, any>;
+  /**
+   * Factory that builds the mock object, once per test file that imports the module.
+   * Only called in Vitest worker processes.
+   */
+  factory: (context: PresetFactoryContext) => Record<string, any>;
   /** Static list of named exports for virtual ESM module generation. Read at Vite config time (no vitest available). */
   exports: string[];
   /**

@@ -1,7 +1,6 @@
-import React from "react";
 import { vi } from "vitest";
 
-export function createTextInputMock() {
+export function createTextInputMock(React: typeof import("react")) {
   const TextInput = React.forwardRef((props: any, ref: any) => {
     // A host ref's native methods as well as TextInput's own, as real React Native's
     // TextInput ref has them (crosscheck: host-refs-and-props).

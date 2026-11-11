@@ -368,6 +368,53 @@ const noDocUrlsInSrc = {
   },
 };
 
+// --------------------------------------------------------------------------------------
+
+const PER_FILE_PACKAGE = /^(?:react|react-native)(?:\/|$)/;
+
+/**
+ * A preset's module imports no React or React Native as a value. vitest-native's presets
+ * load once per worker and stay resident under the hot runtime, while freshRuntime
+ * evaluates React again for each file: a module-scope import keeps the first file's copy,
+ * and a later file fails with "Invalid hook call" (#719). A factory takes the file's React
+ * from its context (`factory: ({ React }) => …`). A type-only import is fine. Imports
+ * through vitest-native's own modules are followed by tests/presets-hold-no-react.test.ts.
+ */
+const presetReactPerFile = {
+  meta: {
+    type: "problem",
+    messages: {
+      import:
+        "A preset module imports '{{source}}' at module scope, so it keeps the first file's copy under freshRuntime: take React from the factory's context (`factory: ({ React }) => …`).",
+    },
+  },
+  create(context) {
+    const check = (node, source, typeOnly) => {
+      if (typeOnly || typeof source !== "string" || !PER_FILE_PACKAGE.test(source)) return;
+      context.report({ node, messageId: "import", data: { source } });
+    };
+    return {
+      ImportDeclaration(node) {
+        const values = node.specifiers.filter((s) => s.importKind !== "type");
+        const typeOnly =
+          node.importKind === "type" || (node.specifiers.length > 0 && values.length === 0);
+        check(node, node.source.value, typeOnly);
+      },
+      ExportNamedDeclaration(node) {
+        if (node.source) check(node, node.source.value, node.exportKind === "type");
+      },
+      ExportAllDeclaration(node) {
+        check(node, node.source.value, node.exportKind === "type");
+      },
+      CallExpression(node) {
+        if (node.callee.type !== "Identifier" || node.callee.name !== "require") return;
+        if (context.sourceCode.getAncestors(node).some((a) => a.type.includes("Function"))) return;
+        check(node, node.arguments[0]?.value, false);
+      },
+    };
+  },
+};
+
 export default {
   meta: { name: "vitest-native" },
   rules: {
@@ -376,5 +423,6 @@ export default {
     "no-monkey-patching": noMonkeyPatching,
     "escaped-regexp": escapedRegExp,
     "no-doc-urls-in-src": noDocUrlsInSrc,
+    "preset-react-per-file": presetReactPerFile,
   },
 };
