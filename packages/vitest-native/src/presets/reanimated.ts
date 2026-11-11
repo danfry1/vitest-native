@@ -471,9 +471,10 @@ const EVENT_PROPS: Record<string, keyof ScrollHandlers> = {
 /**
  * React's error for a hook called outside a render: "Invalid hook call. …" from a
  * development build, error #321 from a production one. Thrown by the dispatcher a renderer
- * leaves in place after its first render. Checked against React 19.0 to 19.3 with
- * react-test-renderer and react-native's renderer (react-reconciler's
- * throwInvalidHookError); the message's opening words are stable across those releases.
+ * leaves in place after its first render. Checked against React 19.3.1 with
+ * react-reconciler 0.34.0 (throwInvalidHookError, both builds), the versions this
+ * repository installs; the phrase is the one React has used for this error since hooks
+ * shipped. A React that throws something else here fails loudly rather than silently.
  */
 const INVALID_HOOK_CALL = /^(?:Invalid hook call\.|Minified React error #321[;:])/;
 
