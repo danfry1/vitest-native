@@ -11,9 +11,9 @@ Try it when a suite is large enough that loading React Native in every file take
 ## Turning it on
 
 ```ts
-reactNative({ hotRuntime: "auto" }); // hot where the run can be bounded, per-file isolation otherwise
-reactNative({ hotRuntime: true }); // require it; fail at startup where it cannot run
-reactNative({ hotRuntime: false }); // the default: a fresh worker per file
+reactNative({ hotRuntime: 'auto' })  // hot where the run can be bounded, per-file isolation otherwise
+reactNative({ hotRuntime: true })    // require it; fail at startup where it cannot run
+reactNative({ hotRuntime: false })   // the default: a fresh worker per file
 ```
 
 The [`hotRuntime` option](/guide/plugin-options#hotruntime) lists every value and the object form's keys. The engine banner at the start of a run says `hot runtime` when it is on (unless a following `hot runtime off: …` line names why it was turned off), and the startup log names the worker count it chose, for example:
