@@ -16,7 +16,7 @@ import { SAFE_AREA_MOCK } from "./presets/safe-area.js";
  *
  * Temporary: removed when the preset factories take React from the file's own require.
  */
-const HOLD_REACT = new Set([
+export const HOLD_REACT: ReadonlySet<string> = new Set([
   "bottomSheet",
   "expo",
   "flashList",
