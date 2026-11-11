@@ -201,58 +201,59 @@ let derivedReads: Set<SharedValue> | null = null;
  * the subscriptions end when the component unmounts.
  */
 export function derivedValue(updater: () => unknown): SharedValue {
-  const state = perComponent(() => {
-    const held = {
-      derived: sharedValue<unknown>(undefined),
-      updater,
-      inputs: new Set<SharedValue>(),
-      ran: false,
-      last: undefined as unknown,
-      run() {
-        const outer = derivedReads;
-        const read = new Set<SharedValue>();
-        derivedReads = read;
-        let next: unknown;
-        try {
-          next = held.updater();
-        } finally {
-          derivedReads = outer;
-        }
-        read.delete(held.derived);
-        for (const input of held.inputs) if (!read.has(input)) input.removeListener(held);
-        for (const input of read) if (!held.inputs.has(input)) input.addListener(held, held.run);
-        held.inputs = read;
-        if (!held.ran || !Object.is(held.last, next)) {
-          held.ran = true;
-          held.last = next;
-          held.derived.value = next;
-        }
-      },
-      stop() {
-        for (const input of held.inputs) input.removeListener(held);
-        held.inputs.clear();
-      },
-    };
-    return held;
-  });
+  // Outside a render, which the mock allows, a new one each call, with no component to
+  // unmount; in one, kept per component (perComponent).
+  const rendering = useRefOrNull<DerivedState>();
+  const state = rendering?.current ?? derivedState(updater);
+  if (rendering && rendering.current === null) rendering.current = state;
   state.updater = updater;
   state.run();
-  // Subscribed again on mount, as Reanimated starts its mapper in an effect (a StrictMode
-  // remount stops it first).
-  useEffectOrNothing(() => {
-    state.run();
-    return () => state.stop();
-  });
+  if (rendering) {
+    // Subscribed again on mount, as Reanimated starts its mapper in an effect (a
+    // StrictMode remount stops it first).
+    React.useEffect(() => {
+      state.run();
+      return () => state.stop();
+    }, [state]);
+  }
   return state.derived;
 }
 
-/** React's `useEffect` with no dependencies but mount, in a render; nothing outside one. */
-function useEffectOrNothing(effect: () => () => void): void {
-  try {
-    React.useEffect(effect, []);
-  } catch {
-    // Outside a render, where the mock's hooks also work: no component to unmount.
-  }
+type DerivedState = ReturnType<typeof derivedState>;
+
+function derivedState(updater: () => unknown) {
+  const held = {
+    derived: sharedValue<unknown>(undefined),
+    updater,
+    inputs: new Set<SharedValue>(),
+    ran: false,
+    last: undefined as unknown,
+    run() {
+      const outer = derivedReads;
+      const read = new Set<SharedValue>();
+      derivedReads = read;
+      let next: unknown;
+      try {
+        next = held.updater();
+      } finally {
+        derivedReads = outer;
+      }
+      read.delete(held.derived);
+      for (const input of held.inputs) if (!read.has(input)) input.removeListener(held);
+      for (const input of read) if (!held.inputs.has(input)) input.addListener(held, held.run);
+      held.inputs = read;
+      if (!held.ran || !Object.is(held.last, next)) {
+        held.ran = true;
+        held.last = next;
+        held.derived.value = next;
+      }
+    },
+    stop() {
+      for (const input of held.inputs) input.removeListener(held);
+      held.inputs.clear();
+    },
+  };
+  return held;
 }
 
 /**
