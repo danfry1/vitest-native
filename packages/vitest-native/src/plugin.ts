@@ -24,6 +24,7 @@ import { VitestNativeError, VitestNativeTypeError } from "./errors.mjs";
 import { assertSupportedNode } from "./node-range.js";
 import { presetFromModule } from "./preset-modules.mjs";
 import { BUILT_IN_PRESET } from "./presets/built-in.js";
+import { freshRuntimeDeclinedNotice, presetsHoldingReact } from "./fresh-runtime-presets.js";
 import { serializableAliases } from "./jest-compat/aliases.mjs";
 import { tsconfigPathAliases } from "./native/tsconfig-paths.mjs";
 import {
@@ -683,6 +684,8 @@ async function startRegistryFor(options: RegistryOptions): Promise<StartedRegist
 
 /** Recommended-floor warnings already printed in this process. */
 const warnedRecommended = new Set<string>();
+// The freshRuntime decline notices already printed, once per process (fresh-runtime-presets.ts).
+const freshRuntimeNotices = new Set<string>();
 
 /** Vitest instances whose close already settles the background registry builds. */
 const registrySettlers = new WeakSet<object>();
@@ -2695,6 +2698,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             );
         if (nativePresetNames.length > 0) {
           fields.presetNames = nativePresetNames;
+        }
+        // freshRuntime declines while a preset's module holds React per worker (#719).
+        if (fields.hotFreshRuntime === true) {
+          const holding = presetsHoldingReact(nativePresetNames, resolvedRoot);
+          if (holding.length > 0) {
+            delete fields.hotFreshRuntime;
+            const notice = freshRuntimeDeclinedNotice(holding);
+            if (!freshRuntimeNotices.has(notice)) {
+              freshRuntimeNotices.add(notice);
+              console.warn(notice);
+            }
+          }
         }
         // 'resolution' implies nodeMocks: the bridge serves a mocked dependency as the
         // test's instance, so Node's own require of it must be served the same.
