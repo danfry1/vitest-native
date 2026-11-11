@@ -1068,6 +1068,28 @@
       }
     },
     {
+      "id": "pfs-hot-worker-state",
+      "class": "per-file-state",
+      "title": "Under hot, a later file reads the first file's Vitest worker state and loses RNTL's auto-cleanup",
+      "source": "#690",
+      "fixedBy": "#690's fix: the hot reset leaves Vitest's globals alone, and verifies that Vitest's worker state names the file starting",
+      "bugSignature": "^c-victim\\.test\\.tsx: AssertionError: expected false to be true",
+      "control": {
+        "why": "Per file, every file has its own Vitest worker state.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "hotRuntime: true",
+            "replace": "hotRuntime: false"
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS"
+      }
+    },
+    {
       "id": "pfs-hot-resident-mock",
       "class": "per-file-state",
       "title": "Under hot, RNTL keeps a file's partial react-native mock for the worker's life",
@@ -1146,6 +1168,23 @@
       }
     },
     {
+      "id": "pre-351-own-mocks-babel-worklets",
+      "class": "transform/resolution",
+      "title": "A project's own Reanimated mock needs its Babel worklets plugin applied",
+      "source": "#351 (rc.1 report)",
+      "fixedBy": "#597 (merged)",
+      "bugSignature": "^app\\.test\\.tsx: Error: \\[Reanimated\\] `useAnimatedStyle` was used without a dependency array or Babel plugin",
+      "preFixRef": "ece53b3b^"
+    },
+    {
+      "id": "pre-351-gh-preset-off-own-setup",
+      "class": "presets",
+      "title": "Gesture Handler with its preset off loses its own Jest setup",
+      "source": "#351 (rc.1 report)",
+      "fixedBy": "#685",
+      "bugSignature": "^app\\.test\\.tsx: AssertionError: Gesture Handler warnings: expected 1 to be \\+0"
+    },
+    {
       "id": "pre-351-reanimated-helpers",
       "class": "presets",
       "title": "Reanimated's pure helpers are no-ops under the engine",
@@ -1174,6 +1213,14 @@
         "proof": "landed proven"
       },
       "preFixRef": "42712528^"
+    },
+    {
+      "id": "pre-351-reanimated-timestamp-get",
+      "class": "presets",
+      "title": "Reanimated's mock gives useTimestamp a value without get()",
+      "source": "#351 (rc.1 report)",
+      "fixedBy": "#684",
+      "bugSignature": "^app\\.test\\.tsx: TypeError: timestamp\\.get is not a function"
     },
     {
       "id": "pre-banner-names-presets",
@@ -1932,6 +1979,25 @@
         "preFix": "FAIL (bug)",
         "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
         "proof": "landed proven"
+      }
+    },
+    {
+      "id": "env-jest-root-mocks-preset-covered",
+      "class": "env-contract",
+      "title": "A cold run warns that the generated root-mocks module's sourcemap points to missing files",
+      "source": "#351 re-check (#732)",
+      "fixedBy": "#733",
+      "fixRef": "origin/fix/root-mocks-sourcemap",
+      "bugSignature": "^check\\.mjs: Sourcemap for \"<root>/vitest-native\\.root-mocks\\.mjs\" points to missing source files",
+      "control": {
+        "why": "With rootMocks off there is no generated module, so nothing can warn about its map.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "jestMockTransform()",
+            "replace": "jestMockTransform({ rootMocks: false })"
+          }
+        ]
       }
     },
     {

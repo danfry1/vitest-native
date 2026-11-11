@@ -1,10 +1,10 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { runTempRoot } from "./support/run-temp-root";
 // @ts-expect-error — runtime .mjs, no types
 import { CI_VARIABLES } from "../src/native/registry-process.mjs";
 
@@ -17,8 +17,9 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 const require = createRequire(path.join(packageRoot, "package.json"));
 const vitestEntry = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
 const posix = process.platform !== "win32";
-const scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-registry-bg-"));
-afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }));
+const scratch = fs.mkdtempSync(path.join(fs.realpathSync(runTempRoot()), "vn-registry-bg-"));
+// Under the run's temporary root (support/run-temp-root.ts), which global teardown removes:
+// the scratch projects hold React Native registry builds, slow to delete in a hook.
 
 // Each test file records whether its worker serves React Native from the registry,
 // and whether the registry existed when it started. A file that started before the

@@ -247,7 +247,7 @@ reactNative({ registryBuild: 'wait' })
 
 Fails a run whose tests have stopped making progress, naming the file and test that were running.
 
-**When it fires.** While test files are running, nothing has made progress (no file picked up, started or finished, and no test started or finished) for `hangTimeout` ms, and every running test is past its own budget. A test's budget is its timeout (from `it(name, fn, ms)`, `{ timeout }`, a `describe` option, `vi.setConfig` or `testTimeout`) plus two hook timeouts and a second. Each retry gets its own budget, so a slow test, or a retried one, isn't cut short. Global setup, coverage, and typecheck mode's compiler run happen outside that window and aren't timed.
+**When it fires.** While test files are running, nothing has made progress (no file picked up, started or finished, no test started or finished, and no module loaded through Vite) for `hangTimeout` ms, and every running test is past its own budget. A module load counts because a file still importing (a cold start, or a hot worker booting) reports nothing else until its first test. A test's budget is its timeout (from `it(name, fn, ms)`, `{ timeout }`, a `describe` option, `vi.setConfig` or `testTimeout`) plus two hook timeouts and a second. Each retry gets its own budget, so a slow test, or a retried one, isn't cut short. Global setup, coverage, and typecheck mode's compiler run happen outside that window and aren't timed.
 
 **The limit.** The default is 60 s, or twice the larger of `testTimeout` and `hookTimeout` across all projects, if that's longer.
 

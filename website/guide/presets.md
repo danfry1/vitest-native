@@ -39,7 +39,7 @@ export default defineConfig({
 })
 ```
 
-Presets apply under **both** engines, with exceptions under the native engine. `expo`, `gestureHandler` and `flashList` step aside: the Expo packages run as themselves against the engine's Expo runtime, and gesture-handler and flash-list run as themselves with their own Jest setup, as a Jest suite lists it. Setting the preset to `true` (for example `presets: { expo: true }`) turns it back on. Several other presets serve their library's own test mock under the native engine; each row says which.
+Presets apply under **both** engines, with exceptions under the native engine. `expo`, `gestureHandler` and `flashList` step aside: the Expo packages run as themselves against the engine's Expo runtime, and gesture-handler and flash-list run as themselves with their own Jest setup, as a Jest suite lists it. Setting the preset to `true` (for example `presets: { expo: true }`) turns it back on. Setting `gestureHandler` or `flashList` to `false` leaves their own Jest setup running: it is the library's, not a preset, and their native layer cannot load without it. Several other presets serve their library's own test mock under the native engine; each row says which.
 
 ## Turning a preset off
 
@@ -49,13 +49,15 @@ An object keeps auto-detection and switches off the presets set to `false`; the 
 reactNative({ presets: { navigation: false } })
 ```
 
+Under the native engine, Gesture Handler and FlashList already run as themselves, with the Jest setup each library ships. In the object form, `presets: { gestureHandler: false }` and `{ flashList: false }` keep that setup, so a setting carried over from older mocks changes nothing there and can be deleted. Under the mock engine they turn the preset off.
+
 ## Available presets
 
 | Preset | Library | What's mocked |
 |--------|---------|---------------|
-| `presets.reanimated()` | `react-native-reanimated` | Native engine with Reanimated 4.7+: Reanimated's own test mock (`react-native-reanimated/mock`), its whole API for the installed version, over the real package in its JS implementation, as a Jest suite gets it. Where that mock answers with a no-op, and only while it does, the preset runs Reanimated's own `interpolate`, `interpolateColor` and `clamp`, a `useAnimatedScrollHandler` / `useComposedEventHandler` that call their handlers (scroll, drag and momentum events of `Animated.ScrollView` and `Animated.FlatList`), `useScrollOffset` / `useScrollViewOffset` that return a shared value, and shared values with listeners (`addListener` / `removeListener`, which Gesture Handler 3 uses). Mock engine, or an older Reanimated: `useSharedValue`, `useAnimatedStyle`, `withTiming`, `withSpring`, `withDelay`, `withSequence`, `withRepeat`, layout animations (`FadeIn`, `FadeOut`, `SlideInRight`), `Easing`, Reanimated's own `interpolate`, `interpolateColor` and `clamp` (under the mock engine `interpolateColor` throws, and before Reanimated 4.5 so does `clamp`, while `interpolate` returns its first output value), `isSharedValue`, the same scroll hooks, `createAnimatedComponent` |
+| `presets.reanimated()` | `react-native-reanimated` | Native engine with Reanimated 4.7+: Reanimated's own test mock (`react-native-reanimated/mock`), its whole API for the installed version, over the real package in its JS implementation, as a Jest suite gets it. Where that mock answers with a no-op, and only while it does, the preset runs Reanimated's own `interpolate`, `interpolateColor` and `clamp`, a `useAnimatedScrollHandler` / `useComposedEventHandler` that call their handlers (scroll, drag and momentum events of `Animated.ScrollView` and `Animated.FlatList`), and every hook that gives a shared value (`useSharedValue`, `useDerivedValue`, `useScrollOffset`, `useScrollViewOffset`, `useTimestamp`, `useAnimatedKeyboard`, `useAnimatedSensor`, and `makeMutable`) gives one with Reanimated 4's shape: `value`, `get`, `set`, `modify`, listeners (`addListener` / `removeListener`, which Gesture Handler 3 uses) and the mark `isSharedValue()` checks. Mock engine, or an older Reanimated: `useSharedValue`, `useAnimatedStyle`, `withTiming`, `withSpring`, `withDelay`, `withSequence`, `withRepeat`, layout animations (`FadeIn`, `FadeOut`, `SlideInRight`), `Easing`, Reanimated's own `interpolate`, `interpolateColor` and `clamp` (under the mock engine `interpolateColor` throws, and before Reanimated 4.5 so does `clamp`, while `interpolate` returns its first output value), `isSharedValue`, the same scroll hooks, `createAnimatedComponent` |
 | `presets.worklets()` | `react-native-worklets` | Native engine: Worklets' own test mock (`lib/module/mock.js`), as a Jest suite installs it, so `runOnJS`, `runOnUI`, `scheduleOnRN` and `scheduleOnUI` behave as under Jest. Mock engine, or a Worklets without that mock: they run synchronously on the JS thread |
-| `presets.gestureHandler()` | `react-native-gesture-handler` | Native engine: none needed, the real package runs with its own `jestSetup.js` mocking its native module and host components, as a Jest suite lists it (gesture-handler 3's hook API, the whole builder API). Mock engine: `GestureHandlerRootView`, gesture handlers (Pan, Tap, LongPress, Pinch, Rotation, Fling), `Gesture` API (v2), `GestureDetector`, `Swipeable`, touchable wrappers, state constants |
+| `presets.gestureHandler()` | `react-native-gesture-handler` | Native engine: none needed, the real package runs with its own `jestSetup.js` mocking its native module and host components, as a Jest suite lists it (gesture-handler 3's hook API, the whole builder API). Its Jest setup's mocks import React Native's `DrawerLayoutAndroid`, which can print React Native's deprecation for it. It is harmless; Jest's `require` does not print it ([why](/guide/troubleshooting#drawerlayoutandroid-is-deprecated), tracked in [#687](https://github.com/danfry1/vitest-native/issues/687)). Mock engine: `GestureHandlerRootView`, gesture handlers (Pan, Tap, LongPress, Pinch, Rotation, Fling), `Gesture` API (v2), `GestureDetector`, `Swipeable`, touchable wrappers, state constants |
 | `presets.safeAreaContext()` | `react-native-safe-area-context` | Native engine: safe-area-context's own test mock (`jest/mock`), as a Jest suite installs it: zero insets on a 320x640 frame unless `<SafeAreaProvider initialMetrics>` gives metrics, with `useSafeAreaInsets`/`useSafeAreaFrame` as mock functions. Mock engine: `SafeAreaProvider`, `SafeAreaView`, `useSafeAreaInsets`, `useSafeAreaFrame`, `initialWindowMetrics`, `withSafeAreaInsets` |
 | `presets.navigation()` | `@react-navigation/native`, `@react-navigation/native-stack`, `@react-navigation/bottom-tabs`, `@react-navigation/drawer`, `@react-navigation/elements` | `NavigationContainer`, `useNavigation`, `useRoute`, `useFocusEffect`, `useIsFocused`, `CommonActions`, `StackActions`, `TabActions`, `DrawerActions`, navigators |
 | `presets.screens()` | `react-native-screens` | `enableScreens`, `Screen`, `ScreenContainer`, `ScreenStack` |
@@ -129,6 +131,16 @@ The preset needs a worker pool (`threads`, the default, or `forks`): Skia's mock
 CanvasKit loads before each test file, as Skia's Jest environment does, so a project where Skia resolves, including a copy hoisted to a workspace root, pays that start-up cost in every file (about 20–30 ms in a fresh worker, more under parallel load). If CanvasKit cannot load, every test file fails with an error that names the cause. If no test touches Skia, turn the preset off with `reactNative({ presets: { skia: false } })`.
 
 ## Mock resets
+
+## Supported library versions
+
+The versions these libraries are supported at under the native engine. Each floor is the version Expo SDK 57 ships; a version outside its range may work, but nothing checks it.
+
+| Library | Supported |
+|---|---|
+| `react-native-reanimated` | `>=4.5.0 <5` |
+| `react-native-worklets` | `>=0.10.0 <1` |
+| `react-native-gesture-handler` | `>=2.32.0 <4` |
 
 Preset mocks keep working through `vi.resetAllMocks()` and `mockReset: true`. A reset clears the calls each spy recorded, but a builder still chains, so `LinearTransition.springify().damping(20)` returns the transition, and a `Gesture.Pan()` built at module scope keeps its `onStart(...)`. Every preset's mock functions are built with their implementation (`vi.fn(impl)`), which Vitest restores on a reset. A package test (`tests/preset-mock-reset.test.ts`) walks every preset and fails if a reset drops one.
 

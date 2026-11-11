@@ -7,7 +7,10 @@
 //   2. warm: the same run again, which must reuse it and compile nothing;
 //   3. hot: the same files in one reused worker.
 // Whether a run compiled the registry is read from the engine's own diagnostics, and its
-// location from the engine's cacheRootFor. With VITEST_NATIVE_NO_REGISTRY=1 the registry
+// location from the engine's cacheRootFor. Each fixture has its own Vitest module cache,
+// emptied before the cold run, so that run also transforms every module afresh; no run may
+// print Vite's warning that a sourcemap points to missing source files (the generated
+// root-mocks module did, on every cold run). With VITEST_NATIVE_NO_REGISTRY=1 the registry
 // is off by design: every run still has to pass, and the cold/warm checks are skipped.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -21,6 +24,11 @@ const vitest = path.join(packageRoot, "scripts/ci/vitest.mjs");
 const FIXTURES = [
   { config: "tests-native/vitest.root-mocks.config.mts", root: "tests-native/root-mocks" },
   { config: "tests-native/vitest.root-mocks-rn.config.mts", root: "tests-native/root-mocks-rn" },
+  // Only a mock a preset stands in for: the generated module registers none (#732).
+  {
+    config: "tests-native/vitest.root-mocks-covered.config.mts",
+    root: "tests-native/root-mocks-covered",
+  },
   // Root mocks combined with a babel.config.js, presets, a setup file and RNTL, as a
   // Jest-migrated app has them (#666 broke only the combination).
   { config: "tests-native/vitest.kitchen-sink.config.mts", root: "tests-native/kitchen-sink" },
@@ -31,10 +39,13 @@ const FIXTURES = [
 const COMPILED =
   /\[vitest-native\] \(native\) (?:no precompiled RN registry for this graph yet|precompiled RN registry (?:in the background|in a bounded child|: \d+ modules))/;
 const UNAVAILABLE = /could not precompile the React Native registry/;
+const MISSING_SOURCES = /Sourcemap for .* points to missing source files/;
 const registryOff = process.env.VITEST_NATIVE_NO_REGISTRY === "1";
 
-function run(config, mode) {
-  const result = spawnSync(process.execPath, [vitest, "run", "--config", config, "--mode", mode], {
+function run(config, mode, moduleCache) {
+  const args = ["run", "--config", config, "--mode", mode];
+  if (moduleCache) args.push("--fsModuleCachePath", moduleCache);
+  const result = spawnSync(process.execPath, [vitest, ...args], {
     cwd: packageRoot,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
@@ -44,6 +55,9 @@ function run(config, mode) {
   process.stdout.write(output);
   if (result.status !== 0) {
     throw new Error(`${config} --mode ${mode} failed (exit ${result.status})`);
+  }
+  if (MISSING_SOURCES.test(output)) {
+    throw new Error(`${config} --mode ${mode}: ${output.match(MISSING_SOURCES)[0]}`);
   }
   if (!registryOff && UNAVAILABLE.test(output)) {
     throw new Error(`${config} --mode ${mode}: the registry was unavailable`);
@@ -61,11 +75,13 @@ function registryFiles(dir) {
 
 for (const { config, root } of FIXTURES) {
   const fixture = path.join(packageRoot, root);
+  const moduleCache = path.join(fixture, "node_modules/.vitest-cache");
+  fs.rmSync(moduleCache, { recursive: true, force: true });
   if (registryOff) {
     console.log(`\n== ${root}: VITEST_NATIVE_NO_REGISTRY=1, so no registry to run cold or warm`);
-    run(config, "stock");
+    run(config, "stock", moduleCache);
     console.log(`\n== ${root}: hot`);
-    run(config, "hot");
+    run(config, "hot", moduleCache);
     continue;
   }
   // A project's cache lives in its own node_modules (cacheRootFor). A fixture has none
@@ -78,15 +94,15 @@ for (const { config, root } of FIXTURES) {
   }
   fs.rmSync(cache, { recursive: true, force: true });
 
-  console.log(`\n== ${root}: cold (registry cache ${path.relative(packageRoot, cache)} deleted)`);
-  if (!COMPILED.test(run(config, "stock"))) {
+  console.log(`\n== ${root}: cold (registry and module caches deleted)`);
+  if (!COMPILED.test(run(config, "stock", moduleCache))) {
     throw new Error(`${root}: the cold run did not report compiling the registry`);
   }
   const compiled = registryFiles(cache);
   if (compiled.size === 0) throw new Error(`${root}: the cold run wrote nothing to ${cache}`);
 
   console.log(`\n== ${root}: warm (the registry from the cold run)`);
-  if (COMPILED.test(run(config, "stock"))) {
+  if (COMPILED.test(run(config, "stock", moduleCache))) {
     throw new Error(`${root}: the warm run compiled the registry again instead of reusing it`);
   }
   const reused = registryFiles(cache);
@@ -97,7 +113,7 @@ for (const { config, root } of FIXTURES) {
   }
 
   console.log(`\n== ${root}: hot`);
-  run(config, "hot");
+  run(config, "hot", moduleCache);
 }
 console.log(
   registryOff

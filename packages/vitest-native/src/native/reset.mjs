@@ -12,8 +12,12 @@ import { VitestNativeError } from "../errors.mjs";
 import { isRuntimeResidentFile, isTestRuntimeResidentFile } from "./ownership.mjs";
 import { createStateManifest } from "./state-manifest.mjs";
 
-// Keys owned by the harness or this plugin — never deleted by the globals diff.
-const HARNESS_GLOBALS = /^(__vitest_native_|__VITEST|__coverage__|__VITE)/;
+// Keys owned by Vitest, Vite, coverage or this plugin: never deleted or put back by the
+// globals diff. Vitest names its own in both cases, and replaces some per task:
+// `__vitest_worker__` (its worker state, with the running file's path and module graph)
+// is defined anew for every file. Matched case-sensitively as `__vitest_native_` once,
+// which missed it, so every later file got the first file's worker state back (#690).
+const HARNESS_GLOBALS = /^(?:__vitest|__VITEST|__VITE|__coverage__)/;
 // Node's bundled undici installs these non-configurable symbols lazily. Their
 // lifecycle belongs to the host runtime, not to the test file that happens to
 // trigger initialization, and attempting to delete them poisons every later
@@ -402,8 +406,30 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
     },
   });
 
+  // Vitest's worker state names the file this reset starts. A reset that put back an
+  // earlier file's (as the globals diff did, #690) fails that file by name here, rather
+  // than leaving RNTL's cleanup, the ownership ledger and the bridge reading another
+  // file's module graph.
+  let startingFile = null;
+  manifest.register({
+    id: "vitest.worker-state",
+    capture: () => null,
+    restore: () => {},
+    verify: () => {
+      const filepath = globalThis.__vitest_worker__?.filepath;
+      if (startingFile !== null && filepath !== undefined && filepath !== startingFile) {
+        throw stateFailure(
+          `Vitest's worker state names ${filepath}, not the file starting, ${startingFile}`,
+        );
+      }
+    },
+  });
+
   return {
-    hotReset: () => manifest.beginFile(),
+    hotReset: (file = null) => {
+      startingFile = file;
+      manifest.beginFile();
+    },
     bless,
     registerState: manifest.register,
     stateEntries: manifest.entries,

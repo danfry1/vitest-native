@@ -238,6 +238,11 @@ describe("compare --hot: options, plan and banner", async () => {
   it("parses --hot with its own options and refuses Jest-only ones", () => {
     const ok = parseCompareArgs(["--hot", "--runs", "3", "--seed", "11", "--no-shuffle"]);
     expect(ok).toMatchObject({ hot: true, runs: 3, seed: 11, shuffle: false });
+    // The parser sets every --hot option; its defaults are the only ones (src/cli/index.ts
+    // passes them through as they are).
+    const defaults = parseCompareArgs(["--hot"]);
+    expect(defaults).toMatchObject({ hot: true, runs: 3, shuffle: true });
+    expect(Number.isInteger((defaults as { seed: number }).seed)).toBe(true);
     expect(parseCompareArgs(["--hot", "--jest-args", "--silent"])).toEqual({
       error: expect.stringContaining("--jest-args do not apply"),
     });
@@ -367,5 +372,80 @@ describe("compare --hot: review fixes", async () => {
         `${suffixed}[vitest-native] hotRuntime:'auto' kept default isolation: user pool\n`,
       ),
     ).toContain("declined: user pool");
+  });
+});
+
+describe("compare --hot: timing, by the evidence log's rules", async () => {
+  const { renderHotVerdict } = await import("../src/cli/compare-hot-run.js");
+  const { parseCompareArgs } = await import("../src/cli/compare-run.js");
+  const { timingRoles } = await import("../src/cli/compare-hot.js");
+  const walls = (pf: number[], hot: number[], extra: HotRun[] = []) => [
+    ...pf.map((ms, i) => run("per-file", suite, ms, { label: `per-file ${i + 1}` })),
+    ...hot.map((ms, i) => run("hot", suite, ms, { label: `hot ${i + 1}` })),
+    ...extra,
+  ];
+  const shuffled = run("hot", suite, 9999, { seed: 3, label: "hot shuffled (seed 3)" });
+  const workers = run("hot", suite, 9999, { untimed: true, label: "hot at --maxWorkers=2" });
+
+  it("defaults to three runs per mode: one warm-up and two timed", () => {
+    const parsed = parseCompareArgs(["--hot"]);
+    expect("error" in parsed ? parsed.error : parsed.runs).toBe(3);
+  });
+
+  it("gives each run a role: the first of a mode warms up, shuffled and worker runs are checks", () => {
+    expect(timingRoles(walls([9, 5, 6], [7, 2, 3], [shuffled, workers]))).toEqual([
+      "warm-up",
+      "timed",
+      "timed",
+      "warm-up",
+      "timed",
+      "timed",
+      "check",
+      "check",
+    ]);
+    // One run per mode is all there is: it is timed (and is too few for a verdict).
+    expect(timingRoles(walls([5], [2]))).toEqual(["timed", "timed"]);
+  });
+
+  it("says faster only when two timed runs per mode do not overlap, with the spread", () => {
+    const runs = walls([9000, 6000, 6400], [5000, 3000, 3200], [shuffled, workers]);
+    const v = compareHotRuns(runs);
+    expect(v.speed).toBe("faster");
+    expect(v.rangeMs).toEqual({ "per-file": [6000, 6400], hot: [3000, 3200] });
+    expect(v.speedup).toBeCloseTo(2.0, 5);
+    const text = renderHotVerdict(v, runs).join("\n");
+    expect(text).toContain("per-file 1                       9.0 s (warm-up, not timed)");
+    expect(text).toContain("hot shuffled (seed 3)            10.0 s (order check, not timed)");
+    expect(text).toContain("hot at --maxWorkers=2            10.0 s (worker check, not timed)");
+    expect(text).toContain(
+      "Timing, 2 timed runs per mode: per file 6.2 s median (6.0–6.4 s), hot 3.1 s median (3.0–3.2 s): hot is 2.0× faster.",
+    );
+  });
+
+  it("makes no speed claim when the ranges overlap", () => {
+    const v = compareHotRuns(walls([9000, 2500, 2700], [3000, 2600, 2800]));
+    expect(v.speed).toBe("within-spread");
+    expect(v.speedup).toBeNull();
+    expect(renderHotVerdict(v, []).join("\n")).toContain(
+      "the ranges overlap, so no speed difference can be claimed.",
+    );
+  });
+
+  it("says slower when hot's fastest run is slower than per file's slowest", () => {
+    const v = compareHotRuns(walls([9000, 2000, 2100], [3000, 3000, 3200]));
+    expect(v.speed).toBe("slower");
+    expect(renderHotVerdict(v, []).join("\n")).toContain("hot is 1.5× slower here");
+  });
+
+  it("with one timed run per mode, says so and gives no verdict", () => {
+    // obytes with --runs 2: per file 2.5 s, hot 2.6 s, one timed run each.
+    const v = compareHotRuns(walls([8944, 2467], [3436, 2603], [shuffled]));
+    expect(v.speed).toBe("too-few-samples");
+    expect(v.speedup).toBeNull();
+    const text = renderHotVerdict(v, []).join("\n");
+    expect(text).toContain(
+      "Timing: one timed run per mode (per file 2.5 s, hot 2.6 s), too few to say whether hot is faster. Rerun with --runs 3 or more",
+    );
+    expect(text).not.toMatch(/× faster|slower here|nothing to gain/);
   });
 });
