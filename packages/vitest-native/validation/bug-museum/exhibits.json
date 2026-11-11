@@ -2099,6 +2099,25 @@
         "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
         "proof": "landed proven"
       }
+    },
+    {
+      "id": "cfg-parallel-setup-files",
+      "class": "config",
+      "title": "A setup file that imports react-native fails under parallel setup files",
+      "source": "a survey of public projects that use vitest-native",
+      "fixedBy": "the setup-file order fix",
+      "bugSignature": "^setup-order\\.test\\.ts: Unexpected token 'typeof'$",
+      "control": {
+        "why": "The app runs its setup files as a list, so the engine's setup finishes before the app's starts: the bug's precondition is gone.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "sequence: { setupFiles: \"parallel\" },",
+            "replace": "sequence: { setupFiles: \"list\" },"
+          }
+        ]
+      },
+      "fixRef": "964c6c664c6032c6f0a908f9747977e57dae2f96"
     }
   ]
 }
