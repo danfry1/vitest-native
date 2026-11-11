@@ -7,8 +7,8 @@
 
 ## The bug
 
-An app lists its own setup file in `test.setupFiles`, and that file reads `react-native`
-as its first statement. The app also sets `sequence.setupFiles: 'parallel'`. The engine already
+An app lists its own setup file in `test.setupFiles`, and that file imports `react-native`
+at its top level. The app also sets `sequence.setupFiles: 'parallel'`. The engine already
 places its setup file first in the list, but Vitest imports every setup file at once in
 that mode. The app's file reaches React Native before the engine's setup has installed its
 require hooks, and Node fails on React Native's Flow source: `SyntaxError: Unexpected

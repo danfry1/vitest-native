@@ -1,6 +1,4 @@
-// An app setup file with no imports of its own, which reads React Native as its first
-// statement, as a CommonJS-style setup does.
-import { createRequire } from "node:module";
+// An app setup file that imports React Native at its top level.
+import { Platform } from "react-native";
 
-const { Platform } = createRequire(import.meta.url)("react-native");
 (globalThis as { setupSawOS?: string }).setupSawOS = Platform.OS;
