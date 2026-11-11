@@ -9,6 +9,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { mockCorrections } from "../src/presets/reanimated.js";
+import { renderHook } from "@testing-library/react-native";
 
 const dir = path.dirname(
   createRequire(import.meta.url).resolve("react-native-reanimated/package.json"),
@@ -85,6 +86,9 @@ const NAMES = [
   "useAnimatedSensor",
   "makeMutable",
 ] as const;
+
+const fixedSharedValue = (react: typeof React) =>
+  mockCorrections(react, noOpMock(), dir).useSharedValue;
 
 describe("reanimated mock corrections", () => {
   it("replace each name the mock answers with a no-op", () => {
@@ -172,5 +176,51 @@ describe("reanimated mock corrections", () => {
     } finally {
       console.error = error;
     }
+  });
+
+  // A plain call outside a render answers, as the library's mock does; an error from
+  // useRef that is not React's outside-a-render one propagates (#747).
+  describe("outside a render", () => {
+    // A React inside a renderer's lifetime: its dispatcher is set, and useRef throws.
+    const corrected = (useRef: () => unknown) =>
+      mockCorrections(
+        {
+          ...React,
+          useRef,
+          __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: { H: {} },
+        } as typeof React,
+        noOpMock(),
+        dir,
+      ).useSharedValue;
+
+    it("answers before any render (React's dispatcher is null)", () => {
+      expect(fixedSharedValue(React)(4).value).toBe(4);
+    });
+
+    it("answers after a render (React's dispatcher stays set and throws)", async () => {
+      await renderHook(() => null);
+      const internals = (React as Record<string, any>)
+        .__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+      expect(internals.H, "a renderer's dispatcher after its render").not.toBeNull();
+      expect(fixedSharedValue(React)(7).value).toBe(7);
+    });
+
+    it.each([
+      "Invalid hook call. Hooks can only be called inside of the body of a function component.",
+      "Minified React error #321; visit https://react.dev/errors/321 for the full message",
+    ])("answers on React's invalid-hook-call error: %s", (message) => {
+      const useSharedValue = corrected(() => {
+        throw new Error(message);
+      });
+      expect(useSharedValue(5).value).toBe(5);
+    });
+
+    it("rethrows any other error from useRef", () => {
+      const bug = new TypeError("not React's: a bug elsewhere");
+      const useSharedValue = corrected(() => {
+        throw bug;
+      });
+      expect(() => useSharedValue(6)).toThrow(bug);
+    });
   });
 });

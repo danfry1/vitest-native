@@ -469,17 +469,35 @@ const EVENT_PROPS: Record<string, keyof ScrollHandlers> = {
 };
 
 /**
+ * React's error for a hook called outside a render: "Invalid hook call. …" from a
+ * development build, error #321 from a production one. Thrown by the dispatcher a renderer
+ * leaves in place after its first render. Checked against React 19.0 to 19.3 with
+ * react-test-renderer and react-native's renderer (react-reconciler's
+ * throwInvalidHookError); the message's opening words are stable across those releases.
+ */
+const INVALID_HOOK_CALL = /^(?:Invalid hook call\.|Minified React error #321[;:])/;
+
+/**
  * React's `useRef` in a render, or null outside one (where hooks cannot run). Reanimated's
- * own mock gives shared values outside a render, so its corrected hooks do too. `React` is
- * the test file's (the factory's context), so `useRef` throws only outside a render: the
- * catch cannot hide a hook error of a render with another React. React gives no public way
- * to ask whether a render is in progress (#747).
+ * own mock gives shared values outside a render, so its corrected hooks do too (#747).
+ * React gives no public way to ask whether a render is in progress, so outside one is
+ * recognised by what React does there, and anything else propagates:
+ * - before any renderer has rendered, React's hook dispatcher is null and `useRef` would
+ *   log "Invalid hook call" and then fail reading null; the dispatcher is read instead
+ *   (React 19's client internals, as resident-health.mjs reads its act queue);
+ * - afterwards, `useRef` throws React's invalid-hook-call error (INVALID_HOOK_CALL).
+ * `React` is the test file's (the factory's context), so a render with another React is
+ * not mistaken for "outside a render" unless the project has two copies of React.
  */
 function useRefOrNull<T>(React: typeof import("react")): { current: T | null } | null {
+  const internals = (React as Record<string, any>)
+    .__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+  if (internals && internals.H === null) return null;
   try {
     return React.useRef<T | null>(null);
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof Error && INVALID_HOOK_CALL.test(error.message)) return null;
+    throw error;
   }
 }
 
