@@ -5,4 +5,7 @@
  * Each takes minutes on Windows CI. They run in test:native:main only, and the other
  * configs that include tests-native/*.test.ts exclude them.
  */
-export const SPAWNS_OWN_RUN = ["tests-native/hot-preset-esm-generation.test.ts"];
+export const SPAWNS_OWN_RUN = [
+  "tests-native/hot-fresh-preset-react.test.ts",
+  "tests-native/hot-preset-esm-generation.test.ts",
+];

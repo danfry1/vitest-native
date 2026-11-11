@@ -1,0 +1,12 @@
+{
+  "name": "react-native-safe-area-context",
+  "version": "5.7.0",
+  "description": "Stand-in with the published layout of 5.7.0, the version Expo SDK 57 pins: its Jest mock ships only as source (jest/mock.tsx), with no built lib/module/jest/mock.js, so vitest-native serves its built-in safe-area module.",
+  "main": "lib/commonjs/index.js",
+  "module": "lib/commonjs/index.js",
+  "react-native": "lib/commonjs/index.js",
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  }
+}
