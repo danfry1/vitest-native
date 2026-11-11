@@ -11,9 +11,9 @@ Try it when a suite is large enough that loading React Native in every file take
 ## Turning it on
 
 ```ts
-reactNative({ hotRuntime: 'auto' })  // hot where the run can be bounded, per-file isolation otherwise
-reactNative({ hotRuntime: true })    // require it; fail at startup where it cannot run
-reactNative({ hotRuntime: false })   // the default: a fresh worker per file
+reactNative({ hotRuntime: "auto" }); // hot where the run can be bounded, per-file isolation otherwise
+reactNative({ hotRuntime: true }); // require it; fail at startup where it cannot run
+reactNative({ hotRuntime: false }); // the default: a fresh worker per file
 ```
 
 The [`hotRuntime` option](/guide/plugin-options#hotruntime) lists every value and the object form's keys. The engine banner at the start of a run says `hot runtime` when it is on (unless a following `hot runtime off: …` line names why it was turned off), and the startup log names the worker count it chose, for example:
@@ -48,6 +48,17 @@ Workers stay alive, and some state is known to carry over from one file to the n
 - a `jest.mock` or `vi.mock` does not reach the requires React, its renderers, `scheduler` and RNTL make themselves; the test file's own code still gets the mock. Under Jest and per-file isolation these packages load again in every file and see its mocks, so in a file that mocks `react-native`, RNTL's own uses of it (`StyleSheet.flatten` in `fireEvent`, say) see the real module under hot and the mock elsewhere. Serving them the mock would keep it for every later file on the worker. `hotRuntime: { freshRuntime: true }` loads them in every file, so they see the file's mocks as under Jest.
 
 With `hotRuntime: { freshRuntime: true }` (experimental), React, its renderers, `scheduler` and React Native Testing Library run again for every file, so the first five of these no longer apply: each file counts `useId` from the start, sees React's warnings, renders outside any `act()` scope an earlier file left open, loads the scheduler under its own timers, and has RNTL reinstall fake timers. It costs re-running those packages, about 5 ms per file with four workers and 17 ms with one, measured on a 135-file suite. A worker also holds a few earlier copies of React at a time, about 18 MB more heap than without the option in one measurement; it does not grow with the number of files, and worker recycling (`memoryLimit`, `recycleAfterFiles`) bounds it as usual.
+
+vitest-native's presets build their mocks with each file's React. A [preset of your own](/guide/presets#your-own-presets) whose factory makes components, contexts or hooks should do the same, using the React the factory is given rather than one imported at the module's top level, which keeps the first file's copy:
+
+```ts
+'my-lib': {
+  exports: ['ThingView'],
+  factory: ({ React }) => ({
+    ThingView: (props) => React.createElement('ThingView', props),
+  }),
+},
+```
 
 [Troubleshooting](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) describes each one and how to confirm it. Beyond these, vitest-native cannot discover every piece of state a third-party library keeps for the life of a process. A test that passes on its own but fails after other files is the sign: set `hotRuntime: false` for that suite, and [report it](https://github.com/danfry1/vitest-native/issues) with the library involved.
 
