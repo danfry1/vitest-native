@@ -7,6 +7,8 @@ which checks your versions and your config:
 npx vitest-native doctor
 ```
 
+Coming from 0.9 or older? Start with [Upgrading from 0.9 or older](#upgrading-from-0-9-or-older).
+
 ## Supported versions
 
 |                              | 0.15 needs                                     | An older one                                                               |
@@ -125,6 +127,65 @@ Snapshots of their output may change; review the diff and re-record with `vitest
   it.
 - **`init`, `doctor` and `migrate` exit 1 on a flag they do not take,** instead of ignoring it.
   Check scripts that pass extra flags to them.
+
+## Upgrading from 0.9 or older
+
+Go straight to 0.15; there is no need to stop at each release in between. The config keeps its
+shape: `reactNative()` from `vitest-native` and the helpers in `vitest-native/helpers` have the
+same names.
+
+1. Raise the versions in [Supported versions](#supported-versions). 0.9 accepted Node 20,
+   Vitest 4, Vite 6, React 18, React Native 0.81 and React Native Testing Library 12, none of
+   which 0.15 runs on. Check every row.
+2. Install `vitest-native@^0.15` and run `npx vitest-native doctor`.
+3. Run the suite, then re-record snapshots once with `npx vitest run -u` and review the diff.
+4. Work through the failures with the sections above and the list below: the changes since 0.9
+   that most often need an edit.
+
+Under the native engine:
+
+- **Native modules answer as on a device.** `NativeModules[name]` is `undefined` and
+  `TurboModuleRegistry.get(name)` is `null` for a module no app registers, and a React Native
+  module's stub has only the methods its codegen spec declares. Register what a test needs with
+  [`mockNativeModule(name, impl)`](/guide/helpers#mocknativemodule-name-impl), or set
+  [`nativeModules: 'permissive'`](/guide/plugin-options#nativemodules) while you add them.
+- **Expo modules run as their installed packages,** with jest-expo's values: `Constants.expoConfig`
+  is `{}`, `Linking.createURL()` needs a scheme mocked into `expo-constants`, and
+  `Font.isLoaded()` is `false` until a font loads. `presets: { expo: true }` keeps the preset
+  while a suite moves off it.
+- **`require('./logo.png')` gives the asset's registered id,** as with Metro, not its file name.
+
+With either engine:
+
+- **Presets no longer export names the real package lacks.** Read `expoConfig` from
+  `expo-constants`' default export, and `Animated.View` from Reanimated's default.
+- **A `presets` array turns off auto-detection,** and under the native engine Gesture Handler's
+  and FlashList's own Jest setup with it. To turn off one preset, use
+  [`presets: { <name>: false }`](/guide/plugin-options#presets).
+- **A preset of your own is listed by its path,** as in
+  `presets: { './test/presets/my-lib.ts': true }`; a preset object passed in is refused.
+- **Unistyles and Skia are mocked automatically.** Remove the `react-native-unistyles/mocks`
+  setup file and any hand-written Skia mock.
+- **`hotRuntime: true` fails at startup** with `HOT_RUNTIME_OVERRIDDEN` when a pool,
+  `test.isolate` or a CLI flag conflicts with it, instead of overriding them.
+
+The changelog has the rest: each release's Minor Changes from 0.10 on, "Upgrading from 0.13" in
+0.14.0 and "Upgrading from 0.14" in 0.15.0.
+
+### From 0.3 or older
+
+0.3 ran the mock engine by default, a pure-JavaScript stand-in for React Native. Since 0.4,
+`reactNative()` runs React Native's own JavaScript whenever `react-native`, its Babel preset (or
+Expo's) and `@babel/core` are installed, as they are in a React Native or Expo app. Expect more
+tests to change than from 0.9.
+
+- To move a suite across in steps, set [`engine: 'mock'`](/guide/plugin-options#engine) to keep
+  the mock engine, then remove it once the suite passes under the native engine. Under the mock
+  engine, `useAnimatedValue`, `useAnimatedValueXY` and `useAnimatedColor` are now called inside
+  a component, as in React Native.
+- The [`mocks`](/guide/plugin-options#mocks) option applies to the mock engine only; the native
+  engine stops with a configuration error when it is set. Use `vi.mock()` in a setup file or
+  `mockNativeModule` instead.
 
 The full list of changes is in the
 [changelog](https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/CHANGELOG.md).

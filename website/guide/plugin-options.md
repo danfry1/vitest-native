@@ -63,9 +63,13 @@ An array of [third-party presets](/guide/presets). Presets are auto-detected fro
 When `presets` is an **array**, only those presets are used — auto-detection does not
 run. `presets: []` therefore disables every preset, including ones your app depends
 on. Omit the option entirely to keep auto-detection.
+
+Under the native engine, an array (including `[]`) also leaves out Gesture Handler's and
+FlashList's own Jest setup, which their native layer needs to load.
 :::
 
-To keep auto-detection and switch a single preset off, pass an **object** instead:
+To keep auto-detection and switch a single preset off, use `presets: { <name>: false }`, an
+**object**:
 
 ```ts
 reactNative({
