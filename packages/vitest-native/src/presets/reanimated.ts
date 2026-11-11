@@ -491,9 +491,20 @@ const INVALID_HOOK_CALL = /^(?:Invalid hook call\.|Minified React error #321[;:]
  * not mistaken for "outside a render" unless the project has two copies of React.
  */
 function useRefOrNull<T>(React: typeof import("react")): { current: T | null } | null {
+  // Only an explicit null dispatcher means "before any render". Where React has no such
+  // internals object or field (a future React renaming them), this falls through to the
+  // narrowed catch below, never to null inside a render; the installed React's fields are
+  // checked by name in tests/reanimated-mock-corrections.test.ts.
   const internals = (React as Record<string, any>)
     .__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
-  if (internals && internals.H === null) return null;
+  if (
+    internals != null &&
+    typeof internals === "object" &&
+    "H" in internals &&
+    internals.H === null
+  ) {
+    return null;
+  }
   try {
     return React.useRef<T | null>(null);
   } catch (error) {

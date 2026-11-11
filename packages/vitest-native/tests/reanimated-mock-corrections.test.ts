@@ -90,6 +90,18 @@ const NAMES = [
 const fixedSharedValue = (react: typeof React) =>
   mockCorrections(react, noOpMock(), dir).useSharedValue;
 
+// useRefOrNull (src/presets/reanimated.ts) reads React's private client internals to see
+// that no render has started. A React upgrade that renames them fails here by name, rather
+// than quietly sending every plain call through the narrowed catch.
+describe("the installed React's internals the reanimated preset reads", () => {
+  it("has __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE with an H field", () => {
+    const internals = (React as Record<string, any>)
+      .__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+    expect(internals, `React ${React.version}: the client internals object`).toBeTypeOf("object");
+    expect(internals, `React ${React.version}: the hook dispatcher field`).toHaveProperty("H");
+  });
+});
+
 describe("reanimated mock corrections", () => {
   it("replace each name the mock answers with a no-op", () => {
     const mock = noOpMock();
@@ -213,6 +225,29 @@ describe("reanimated mock corrections", () => {
         throw new Error(message);
       });
       expect(useSharedValue(5).value).toBe(5);
+    });
+
+    // React's internals are private: a React that renames them must not read as "outside
+    // a render". It falls through to useRef, so inside a render the ref is React's own.
+    it.each([
+      ["no internals object", {}],
+      [
+        "internals without H",
+        { __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: {} },
+      ],
+    ])("with %s, calls useRef rather than answering outside a render", (_, internals) => {
+      const ref = { current: null as unknown };
+      const useRef = vi.fn(() => ref);
+      const { __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: _drop, ...rest } =
+        React as Record<string, any>;
+      const useSharedValue = mockCorrections(
+        { ...rest, ...internals, useRef } as unknown as typeof React,
+        noOpMock(),
+        dir,
+      ).useSharedValue;
+      const first = useSharedValue(8);
+      expect(useRef).toHaveBeenCalled();
+      expect(useSharedValue(9), "one shared value per component, held in the ref").toBe(first);
     });
 
     it("rethrows any other error from useRef", () => {
