@@ -70,6 +70,11 @@ anyone:
   workflows and repository scripts) and `tests/practices.test.ts` (the docs' instructions)
   fail on either.
 - After moving fixtures around, check `bun.lock` for temporary `file:` paths before committing.
+- Install a throwaway fixture outside the repository (a reproduction, an older library) with
+  `node packages/vitest-native/scripts/scratch-install.mjs <dir>`, never a plain `bun install`.
+  bun reads `bunfig.toml` from the project it installs, so a scratch directory gets neither the
+  week-long release cooldown nor the repository's resolutions. The script applies both, refuses
+  young packages, installs with scripts off, and lists the packages new to the machine.
 - Don't use `git stash`. Every worktree of a repository shares one stash, so `git stash pop` can
   apply someone else's changes. Commit work in progress to your own branch, or make a scratch
   copy with `git worktree add`.
