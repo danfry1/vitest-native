@@ -28,7 +28,9 @@ import {
  *    depends on its own exact release. The tree is resolved again until no new override
  *    applies (an overridden vite asks for the repository's rolldown, and so on).
  * 3. Every package the repository's lockfile does not have is checked against the
- *    registry's publish time; one younger than the cooldown stops the install.
+ *    registry's publish time; one younger than the cooldown stops the install. So does one
+ *    resolved from git, a URL or a local path, which has no publish time, other than the
+ *    top level's own `file:` tarball.
  * 4. The install is frozen, with install scripts off, and the cooldown is also written to
  *    `<dir>/bunfig.toml` so a later `bun install` there keeps it.
  *
@@ -58,16 +60,21 @@ export function rangedTopLevel(manifest) {
   return problems;
 }
 
+/** A lockfile id's name and what it resolved to: a version, or a git, URL or file spec. */
+function splitId(id) {
+  // The first "@" after a scope: a git URL can hold another (git@github.com).
+  const at = id.indexOf("@", 1);
+  return at <= 0 ? null : { name: id.slice(0, at), spec: id.slice(at + 1) };
+}
+
 /** Every registry package a lockfile resolves: name → its versions. */
 export function lockedVersions(lock) {
   const versions = new Map();
   for (const entry of Object.values(lock.packages ?? {})) {
-    const id = entry[0];
-    const at = id.lastIndexOf("@");
-    if (at <= 0) continue;
-    const version = id.slice(at + 1);
-    if (!EXACT.test(version)) continue; // a workspace, link or tarball
-    const name = id.slice(0, at);
+    const split = splitId(entry[0]);
+    if (!split) continue;
+    const { name, spec: version } = split;
+    if (!EXACT.test(version)) continue; // a workspace, link, git or tarball
     if (!versions.has(name)) versions.set(name, new Set());
     versions.get(name).add(version);
   }
@@ -121,6 +128,32 @@ export function chooseOverrides({ repoLock, scratchLock, topLevel, satisfies }) 
     if (own.every(Boolean)) overrides[name] = version;
   }
   return overrides;
+}
+
+/**
+ * Every scratch package resolved from somewhere other than the registry (git, a tarball
+ * URL, a local path), but the top level's own `file:` tarballs. Those have no publish
+ * time, so the age check cannot see them.
+ */
+export function nonRegistryPackages(scratchLock, manifest) {
+  const ownFiles = new Set(
+    DEPENDENCY_FIELDS.flatMap((field) =>
+      Object.entries(manifest[field] ?? {})
+        .filter(([, spec]) => spec.startsWith("file:"))
+        .map(([name]) => name),
+    ),
+  );
+  const found = [];
+  for (const [key, entry] of Object.entries(scratchLock.packages ?? {})) {
+    const split = splitId(entry[0]);
+    if (split && EXACT.test(split.spec)) continue;
+    // The top level's own entry is keyed by its bare name; a nested copy (`parent/name`) is not.
+    if (split && ownFiles.has(key) && split.spec.startsWith("file:")) {
+      continue;
+    }
+    found.push(entry[0]);
+  }
+  return found.sort();
 }
 
 /** `name@version` for every scratch package the repository's lockfile does not have. */
@@ -217,6 +250,12 @@ export async function scratchInstall(dir, options = {}) {
     bun("--lockfile-only");
   }
   const scratchLock = readLock();
+  const unvetted = nonRegistryPackages(scratchLock, manifest);
+  if (unvetted.length > 0) {
+    throw new Error(
+      `scratch-install: not from the registry, so their age cannot be checked: ${unvetted.join(", ")}`,
+    );
+  }
   const resolved = lockedVersions(scratchLock);
   const ignored = Object.entries(overrides).filter(
     ([name, version]) => resolved.has(name) && [...resolved.get(name)].some((v) => v !== version),

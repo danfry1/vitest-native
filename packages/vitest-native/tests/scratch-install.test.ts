@@ -8,7 +8,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 // @ts-expect-error — runtime .mjs, no types
-import { chooseOverrides, scratchInstall } from "../scripts/scratch-install.mjs";
+import {
+  chooseOverrides,
+  nonRegistryPackages,
+  scratchInstall,
+} from "../scripts/scratch-install.mjs";
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.parse("2026-11-09T12:00:00Z");
@@ -181,5 +185,54 @@ describe("scratch-install", () => {
     expect(fs.readFileSync(path.join(dir, "bunfig.toml"), "utf8")).toContain(
       "minimumReleaseAge = 604800",
     );
+  });
+  it("finds every package not from the registry, but the top level's own file: tarball", () => {
+    const lock = JSON.parse(
+      bunLock(
+        { "vitest-native": "file:../vitest-native.tgz", react: "19.2.8" },
+        {
+          "vitest-native": ["vitest-native@file:../vitest-native.tgz"],
+          react: ["react@19.2.8"],
+          "@scope/from-github": ["@scope/from-github@github:someone/repo#0123abc"],
+          "from-ssh": ["from-ssh@git+ssh://git@github.com/someone/repo.git#0123abc"],
+          "from-url": ["from-url@https://example.com/from-url-1.0.0.tgz"],
+          // A nested copy is not the approval's, even under the same name.
+          "react/vitest-native": ["vitest-native@file:../elsewhere.tgz"],
+          "local-path": ["local-path@file:../somewhere"],
+        },
+      ).replace(/,(\s*[}\]])/g, "$1"),
+    );
+    expect(
+      nonRegistryPackages(lock, { dependencies: { "vitest-native": "file:../vitest-native.tgz" } }),
+    ).toEqual([
+      "@scope/from-github@github:someone/repo#0123abc",
+      "from-ssh@git+ssh://git@github.com/someone/repo.git#0123abc",
+      "from-url@https://example.com/from-url-1.0.0.tgz",
+      "local-path@file:../somewhere",
+      "vitest-native@file:../elsewhere.tgz",
+    ]);
+  });
+
+  it("refuses a transitive package from git before checking ages or installing", async () => {
+    const dir = scratch({ "react-native": "0.86.3", react: "19.2.8" });
+    const { exec, calls } = fakeBun((overrides) =>
+      scratchResolution(overrides).replace(
+        '    "rolldown": [',
+        '    "from-git": ["from-git@github:someone/repo#0123abc", "", {}, "x"],\n    "rolldown": [',
+      ),
+    );
+    const looked: string[] = [];
+    await expect(
+      scratchInstall(dir, {
+        exec,
+        satisfies,
+        publishTime: (name: string) => (looked.push(name), NOW - 30 * DAY),
+        now: NOW,
+        repoLockText: REPO_LOCK,
+        log() {},
+      }),
+    ).rejects.toThrow("from-git@github:someone/repo#0123abc");
+    expect(looked).toEqual([]);
+    expect(calls.some((call) => call.includes("--frozen-lockfile"))).toBe(false);
   });
 });
