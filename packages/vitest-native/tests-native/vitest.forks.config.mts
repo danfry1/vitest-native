@@ -16,6 +16,7 @@ import { jestMockTransform } from "../dist/jest-compat.mjs";
 import { NATIVE_SUITE_SETUP_FILES } from "./support/setup-files.mjs";
 import { NATIVE_SUITE_OWNERSHIP } from "./support/ownership-allow.mjs";
 import { OTHER_FIXTURES_MOCKS } from "./support/fixture-mocks.mts";
+import { SPAWNS_OWN_RUN } from "./support/spawns-own-run.mts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -58,6 +59,7 @@ export default defineConfig({
       "tests-native/android.test.ts",
       "tests-native/navigation-params.test.tsx",
       "tests-native/registry-background.test.ts",
+      ...SPAWNS_OWN_RUN,
     ],
   },
 });

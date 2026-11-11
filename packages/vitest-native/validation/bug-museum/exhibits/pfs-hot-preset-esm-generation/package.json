@@ -1,0 +1,5 @@
+{
+  "name": "pfs-hot-preset-esm-generation",
+  "private": true,
+  "type": "module"
+}
