@@ -2099,6 +2099,15 @@
         "measuredOn": "109727a04a4eb80cf45dc4fed99f4c7cd6865736",
         "proof": "landed proven"
       }
+    },
+    {
+      "id": "res-esbuild-reexport-jsx",
+      "class": "transform/resolution",
+      "title": "A component library built by esbuild with JSX preserved imports as an empty namespace",
+      "source": "a survey of public projects that use vitest-native (a tsup-built primitives library)",
+      "fixedBy": "the compiled re-export names fix",
+      "bugSignature": "^badge\\.test\\.tsx: (AssertionError: Badge\\.Root: expected 'undefined' to be 'function'.*|Error: Element type is invalid.*)$",
+      "fixRef": "3d74dd92839adfdd029809074bc3cf794d0f25ee"
     }
   ]
 }
