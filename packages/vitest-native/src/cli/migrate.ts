@@ -541,9 +541,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
           // package. The directory is absolute: Vite resolves a substituted alias
           // relative to the importer.
           const find = `${regexLiteral(plainPrefix.key).slice(0, -2)}\\/(${plainPrefix.rest})$/`;
-          addRegexAlias(
-            `{ find: ${find}, replacement: ${absolutePath(plainPrefix.dir)} + "/$1" }`,
-          );
+          addRegexAlias(`{ find: ${find}, replacement: ${absolutePath(plainPrefix.dir)} + "/$1" }`);
           automatic.push(
             `moduleNameMapper '${pattern}' → resolve.alias { find: ${find} } (absolute path).`,
           );
