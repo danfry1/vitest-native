@@ -204,6 +204,29 @@ export function wrapForOwnership(installed, root, model) {
   fs.writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
+/**
+ * Copies each package under `vendor` into `modules`, as a registry install copies it.
+ * Anything already at that name (an exhibit's `links` entry, or a link from a caller that
+ * vendors after linkAll) is removed first, link and all: copying onto a link writes into
+ * the directory it points to, which for an installed package is bun's shared store. In
+ * materialise's own order the vendored copy comes before linkAll, which then skips it.
+ */
+export function copyVendored(vendor, modules) {
+  if (!fs.existsSync(vendor)) return;
+  for (const entry of fs.readdirSync(vendor)) {
+    const names = entry.startsWith("@")
+      ? fs.readdirSync(path.join(vendor, entry)).map((n) => `${entry}/${n}`)
+      : [entry];
+    for (const name of names) {
+      const to = path.join(modules, name);
+      // A link, removed as a link: rmSync does not follow it into its target.
+      fs.rmSync(to, { recursive: true, force: true });
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.cpSync(path.join(vendor, name), to, { recursive: true });
+    }
+  }
+}
+
 /** Where the hot-axis wrapper records each reactNative() call it saw, in the exhibit root. */
 export const HOT_MARKER = ".museum-hot-calls";
 
@@ -295,16 +318,7 @@ export function materialise(
     if (nested) fs.cpSync(path.join(root, dir), at, { recursive: true, dereference: true });
     else fs.symlinkSync(path.join(root, dir), at);
   }
-  const vendor = path.join(root, "vendor");
-  if (fs.existsSync(vendor)) {
-    for (const entry of fs.readdirSync(vendor)) {
-      const names = entry.startsWith("@")
-        ? fs.readdirSync(path.join(vendor, entry)).map((n) => `${entry}/${n}`)
-        : [entry];
-      for (const name of names)
-        fs.cpSync(path.join(vendor, name), path.join(modules, name), { recursive: true });
-    }
-  }
+  copyVendored(path.join(root, "vendor"), modules);
   copyPackage(build, path.join(modules, "vitest-native"));
   if (ownershipModel !== "off")
     wrapForOwnership(path.join(modules, "vitest-native"), root, ownershipModel);
