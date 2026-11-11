@@ -17,6 +17,7 @@ const baseline = JSON.parse(
 const CEILING: Record<string, number> = {
   "no-monkey-patching": 22,
   "realpath-spelling": 7,
+  "root-containment": 15,
 };
 
 describe("lint baseline", () => {
