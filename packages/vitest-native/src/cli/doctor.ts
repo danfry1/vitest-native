@@ -164,6 +164,92 @@ export function extendsSharedConfig(source: string): boolean {
   return false;
 }
 
+/** Source extensions a shared config module can have, in the order a relative import tries them. */
+const CONFIG_MODULE_EXTENSIONS = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"];
+/** How many relative imports deep the config is followed (config → shared → its base). */
+const SHARED_CONFIG_DEPTH = 3;
+const RELATIVE_SPECIFIER =
+  /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)["'](\.{1,2}\/[^"']+)["']/g;
+
+/** The relative modules `code` imports (static, dynamic, side-effect, require). */
+function relativeSpecifiers(code: string): string[] {
+  return [...new Set([...code.matchAll(RELATIVE_SPECIFIER)].map((m) => m[1]))];
+}
+
+/** A relative import as a file, as Vite resolves it: as written, by extension, as a directory index. */
+function resolveConfigModule(fromFile: string, specifier: string): string | null {
+  const base = path.resolve(path.dirname(fromFile), specifier);
+  // TypeScript's ESM convention writes "./shared.js" for shared.ts.
+  const stem = /\.[cm]?js$/.test(base) ? base.replace(/\.([cm]?)js$/, "") : null;
+  const candidates = [
+    base,
+    ...CONFIG_MODULE_EXTENSIONS.map((ext) => base + ext),
+    ...(stem ? [".ts", ".mts", ".cts"].map((ext) => stem + ext) : []),
+    ...CONFIG_MODULE_EXTENSIONS.map((ext) => path.join(base, `index${ext}`)),
+  ];
+  return candidates.find((file) => fs.statSync(file, { throwIfNoEntry: false })?.isFile()) ?? null;
+}
+
+export interface SharedConfigUse {
+  /** The module (relative to the config's directory) that imports and calls reactNative(). */
+  via: string | null;
+  /** Why it could not be confirmed either way, when it was not found. */
+  unconfirmed: string | null;
+}
+
+/**
+ * Whether a config that does not import vitest-native itself builds on a module that does:
+ * a monorepo package's config merging a shared `../../vitest.shared.ts`, say. The config's
+ * relative imports are followed up to SHARED_CONFIG_DEPTH deep, each module once. A
+ * relative import that cannot be resolved or read, or the depth running out, leaves it
+ * unconfirmed rather than "does not import".
+ */
+export function sharedConfigUse(configFile: string): SharedConfigUse {
+  const shown = (file: string) =>
+    path.relative(path.dirname(configFile), file).split(path.sep).join("/");
+  const seen = new Set<string>([path.resolve(configFile)]);
+  let unconfirmed: string | null = null;
+  const note = (reason: string) => (unconfirmed ??= reason);
+  let level: string[] = [path.resolve(configFile)];
+  for (let depth = 1; level.length > 0; depth++) {
+    const next: string[] = [];
+    for (const file of level) {
+      let source: string;
+      try {
+        source = fs.readFileSync(file, "utf8");
+      } catch (error) {
+        note(
+          `${shown(file)} could not be read (${(error as NodeJS.ErrnoException).code ?? "error"})`,
+        );
+        continue;
+      }
+      const code = withoutComments(source);
+      if (file !== path.resolve(configFile)) {
+        const usage = analyzeConfigUsage(source);
+        if (usage.imports && usage.invokes) return { via: shown(file), unconfirmed: null };
+        if (usage.imports)
+          note(`${shown(file)} imports vitest-native but does not call reactNative() there`);
+      }
+      for (const specifier of relativeSpecifiers(code)) {
+        const target = resolveConfigModule(file, specifier);
+        if (!target) {
+          note(`'${specifier}' (imported by ${shown(file)}) could not be resolved`);
+          continue;
+        }
+        if (!CONFIG_MODULE_EXTENSIONS.includes(path.extname(target)) || seen.has(target)) continue;
+        if (depth > SHARED_CONFIG_DEPTH) {
+          note(`it builds on modules more than ${SHARED_CONFIG_DEPTH} imports deep`);
+          continue;
+        }
+        seen.add(target);
+        next.push(target);
+      }
+    }
+    level = next;
+  }
+  return { via: null, unconfirmed };
+}
+
 export interface ConfigUsage {
   /** The config imports vitest-native (not merely mentions it). */
   imports: boolean;
@@ -576,6 +662,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   } else {
     const content = fs.readFileSync(path.join(configRoot, configFile), "utf8");
     const usage = analyzeConfigUsage(content);
+    let shared: SharedConfigUse = { via: null, unconfirmed: null };
     // A Babel Vite plugin that repeats what the engine already applies: redundant, not a
     // conflict (the engine never steps aside for it; the worklets plugin run twice is a no-op).
     const code = withoutComments(content);
@@ -617,6 +704,8 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
         `${configFile} imports vitest-native but never calls reactNative() — ` +
           "the plugin is not in `plugins: [...]`, so React Native imports will not resolve.",
       );
+    } else if ((shared = sharedConfigUse(path.join(configRoot, configFile))).via) {
+      pass(`${configFile} uses vitest-native through ${shared.via}.`);
     } else if (extendsSharedConfig(content)) {
       // A workspace config that re-exports a shared preset cannot be judged from
       // this file: the plugin is wired up in the package it imports. Saying it does
@@ -625,6 +714,11 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       lines.push(
         `  · ${configFile} builds on a shared config, so this cannot tell from here ` +
           "whether the plugin is wired up. Check the config it extends.",
+      );
+    } else if (shared.unconfirmed) {
+      lines.push(
+        `  · couldn't confirm that ${configFile} uses vitest-native: it does not import it ` +
+          `itself, and ${shared.unconfirmed}. Check that reactNative() is in its plugins.`,
       );
     } else {
       warn(
