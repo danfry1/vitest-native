@@ -44,6 +44,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { VitestNativeError } from "../errors.mjs";
+import { unstamped } from "./generation-stamp.mjs";
 
 let runtime = null;
 
@@ -94,10 +95,14 @@ const INLINE_MAP =
   /\n\/\/# sourceMappingURL=data:application\/json;charset=utf-8;base64,([A-Za-z0-9+/=]+)\s*$/;
 const COMPILED_EXTENSION = /\.(?:[cm]?tsx?|mjs|jsx)$/;
 
-/** A coverage URL or path (`file:///…?vnhot=3`, `/…`, `C:/…`) as a file path. */
+/**
+ * A coverage URL or path (`file:///…?vnhot=3`, `file:///…/x.vnhot-3.js`, `/…`, `C:/…`)
+ * as the file's own path, without its generation (generation-stamp.mjs).
+ */
 export function coverageFile(url) {
-  if (url.startsWith("file://")) return fileURLToPath(url.replace(/[?#].*$/, ""));
-  return path.resolve(url.replace(/[?#].*$/, ""));
+  const plain = unstamped(url).replace(/[?#].*$/, "");
+  if (plain.startsWith("file://")) return fileURLToPath(plain);
+  return path.resolve(plain);
 }
 
 /** The vitest-native plugin's API on a Vitest project, if the project has the plugin. */

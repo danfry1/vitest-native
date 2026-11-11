@@ -263,10 +263,12 @@ function installLoaderHooks(data) {
   registerHooks({
     resolve: (specifier, context, nextResolve) =>
       fromRequire(context)
-        ? nextResolve(specifier, context)
+        ? nativeLoader.resolveRequire(specifier, context, nextResolve)
         : nativeLoader.resolveSync(specifier, context, nextResolve),
     load: (url, context, nextLoad) =>
-      fromRequire(context) ? nextLoad(url, context) : nativeLoader.loadSync(url, context, nextLoad),
+      fromRequire(context)
+        ? nativeLoader.loadRequire(url, context, nextLoad)
+        : nativeLoader.loadSync(url, context, nextLoad),
   });
 }
 

@@ -1,6 +1,7 @@
 // Node ESM loader hook (registered via module.register). Intercepts import() of RN —
 // which Module._extensions cannot — Flow-stripping and serving boundary mock source.
 import { nodeDispatch } from "../node-dispatch.mjs";
+import { SIBLING, isStamped, siblingOf, siblingPrologue, unstamped } from "./generation-stamp.mjs";
 import Module, { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { projectContext } from "../context.mjs";
@@ -419,13 +420,42 @@ function resolveAfter(resolved, context) {
   // `load` and every on-disk read below are unaffected.
   if (versionable(resolved.url)) {
     const gen = generationOf();
-    if (gen > 0 && !resolved.url.includes("vnhot=")) {
+    if (gen > 0 && !isStamped(resolved.url)) {
+      // An ES module as published gets its generation in its file name, the spelling a
+      // require of it gets too (resolveRequire), so one file reaches one instance.
+      if (servedAsModule(resolved.url)) {
+        return { ...resolved, url: siblingOf(resolved.url, gen), shortCircuit: true };
+      }
       const url = `${resolved.url}?vnhot=${gen}`;
       pinFacade(url, context.parentURL);
       return { ...resolved, url, shortCircuit: true };
     }
   }
   return resolved;
+}
+
+// One spelling per generation for an ES module as published, imported or required
+// (docs: hot-default-0.16.md, "one spelling per generation"; #722). Node keeps a
+// required ES module (require(esm)) by its file path and ignores a query in its URL, so
+// `?vnhot=N` left every require of one unstamped: one instance per worker, linked to the
+// generation it first saw, and a second instance beside every file's import of it. A
+// sibling name per generation in the same directory, `x.vnhot-N.js`, is a new path to
+// both caches. loadModule serves it from `x.js`, naming `x.js` as itself
+// (servedSibling), so nothing a user sees carries the generation.
+/**
+ * Whether the loader serves this stampable URL to Node as an ES module as published:
+ * an ES file (by Node's rule) that none of its hooks compiles or wraps. Those, and
+ * CommonJS files, keep `?vnhot=N` and the facades.
+ */
+function servedAsModule(url) {
+  if (!url.startsWith("file:") || /[?#]/.test(url)) return false;
+  const file = fileURLToPath(url);
+  const norm = file.replace(/\\/g, "/");
+  if (ownership.reactNativePathFor(file) !== null || isExtra(norm)) return false;
+  if (NODE_MODULES_TS.test(norm)) return false;
+  const ext = path.extname(norm).slice(1).toLowerCase();
+  if (ext && assetExtSet.has(ext)) return false;
+  return loadsAsModule(file);
 }
 
 // Node caches default resolutions by (specifier, parent URL). Under the hot runtime a
@@ -440,10 +470,10 @@ const STAMP = /[?&]vnhot=\d+/;
 const stampedResolutions = new Map();
 function stampedResolutionKey(specifier, context) {
   const parent = context.parentURL;
-  if (typeof parent !== "string" || !STAMP.test(parent)) return null;
+  if (typeof parent !== "string" || !isStamped(parent)) return null;
   return [
     specifier,
-    parent.replace(STAMP, ""),
+    unstamped(parent),
     (context.conditions ?? []).join(","),
     JSON.stringify(context.importAttributes ?? {}),
   ].join("\0");
@@ -463,6 +493,51 @@ export function isRequireContext(context) {
   const conditions = context?.conditions;
   if (!Array.isArray(conditions)) return true;
   return !conditions.includes("import");
+}
+
+// Whether Node loads `file` as an ES module, by Node's own rule: `.mjs` is one, `.cjs` is
+// not, and anything else follows the `type` of the nearest package.json. Kept per
+// directory, as Node keeps package scopes.
+const packageTypeByDir = new Map();
+function nearestPackageType(dir) {
+  let type = packageTypeByDir.get(dir);
+  if (type !== undefined) return type;
+  const manifest = path.join(dir, "package.json");
+  if (fs.existsSync(manifest)) {
+    let parsed = null;
+    try {
+      parsed = JSON.parse(fs.readFileSync(manifest, "utf8"));
+    } catch (error) {
+      // Node fails the load itself on a malformed package.json; this only reads a type.
+      if (!(error instanceof SyntaxError)) throw error;
+    }
+    type = parsed?.type === "module" ? "module" : "commonjs";
+  } else {
+    const parent = path.dirname(dir);
+    type = parent === dir ? "commonjs" : nearestPackageType(parent);
+  }
+  packageTypeByDir.set(dir, type);
+  return type;
+}
+function loadsAsModule(file) {
+  if (file.endsWith(".mjs")) return true;
+  if (!file.endsWith(".js")) return false;
+  return nearestPackageType(path.dirname(file)) === "module";
+}
+
+/**
+ * A require's resolution (setup.mjs routes every require here): an ES module as
+ * published gets its generation's sibling name, the spelling its import gets
+ * (resolvePlain), so a require and an import of it in one file reach one instance and
+ * each file a new one. Anything else is Node's answer, unchanged: a CommonJS file is
+ * dropped per file by the hot reset.
+ */
+export function resolveRequire(specifier, context, nextResolve) {
+  const resolved = nextResolve(specifier, context);
+  if (!genView || isStamped(resolved.url) || !versionable(resolved.url)) return resolved;
+  const gen = generationOf();
+  if (gen <= 0 || !servedAsModule(resolved.url)) return resolved;
+  return { ...resolved, url: siblingOf(resolved.url, gen) };
 }
 
 export function resolveSync(specifier, context, nextResolve) {
@@ -604,6 +679,29 @@ function recordModule(url, result) {
   if (result?.format !== "module") return;
   nodeDispatch().channel("ownership").nodeEsm?.(url);
 }
+/**
+ * A generation's sibling name (`x.vnhot-N.js`), served from `x.js` as Node would load
+ * it, an ES module, naming `x.js` as itself: `import.meta.url`, `.filename` and
+ * `.dirname` are set before the module's own code runs (on its first line, so line
+ * numbers hold), and `sourceURL` gives stack traces and source maps the real file.
+ */
+function servedSibling(url) {
+  const real = unstamped(url);
+  const file = fileURLToPath(real);
+  const meta = siblingPrologue(real, file, path.dirname(file));
+  const source = fs.readFileSync(file, "utf8");
+  return {
+    format: "module",
+    source: `${meta}${source}\n//# sourceURL=${real}\n`,
+    shortCircuit: true,
+  };
+}
+
+/** A require's load: a generation's sibling name (resolveRequire) is served from its file. */
+export function loadRequire(url, context, nextLoad) {
+  return SIBLING.test(url) ? servedSibling(url) : nextLoad(url, context);
+}
+
 function loadAsPublished(url, context, nextLoad) {
   const result = nextLoad(url, context);
   if (typeof result?.then === "function") {
@@ -938,6 +1036,7 @@ function loadModule(url, context, nextLoad) {
   }
 
   if (!url.startsWith("file:")) return nextLoad(url, context);
+  if (SIBLING.test(url)) return servedSibling(url);
   const file = fileURLToPath(url);
   const norm = file.replace(/\\/g, "/");
 

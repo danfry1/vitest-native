@@ -4,6 +4,7 @@
 // runtime's runner (runner.mjs) extends this one.
 import * as vitest from "vitest";
 import { withCompileLocation } from "./compile-error.mjs";
+import { reportStacksOf } from "./reported-stack.mjs";
 
 export default class NativeTestRunner extends vitest.TestRunner {
   async importFile(filepath, source) {
@@ -12,6 +13,18 @@ export default class NativeTestRunner extends vitest.TestRunner {
     } catch (error) {
       throw withCompileLocation(error, (file) => this.vitestNativeSourceMap(file));
     }
+  }
+
+  // A reported error names the files the hot runtime loaded under a generation stamp as
+  // themselves, source-mapped as Vite would have (reported-stack.mjs).
+  onAfterRunTask(task) {
+    reportStacksOf(task);
+    return super.onAfterRunTask?.(task);
+  }
+
+  onAfterRunSuite(suite) {
+    reportStacksOf(suite);
+    return super.onAfterRunSuite?.(suite);
   }
 
   /** The sourcemap Vite's module runner holds for the module compiled from `file`. */

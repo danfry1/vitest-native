@@ -16,6 +16,7 @@ import {
 import { VitestNativeError } from "../errors.mjs";
 import { projectContext } from "../context.mjs";
 import { docsUrl } from "../docs-url.mjs";
+import { stampOf, unstamped } from "./generation-stamp.mjs";
 
 /**
  * The engine's dispatcher channel the ledger lives on (node-dispatch.mjs): `ledger`, and
@@ -539,7 +540,8 @@ export function installOwnershipLedger({ projectRoot = process.cwd() } = {}) {
   const fileOf = (url) => {
     if (typeof url !== "string" || !url.startsWith("file:")) return null;
     try {
-      return fileURLToPath(url);
+      // The file itself, not a generation's sibling name (generation-stamp.mjs).
+      return fileURLToPath(unstamped(url));
     } catch {
       return null;
     }
@@ -548,12 +550,7 @@ export function installOwnershipLedger({ projectRoot = process.cwd() } = {}) {
   channel.nodeEsm = (url) => {
     const file = fileOf(url);
     if (file === null) return;
-    const stamp = /[?&]vnhot=(\d+)/.exec(url);
-    ledger.recordNode(
-      file,
-      { via: "esm", generation: stamp ? Number(stamp[1]) : null },
-      { key: keyOf(file) },
-    );
+    ledger.recordNode(file, { via: "esm", generation: stampOf(url) }, { key: keyOf(file) });
   };
   // The marker viteMarkerFor writes into each module Vite evaluates.
   channel.vite = (key, file) => ledger.recordVite(key, file);
