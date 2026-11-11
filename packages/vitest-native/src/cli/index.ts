@@ -17,6 +17,7 @@ import {
   parseCompareArgs,
   runCompare,
 } from "./compare-run.js";
+import { runCompareHot } from "./compare-hot-run.js";
 import { docsUrl } from "../docs-url.mjs";
 
 /** Each command's flags, besides --root <dir> and --help, which every command takes. */
@@ -62,6 +63,10 @@ Usage:
       --top <n>               groups and files to list (10)
       --timeout <seconds>     per runner (1800)         --show-output           stream both runners' output
       --strict                confirm a parametrised (%p) row only by its title, never by its place
+  vitest-native compare --hot                    run the suite per file and with hotRuntime 'auto',
+                                                 list every test whose result differs
+      --runs <n>              runs per mode (3)         --seed <n>              seed for the shuffled hot run
+      --no-shuffle            skip the shuffled hot run (--vitest-args, --vitest-config, --json, --timeout as above)
       exits 0 when every Jest-passing test passes under Vitest and \`vitest run\` exits 0,
       1 when not, 2 when a runner could not run or the project changed, 130 when interrupted
 Options:
@@ -135,6 +140,20 @@ export function main(
       if ("error" in parsed) {
         log(`✗ ${parsed.error}`);
         return 1;
+      }
+      if (parsed.hot) {
+        return runCompareHot({
+          root,
+          log,
+          vitestArgs: parsed.vitestArgs,
+          vitestConfig: parsed.vitestConfig,
+          json: parsed.json,
+          timeoutMs: parsed.timeoutMs,
+          showOutput: parsed.showOutput,
+          runs: parsed.runs,
+          shuffle: parsed.shuffle,
+          seed: parsed.seed,
+        });
       }
       return runCompare({ ...parsed, root, log });
     }

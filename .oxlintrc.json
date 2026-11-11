@@ -26,7 +26,8 @@
         "vitest-native/no-monkey-patching": "error",
         "vitest-native/no-doc-urls-in-src": "error",
         "vitest-native/realpath-spelling": "error",
-        "vitest-native/escaped-regexp": "error"
+        "vitest-native/escaped-regexp": "error",
+        "vitest-native/root-containment": "error"
       }
     }
   ],

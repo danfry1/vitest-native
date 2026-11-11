@@ -1,8 +1,8 @@
 <!--
   GENERATED FILE — do not edit by hand.
-  The committed version is a placeholder; pages.yml regenerates this page at
-  deploy time from the latest CI matrix run's cross-check reports
-  (scripts/fidelity-matrix.mjs).
+  The committed version is a placeholder. The RN matrix workflow renders this
+  page from its cross-check reports (scripts/fidelity-matrix.mjs) and publishes it
+  to the site-data branch, which the site's build fetches.
 -->
 # Fidelity matrix
 

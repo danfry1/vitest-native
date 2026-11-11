@@ -1,10 +1,16 @@
 import type { Plugin } from "vite";
 import fs from "node:fs";
+import { createRequire, isBuiltin } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MagicString } from "magic-string";
 import { VitestNativeError } from "../errors.mjs";
-import { findNodeModuleMocks, ignorePattern, type ManualMocks } from "./root-mocks.js";
+import {
+  findNodeModuleMocks,
+  ignorePattern,
+  packageOfRequest,
+  type ManualMocks,
+} from "./root-mocks.js";
 
 // Hoistable jest mock methods (Vitest only hoists these on the vi/vitest object).
 const HOISTABLE = new Set(["mock", "unmock", "doMock", "doUnmock"]);
@@ -203,6 +209,8 @@ function isViteOwnedSource(
   if (id.startsWith("\0") || !path.isAbsolute(id) || !SOURCE_FILE.test(id)) return false;
   let file = id;
   try {
+    // The OS's spelling (realpathSync.native), as Vite's ids are: the ownership policy
+    // matches each of its directories in every spelling (root-spelling.mjs).
     file = fs.realpathSync.native(id);
   } catch {
     // not on disk (a virtual id that looks like a path): judged as resolved
@@ -331,7 +339,16 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
       if (!module) return null;
       // Read here, not in config(): reactNative() decides its presets in configResolved.
       const owner = projectsByRoot.get(module.root) ?? project;
-      return rootMocksSource(module, (spec) => owner.coveredBy(spec));
+      const code = rootMocksSource(module, (spec) => owner.coveredBy(spec));
+      // The module has no file on disk. Without a map that carries its source, Vite reads
+      // the source from disk when it transforms the module and warns that the sourcemap
+      // "points to missing source files" on every cold run.
+      const map = new MagicString(code).generateMap({
+        hires: true,
+        includeContent: true,
+        source: id,
+      });
+      return { code, map };
     },
     // No `enforce` (normal order): this must run AFTER Vite's esbuild strips
     // TS/JSX (so `this.parse`, which is acorn, gets plain JS) but BEFORE Vitest's
@@ -370,7 +387,15 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
         return { code: adapted.s.toString(), map: adapted.s.generateMap({ hires: true }) };
       };
       // Synchronous unless a factory's jest.requireActual has to be resolved.
-      const adapted = adapt(this, code, id, owner, manualMockFor);
+      // A factory-less jest.mock(name) of an installed package with no manual mock: Jest
+      // automocks it for every load in the file, require() included (#621).
+      const viteRoot = (this as { environment?: { config?: { root?: string } } }).environment
+        ?.config?.root;
+      const automockable = (spec: string): boolean =>
+        isAutomockablePackage(spec, file, viteRoot) &&
+        manualMockFor(spec) === null &&
+        !moduleOwner.coveredBy(spec);
+      const adapted = adapt(this, code, id, owner, manualMockFor, automockable);
       return adapted instanceof Promise ? adapted.then(finish) : finish(adapted);
     },
   } as Plugin;
@@ -516,6 +541,34 @@ function jsString(value: string): string {
   );
 }
 
+/** Vitest's own manual-mock lookup for a package: `__mocks__/<name>` in the Vite root. */
+const MOCK_EXTENSIONS = ["", ".js", ".cjs", ".mjs", ".jsx", ".ts", ".cts", ".mts", ".tsx", ".json"];
+function hasRootManualMock(root: string, spec: string): boolean {
+  const base = path.join(root, "__mocks__", spec);
+  return MOCK_EXTENSIONS.some(
+    (ext) =>
+      fs.existsSync(base + ext) || (ext !== "" && fs.existsSync(path.join(base, `index${ext}`))),
+  );
+}
+
+/**
+ * Whether a factory-less jest.mock(spec) in `file` may become an automock the Node side
+ * serves too (#621): a package, installed where Node finds it from the file, that has no
+ * manual mock in the Vite root's __mocks__. Everything else keeps Vitest's own handling: a
+ * relative or aliased project module (whose manual mock may sit beside it), a Node core
+ * module, and React Native itself, which the native engine stands in for.
+ */
+function isAutomockablePackage(spec: string, file: string, root: string | undefined): boolean {
+  if (spec.startsWith(".") || spec.startsWith("\0") || path.isAbsolute(spec)) return false;
+  if (isBuiltin(spec) || packageOfRequest(spec) === "react-native") return false;
+  if (root && hasRootManualMock(root, spec)) return false;
+  try {
+    return NODE_MODULES.test(createRequire(file).resolve(spec));
+  } catch {
+    return false;
+  }
+}
+
 /** A file's jest.* calls, adapted (see rewrite). */
 interface Adapted {
   s: MagicString;
@@ -529,6 +582,7 @@ function adapt(
   id: string,
   project: Project,
   manualMockFor: (spec: string) => string | null = () => null,
+  automockable: (spec: string) => boolean = () => false,
 ): Adapted | null | Promise<Adapted | null> {
   let ast: any;
   try {
@@ -547,7 +601,7 @@ function adapt(
     const calls = ownLoadCalls(factory, literalSpec(node.arguments[0]), requireIsGlobal);
     if (calls.length > 0) candidates.set(factory, calls);
   });
-  if (candidates.size === 0) return rewrite(code, ast, new Map(), manualMockFor);
+  if (candidates.size === 0) return rewrite(code, ast, new Map(), manualMockFor, automockable);
 
   const specs = new Set([...candidates.values()].flat().map((call) => call.spec));
   return Promise.all(
@@ -565,7 +619,7 @@ function adapt(
       const moved = calls.filter((call) => owned.has(call.spec));
       if (moved.length > 0) toAsync.set(factory, moved);
     }
-    return rewrite(code, ast, toAsync, manualMockFor);
+    return rewrite(code, ast, toAsync, manualMockFor, automockable);
   });
 }
 
@@ -593,6 +647,7 @@ function rewrite(
   ast: any,
   toAsync: Map<any, { node: any; spec: string; kind: LoadKind }[]>,
   manualMockFor: (spec: string) => string | null = () => null,
+  automockable: (spec: string) => boolean = () => false,
 ): Adapted {
   const s = new MagicString(code);
   let changed = false;
@@ -679,6 +734,31 @@ function rewrite(
       const register = `globalThis.__vnJestMock?.(import.meta.url, ${name}, ${original}, ${viaVite})`;
       s.prependLeft(mockStatement.start, `vi.hoisted(() => ${register});\n`);
       s.appendLeft(specNode.end, `, () => ${SETUP}("__vnJestMocked")(import.meta.url, ${name})`);
+      return;
+    }
+
+    // A factory-less jest.mock / jest.doMock of an installed package with no manual mock:
+    // Jest automocks it for the whole file, require() included. Vitest's own automock
+    // reaches the test's imports only, so it becomes a factory that automocks the real
+    // module, registered with the Node-side registry like any other: the imports and every
+    // require share its one instance (#621).
+    if (
+      (prop.name === "mock" || prop.name === "doMock") &&
+      node.arguments.length === 1 &&
+      literal !== null &&
+      automockable(literal)
+    ) {
+      usesSetup = true;
+      const name = jsString(literal);
+      const factory = `function __vnAutomock() { return vi.mockObject(jest.requireActual(${name})); }`;
+      const register = `globalThis.__vnJestMock?.(import.meta.url, ${name}, ${factory})`;
+      const lookup = `() => ${SETUP}("__vnJestMocked")(import.meta.url, ${name})`;
+      if (prop.name === "mock" && mockStatement) {
+        s.prependLeft(mockStatement.start, `vi.hoisted(() => ${register});\n`);
+        s.appendLeft(specNode.end, `, ${lookup}`);
+      } else {
+        s.appendLeft(specNode.end, `, (${register}, ${lookup})`);
+      }
       return;
     }
 

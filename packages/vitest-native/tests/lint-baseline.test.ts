@@ -16,8 +16,9 @@ const baseline = JSON.parse(
 /** The most sites each rule may have listed. Lower these as sites are fixed. */
 const CEILING: Record<string, number> = {
   "no-monkey-patching": 22,
-  "realpath-spelling": 7,
+  "realpath-spelling": 2,
   "escaped-regexp": 10,
+  "root-containment": 12,
 };
 
 describe("lint baseline", () => {

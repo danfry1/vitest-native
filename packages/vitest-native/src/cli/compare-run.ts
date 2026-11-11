@@ -25,6 +25,7 @@ import { parseJestScript } from "./jest-discovery.js";
 import { installedManifest } from "./manifest.js";
 import { analyzeJestConfig } from "./migrate.js";
 import { docsUrl } from "../docs-url.mjs";
+import { relativeToRoot, rootSpellings } from "../native/root-spelling.mjs";
 
 export interface CompareOptions {
   root: string;
@@ -50,6 +51,11 @@ export interface CompareOptions {
    * Raw reports carry Jest's code frames, which the --json report removes.
    */
   rawReportsDir?: string;
+  /** `--hot`: compare per-file with hotRuntime 'auto' instead of Jest with Vitest. */
+  hot?: boolean;
+  runs?: number;
+  shuffle?: boolean;
+  seed?: number;
 }
 
 /** Split an argument string into words: whitespace separates, quotes group. */
@@ -210,14 +216,27 @@ const VALUED = [
   "json",
   "top",
   "timeout",
+  "runs",
+  "seed",
 ];
 export const COMPARE_VALUED_FLAGS = VALUED.map((f) => `--${f}`);
 /** compare's switches (no value). */
-const SWITCHES = ["show-output", "strict"];
+const SWITCHES = ["show-output", "strict", "hot", "no-shuffle"];
 export const COMPARE_SWITCHES = SWITCHES.map((f) => `--${f}`);
 
+/**
+ * What the command line gives: every option `parseCompareArgs` always sets is required here,
+ * so its defaults (`--runs 3`, shuffled, a random seed) are the only ones.
+ */
+export type ParsedCompareArgs = Omit<CompareOptions, "log"> & {
+  hot: boolean;
+  runs: number;
+  shuffle: boolean;
+  seed: number;
+};
+
 /** `compare`'s options from argv (after the command), or an error to print. */
-export function parseCompareArgs(argv: string[]): Omit<CompareOptions, "log"> | { error: string } {
+export function parseCompareArgs(argv: string[]): ParsedCompareArgs | { error: string } {
   const values = new Map<string, string>();
   const flags = new Set<string>();
   for (let i = 0; i < argv.length; i++) {
@@ -259,6 +278,26 @@ export function parseCompareArgs(argv: string[]): Omit<CompareOptions, "log"> | 
         `${docsUrl("/guide/cli#compare")}).`,
     };
   }
+  const hot = flags.has("hot");
+  if (hot) {
+    // Jest is not run under --hot: its options would be ignored silently.
+    const jestOnly = ["jest-args", "jest-results", "jest-root", "top"].filter((k) => values.has(k));
+    if (flags.has("strict")) jestOnly.push("strict");
+    if (jestOnly.length) {
+      return {
+        error: `--hot compares Vitest with itself; ${jestOnly.map((k) => `--${k}`).join(", ")} do not apply.`,
+      };
+    }
+  } else if (values.has("runs") || values.has("seed") || flags.has("no-shuffle")) {
+    return { error: "--runs, --seed and --no-shuffle apply only with --hot." };
+  }
+  const runs = Number(values.get("runs") ?? 3);
+  if (!Number.isInteger(runs) || runs < 1)
+    return { error: "--runs needs a positive whole number." };
+  const seed = values.has("seed")
+    ? Number(values.get("seed"))
+    : Math.floor(Math.random() * 2 ** 31);
+  if (!Number.isInteger(seed) || seed < 0) return { error: "--seed needs a whole number." };
   const top = Number(values.get("top") ?? 10);
   const timeout = Number(values.get("timeout") ?? 1800);
   if (!Number.isInteger(top) || top < 1) return { error: "--top needs a positive whole number." };
@@ -276,6 +315,10 @@ export function parseCompareArgs(argv: string[]): Omit<CompareOptions, "log"> | 
     timeoutMs: timeout * 1000,
     showOutput: flags.has("show-output"),
     strict: flags.has("strict"),
+    hot,
+    runs,
+    shuffle: !flags.has("no-shuffle"),
+    seed,
   };
 }
 
@@ -348,7 +391,7 @@ process.on("disconnect", () => {
 });
 `;
 
-function startGuardian(dirs: string[], parents: string[]): ReturnType<typeof spawn> | null {
+export function startGuardian(dirs: string[], parents: string[]): ReturnType<typeof spawn> | null {
   try {
     const guardian = spawn(
       process.execPath,
@@ -368,9 +411,9 @@ function startGuardian(dirs: string[], parents: string[]): ReturnType<typeof spa
   }
 }
 
-const SIGNALS: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
+export const SIGNALS: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
 
-interface Bounded {
+export interface Bounded {
   code: number | null;
   timedOut: boolean;
   interrupted: boolean;
@@ -418,7 +461,7 @@ export function outputLines(onLine: (line: string, stream: OutputStream) => void
  * 5 s, and once the runner exits whatever is left in its group is killed. A process a
  * test starts in a session of its own is out of reach, as it is under the runners.
  */
-function runBounded(
+export function runBounded(
   args: string[],
   options: {
     cwd: string;
@@ -525,7 +568,7 @@ function runBounded(
  * The environment for a runner: a parent test runner's per-worker identity removed, and
  * nothing that asks either runner to write snapshots.
  */
-function runnerEnv(): NodeJS.ProcessEnv {
+export function runnerEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (key.startsWith("VITEST") || key === "JEST_WORKER_ID" || key === "UPDATE_SNAPSHOT") continue;
@@ -541,13 +584,13 @@ function runnerEnv(): NodeJS.ProcessEnv {
 // Locating the runners and configs
 // ---------------------------------------------------------------------------
 
-interface Located {
+export interface Located {
   bin: string;
   version: string | null;
 }
 
 /** A package's bin, found as installedManifest finds the package (walking node_modules up). */
-function locateBin(root: string, pkg: string, binName: string): Located | null {
+export function locateBin(root: string, pkg: string, binName: string): Located | null {
   for (let dir = path.resolve(root); ; dir = path.dirname(dir)) {
     const pkgDir = path.join(dir, "node_modules", pkg);
     if (fs.existsSync(path.join(pkgDir, "package.json"))) {
@@ -600,6 +643,8 @@ export function wrapperSource(
   isolated: string,
   manifest: string,
   root: string,
+  /** `compare --hot`: the hotRuntime every vitest-native plugin in the config is set to. */
+  hotRuntime?: false | "auto",
 ): string {
   return `import path from "node:path";
 import fs from "node:fs";
@@ -645,8 +690,48 @@ function isolateProject(project, inherited) {
   };
 }
 
+const HOT_RUNTIME = ${hotRuntime === undefined ? "undefined" : JSON.stringify(hotRuntime)};
+const HOOK = Symbol.for("vitest-native.compare-hot-runtime");
+// Sets the mode on every vitest-native plugin, nested plugin arrays and inline projects
+// included, before Vite runs any hook. What compare cannot set (no plugin, a project given as
+// a path, a Promise plugin) is written to VN_COMPARE_PROBLEM, which compare reads after the
+// run and refuses on: no verdict from a run whose mode it did not control.
+function setHotRuntime(config) {
+  let found = 0;
+  const walk = (plugins) => {
+    if (!Array.isArray(plugins)) return;
+    for (const p of plugins) {
+      if (Array.isArray(p)) walk(p);
+      else if (p && typeof p[HOOK] === "function") { p[HOOK](HOT_RUNTIME); found++; }
+    }
+  };
+  const problems = [];
+  const refuse = (what) => {
+    problems.push(what + " cannot be set to one mode by compare; compare each project's config with --vitest-config instead");
+  };
+  const walkChecked = (plugins) => {
+    for (const p of Array.isArray(plugins) ? plugins.flat(Infinity) : []) {
+      if (p && typeof p.then === "function") refuse("a plugin given as a Promise");
+    }
+    walk(plugins);
+  };
+  walkChecked(config.plugins);
+  for (const project of Array.isArray(config.test?.projects) ? config.test.projects : []) {
+    if (typeof project === "string") refuse("a project given as a path or glob (" + project + ")");
+    else if (project && typeof project === "object") {
+      if (typeof project.extends === "string") refuse("a project that extends a config file (" + project.extends + ")");
+      walkChecked(project.plugins);
+    } else if (typeof project === "function") refuse("a project given as a function");
+  }
+  if (found === 0) problems.push("this config has no vitest-native plugin (reactNative())");
+  if (problems.length && process.env.VN_COMPARE_PROBLEM) {
+    fs.writeFileSync(process.env.VN_COMPARE_PROBLEM, problems.join("\\n"));
+  }
+}
+
 function compareConfig(config) {
   const resolved = mergeConfig(config ?? {}, {});
+  if (HOT_RUNTIME !== undefined) setHotRuntime(resolved);
   const test = resolved.test ?? {};
   const own = test.resolveSnapshotPath;
   resolved.test = {
@@ -880,7 +965,7 @@ function errorCode(error: unknown): string | undefined {
   return (error as NodeJS.ErrnoException | undefined)?.code;
 }
 
-function readReport(file: string): unknown | null {
+export function readReport(file: string): unknown | null {
   try {
     return JSON.parse(fs.readFileSync(file, "utf8"));
   } catch {
@@ -888,7 +973,7 @@ function readReport(file: string): unknown | null {
   }
 }
 
-function seconds(since: number): string {
+export function seconds(since: number): string {
   return `${((Date.now() - since) / 1000).toFixed(1)}s`;
 }
 
@@ -1097,7 +1182,9 @@ export async function runCompare(options: CompareOptions): Promise<number> {
     // unhandled errors and errors during close appear.
     const vitestOut = path.join(work, "vitest.json");
     const sanitizeCtx = {
-      roots: [root, fs.realpathSync(root)],
+      // Every spelling of the root: Vitest's output names files as Vite does (the OS's
+      // spelling, no Windows 8.3 short names), which the root as given may not be.
+      roots: rootSpellings(root),
       tmp: tmpSpellings(),
       home: os.homedir(),
     };
@@ -1175,7 +1262,8 @@ export async function runCompare(options: CompareOptions): Promise<number> {
       for (const line of fs.readFileSync(manifest, "utf8").split("\n")) {
         if (!line.trim()) continue;
         const entry = JSON.parse(line) as ManifestEntry;
-        const rel = path.relative(root, entry.testPath).split(path.sep).join("/");
+        // In whichever spelling of the root the test path is under (root-spelling.mjs).
+        const rel = relativeToRoot(root, entry.testPath).split(path.sep).join("/");
         resolutions.set(rel, entry);
       }
     }
@@ -1327,7 +1415,7 @@ function snapshotHint(
     : "no-vitest-snapshot";
 }
 
-function runFailure(name: string, run: Bounded, timeoutMs: number): string | null {
+export function runFailure(name: string, run: Bounded, timeoutMs: number): string | null {
   if (run.interrupted) return `${name} was interrupted.`;
   if (run.timedOut) {
     return `${name} did not finish within ${timeoutMs / 1000}s and was stopped; raise --timeout if the suite needs longer.`;
@@ -1335,7 +1423,7 @@ function runFailure(name: string, run: Bounded, timeoutMs: number): string | nul
   return null;
 }
 
-function reportFailure(log: (line: string) => void, message: string, run: Bounded): number {
+export function reportFailure(log: (line: string) => void, message: string, run: Bounded): number {
   log(`✗ ${message}`);
   const tail = run.tail.filter((l) => l.trim() !== "").slice(-20);
   if (tail.length) {

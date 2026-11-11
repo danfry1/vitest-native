@@ -437,6 +437,37 @@ describe("migrate", () => {
     expect(text).toContain("'someCustomKey' — unrecognized Jest key");
   });
 
+  it("keeps Jest's mapper order in resolve.alias, where the first match wins", () => {
+    // Shape from cherry-studio-app: the specific `@/assets/` mapper precedes the
+    // catch-all `@/`. A string `find: "@"` also takes `@/assets/x`, so emitting the
+    // string aliases ahead of the RegExp ones sent `@/assets/x` to src/assets/x.
+    const config = analyzeJestConfig(
+      fixture({
+        "package.json": { name: "x" },
+        "jest.config.json": {
+          moduleNameMapper: {
+            "^@shared/(.*)$": "<rootDir>/packages/shared/$1",
+            "^@/assets/(.*)$": "<rootDir>/assets/$1",
+            "^@/(.*)$": "<rootDir>/src/$1",
+            "^@logger$": "<rootDir>/src/logger.ts",
+          },
+        },
+      }),
+    ).suggestedConfig;
+    const at = (needle: string) => {
+      const index = config.indexOf(needle);
+      expect(index, needle).toBeGreaterThan(-1);
+      return index;
+    };
+    const shared = at("find: /^@shared\\/(.*)$/");
+    const assets = at("find: /^@\\/assets\\/(.*)$/");
+    const catchAll = at(`find: "@", replacement`);
+    const logger = at("find: /^@logger$/");
+    expect([shared, assets, catchAll, logger]).toEqual(
+      [shared, assets, catchAll, logger].toSorted((a, b) => a - b),
+    );
+  });
+
   it("translates any literal prefix mapper and drops keys with no Vitest effect", () => {
     // Shapes from Rocket.Chat.ReactNative and react-native-paper.
     const report = analyzeJestConfig(
@@ -846,6 +877,30 @@ module.exports = {
       `fileURLToPath(new URL("./config/polyfills.js", import.meta.url))`,
     );
     expect(report.suggestedConfig).toContain(`import { fileURLToPath } from 'node:url'`);
+  });
+
+  it("names a jest.mock factory that reads a module-level const while it runs", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { testEnvironment: "node" },
+      "src/checkSupportedVersions.test.ts": `const TODAY = '2023-04-01';
+jest.mock('~/supportedversions', () => ({ enforcementStartDate: TODAY }));
+test('x', () => {});
+`,
+      "src/fine.test.ts": `const LATER = 1;
+jest.mock('a', () => ({ get: () => LATER }));
+`,
+    });
+    withBabelParser(root);
+    // A broken link named like a test file is skipped, not fatal.
+    fs.symlinkSync(path.join(root, "missing.ts"), path.join(root, "src", "broken.test.ts"));
+    const attention = analyzeJestConfig(root).attention.join("\n");
+    expect(attention).toContain(
+      "1 jest.mock() factory reads a const, let or class from the test file's module body while it runs: " +
+        "src/checkSupportedVersions.test.ts:2 (jest.mock('~/supportedversions') reads TODAY)",
+    );
+    expect(attention).toContain("create it with vi.hoisted()");
+    expect(attention).not.toContain("fine.test.ts");
   });
 
   it("reads package.json#jest and reports a missing config honestly", () => {

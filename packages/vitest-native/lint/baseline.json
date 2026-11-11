@@ -10,29 +10,47 @@
     }
   },
   "realpath-spelling": {
-    "src/native/ownership-ledger.mjs": {
-      "count": 1,
-      "reason": "#592: realKey keys allow entries and preserve-symlinks lookups in Node's loader spelling; it is unified with identityKey under #592."
-    },
     "src/plugin.ts": {
-      "count": 2,
-      "reason": "#592: ownership.allow entries are keyed in Node's loader spelling (plugin.ts realpath of allow entries); and, for 0.16, hasSetupFile compares Node's spelling on both sides, which does not unify an 8.3 name with its long form: switch it to identityKey."
+      "count": 1,
+      "reason": "#592: ownership.allow entries are resolved in Node's loader spelling here; the ownership ledger matches them in both spellings (realKeys), so this one stays."
     },
     "src/native/shared-resolver.mjs": {
       "count": 1,
       "reason": "Not a spelling choice: the call exists so the file system raises ELOOP on a symlink loop before resolution continues."
+    }
+  },
+  "root-containment": {
+    "src/cli/compare-run.ts": {
+      "count": 4,
+      "reason": "Safe: three paths built from the root by the walk or path.resolve, and one check that compares JS realpath with JS realpath."
+    },
+    "src/cli/migrate.ts": {
+      "count": 2,
+      "reason": "Derived from the root: one path is path.resolve(root, file); the manual mocks are found by walking roots resolved from it, and the result is only shown."
+    },
+    "src/cli/mock-factory-reads.ts": {
+      "count": 1,
+      "reason": "Derived from the root: the file comes from walking it with path.join, so it has the root's spelling."
+    },
+    "src/cli/untranspiled.ts": {
+      "count": 1,
+      "reason": "Derived from the directory: the file comes from walking it, so it has the directory's spelling."
     },
     "src/jest-compat/transform.ts": {
       "count": 1,
-      "reason": "0.16 (#592 class): a native-spelled Vite id is checked against ownership policy directories spelled as given, which can differ under an 8.3 root."
+      "reason": "Derived from the root: manual mock files are found under module.root, and the relative path is only shown in a warning."
     },
-    "src/native/native-modules.mjs": {
+    "src/native/ecosystem.ts": {
       "count": 1,
-      "reason": "0.16 (#592 class): React Native roots in Node's spelling become the ownership policy's roots and are compared with Vite ids; review together with ownership.mjs's root check."
+      "reason": "Derived from the directory: the target is resolved from a file found by walking it."
     },
-    "src/cli/compare-run.ts": {
+    "src/native/library-jest.mjs": {
       "count": 1,
-      "reason": "0.16: the compare sanitizer gets the root as given and in Node's spelling but not the OS's, so long-name paths in Vitest's output are not sanitized under an 8.3 root; use rootSpellings."
+      "reason": "Derived from the file: root.dir comes from packageRootOf(file), the file's own spelling."
+    },
+    "src/plugin.ts": {
+      "count": 1,
+      "reason": "One spelling on both sides: roots and files are both native here (mayServe converts first)."
     }
   },
   "escaped-regexp": {

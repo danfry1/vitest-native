@@ -1,8 +1,16 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "bun install --frozen-lockfile",
-  "buildCommand": "SITE_BASE=/ bun run build:website",
+  "buildCommand": "node website/scripts/fetch-fidelity-matrix.mjs && SITE_BASE=/ bun run build:website",
   "outputDirectory": "website/.vitepress/dist",
   "framework": null,
-  "cleanUrls": true
+  "cleanUrls": true,
+  "ignoreCommand": "bash website/scripts/skip-unless-site-changed.sh",
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": true,
+      "docs/**": true
+    }
+  }
 }

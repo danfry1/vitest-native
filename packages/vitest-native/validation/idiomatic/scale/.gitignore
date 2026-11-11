@@ -1,4 +1,3 @@
 generated/
-.default.json
-.hot.json
-.noisolate.json
+# run-compare.mjs output, one per pass
+.*.json

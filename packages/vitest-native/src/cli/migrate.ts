@@ -35,6 +35,7 @@ import {
 } from "./jest-discovery.js";
 import { resolveJestPreset, withPresetSettings } from "./jest-preset.js";
 import { projectBabelTrigger } from "../project-babel.js";
+import { mockFactoryForwardReads } from "./mock-factory-reads.js";
 import { libraryResolver, onlyCallsSetUpTests, stripsOnlyReanimatedProps } from "./superseded.js";
 import {
   babelRecipe,
@@ -310,11 +311,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
   // Suggested-config fragments assembled at the end.
   const testEntries: string[] = [`globals: true`, `environment: 'node'`];
   const setupFiles: string[] = ["jestCompatSetup"];
-  // Object-form alias entries (`"key": value`), and RegExp-keyed ones that need
-  // Vite's array form ({ find, replacement }).
+  // Every alias as an array-form entry ({ find, replacement }), in the order Jest
+  // declared it: like moduleNameMapper, Vite's alias list takes the first match, and a
+  // string `find: "@"` also takes `@/assets/x`. The object form (`"key": value`) is
+  // used only when no entry needs a RegExp `find`.
   const aliasEntries: string[] = [];
   const aliasKeys = new Set<string>();
-  const regexAliases: string[] = [];
+  const aliasArray: string[] = [];
+  let regexAlias = false;
+  const addRegexAlias = (entry: string) => {
+    aliasArray.push(entry);
+    regexAlias = true;
+  };
   const transformPkgs: string[] = [];
   const extraImports: string[] = [];
   const extraPlugins: string[] = [];
@@ -365,6 +373,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
     if (aliasKeys.has(key)) return false;
     aliasKeys.add(key);
     aliasEntries.push(`${JSON.stringify(key)}: ${value}`);
+    aliasArray.push(`{ find: ${JSON.stringify(key)}, replacement: ${value} }`);
     return true;
   };
   // A project file a Jest setting names (`<rootDir>/x`, `./x`, `x`), or null.
@@ -532,9 +541,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
           // package. The directory is absolute: Vite resolves a substituted alias
           // relative to the importer.
           const find = `${regexLiteral(plainPrefix.key).slice(0, -2)}\\/(${plainPrefix.rest})$/`;
-          regexAliases.push(
-            `{ find: ${find}, replacement: ${absolutePath(plainPrefix.dir)} + "/$1" }`,
-          );
+          addRegexAlias(`{ find: ${find}, replacement: ${absolutePath(plainPrefix.dir)} + "/$1" }`);
           automatic.push(
             `moduleNameMapper '${pattern}' → resolve.alias { find: ${find} } (absolute path).`,
           );
@@ -581,7 +588,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
               : target.startsWith(".")
                 ? absolutePath(target)
                 : JSON.stringify(target);
-            regexAliases.push(`{ find: ${regexLiteral(literal)}, replacement: ${replacement} }`);
+            addRegexAlias(`{ find: ${regexLiteral(literal)}, replacement: ${replacement} }`);
             automatic.push(
               `moduleNameMapper '${pattern}' → resolve.alias { find: ${regexLiteral(literal)} } ` +
                 `(anchored: a string find would also catch '${literal}/…').`,
@@ -1000,6 +1007,22 @@ export function analyzeJestConfig(root: string): MigrationReport {
   }
 
   // The project's Babel config ran on every file under babel-jest and does not here.
+  // jest.mock factories that read a module-level const/let/class while they run.
+  const factoryReads = mockFactoryForwardReads(root);
+  if (factoryReads.length) {
+    const shown = factoryReads
+      .slice(0, 5)
+      .map((r) => `${r.file}:${r.line} (jest.mock('${r.module}') reads ${r.names.join(", ")})`);
+    attention.push(
+      `${factoryReads.length} jest.mock() ${factoryReads.length === 1 ? "factory reads" : "factories read"} a ` +
+        `const, let or class from the test file's module body while it runs: ${shown.join("; ")}` +
+        `${factoryReads.length > 5 ? `; and ${factoryReads.length - 5} more` : ""}. Mock factories run before ` +
+        `the module body, so when the mocked module is imported at the top of the test file (the usual case) ` +
+        `this throws "Cannot access '…' before initialization" under Vitest. Under babel-jest with React ` +
+        `Native's preset it read undefined instead, because the preset compiles const to var. Move the value ` +
+        `into the factory, or create it with vi.hoisted().`,
+    );
+  }
   const babel = readBabelConfig(root);
   if (babel.source) {
     const classified = classifyBabelPlugins(babel, root, active);
@@ -1127,15 +1150,9 @@ export function analyzeJestConfig(root: string): MigrationReport {
     );
   }
   // Vite's object form takes string keys only; a RegExp `find` needs the array form.
-  const aliasSource = regexAliases.length
+  const aliasSource = regexAlias
     ? `[\n      ...Object.entries(jestCompatAliases()).map(([find, replacement]) => ({ find, replacement })),\n` +
-      aliasEntries
-        .map((e) => {
-          const at = e.indexOf(": ");
-          return `      { find: ${e.slice(0, at)}, replacement: ${e.slice(at + 2)} },\n`;
-        })
-        .join("") +
-      regexAliases.map((e) => `      ${e},\n`).join("") +
+      aliasArray.map((e) => `      ${e},\n`).join("") +
       `    ]`
     : `{ ${["...jestCompatAliases()", ...aliasEntries].join(", ")} }`;
   // Under Vite+ the config is vite.config.ts with defineConfig from 'vite-plus', and
