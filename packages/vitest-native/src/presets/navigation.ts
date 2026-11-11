@@ -302,27 +302,14 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           };
 
           function useNavigation() {
-            // Inside a React component rendered within MockScreen, the context
-            // provides the screen-specific navigation object. Falls back to
-            // the default when called outside a component (e.g. in tests that
-            // call the mock directly) or when no Screen context is present.
-            try {
-              const ctx = React.useContext(NavigationContext);
-              if (ctx) return ctx;
-            } catch {
-              // useContext throws outside a render — fall through to default.
-            }
-            return defaultNavigation;
+            // Inside a component rendered within MockScreen, the context provides the
+            // screen-specific navigation object; with no Screen context, the default.
+            // Outside a render it throws, as React Navigation's own hook does (#747).
+            return React.useContext(NavigationContext) ?? defaultNavigation;
           }
 
           function useRoute() {
-            try {
-              const ctx = React.useContext(NavigationRouteContext);
-              if (ctx) return ctx;
-            } catch {
-              // useContext throws outside a render — fall through to default.
-            }
-            return defaultRoute;
+            return React.useContext(NavigationRouteContext) ?? defaultRoute;
           }
 
           function useFocusEffect(callback: () => any) {
@@ -367,13 +354,8 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           }
 
           function useTheme() {
-            // Outside a render (a plain call, common in tests) useContext is not
-            // available; the context default IS DefaultTheme, so answer that directly.
-            try {
-              return React.useContext(ThemeContext) ?? DefaultTheme;
-            } catch {
-              return DefaultTheme;
-            }
+            // Outside a render it throws, as React Navigation's own hook does (#747).
+            return React.useContext(ThemeContext) ?? DefaultTheme;
           }
 
           function NavigationIndependentTree({ children }: any) {

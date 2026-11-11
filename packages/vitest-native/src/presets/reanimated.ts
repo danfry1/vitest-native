@@ -468,7 +468,13 @@ const EVENT_PROPS: Record<string, keyof ScrollHandlers> = {
   onMomentumScrollEnd: "onMomentumEnd",
 };
 
-/** React's `useRef` in a render, or null outside one (where hooks cannot run). */
+/**
+ * React's `useRef` in a render, or null outside one (where hooks cannot run). Reanimated's
+ * own mock gives shared values outside a render, so its corrected hooks do too. `React` is
+ * the test file's (the factory's context), so `useRef` throws only outside a render: the
+ * catch cannot hide a hook error of a render with another React. React gives no public way
+ * to ask whether a render is in progress (#747).
+ */
 function useRefOrNull<T>(React: typeof import("react")): { current: T | null } | null {
   try {
     return React.useRef<T | null>(null);
