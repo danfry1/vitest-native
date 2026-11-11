@@ -21,6 +21,13 @@ import * as Badge from "rn-esbuild-reexport-lib";
 // reads the names of from the loaded module: a guard that it stays that way.
 import * as BadgeCjs from "rn-esbuild-reexport-lib/cjs";
 
+// The bug's condition: the namespace is built from the ES index, which the engine
+// compiles, and whose re-exported module Node cannot read from disk. The CommonJS index,
+// run as published, never had the bug, so a resolution change to it would pass vacuously.
+it("resolves the package to its ES index, the build the bug was in", () => {
+  expect(import.meta.resolve("rn-esbuild-reexport-lib")).toMatch(/\/build\/index\.mjs$/);
+});
+
 it.each([
   ["the ES build, compiled", Badge],
   ["the CommonJS index, as published", BadgeCjs],
