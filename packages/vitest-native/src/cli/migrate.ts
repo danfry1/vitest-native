@@ -311,11 +311,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
   // Suggested-config fragments assembled at the end.
   const testEntries: string[] = [`globals: true`, `environment: 'node'`];
   const setupFiles: string[] = ["jestCompatSetup"];
-  // Object-form alias entries (`"key": value`), and RegExp-keyed ones that need
-  // Vite's array form ({ find, replacement }).
+  // Every alias as an array-form entry ({ find, replacement }), in the order Jest
+  // declared it: like moduleNameMapper, Vite's alias list takes the first match, and a
+  // string `find: "@"` also takes `@/assets/x`. The object form (`"key": value`) is
+  // used only when no entry needs a RegExp `find`.
   const aliasEntries: string[] = [];
   const aliasKeys = new Set<string>();
-  const regexAliases: string[] = [];
+  const aliasArray: string[] = [];
+  let regexAlias = false;
+  const addRegexAlias = (entry: string) => {
+    aliasArray.push(entry);
+    regexAlias = true;
+  };
   const transformPkgs: string[] = [];
   const extraImports: string[] = [];
   const extraPlugins: string[] = [];
@@ -366,6 +373,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
     if (aliasKeys.has(key)) return false;
     aliasKeys.add(key);
     aliasEntries.push(`${JSON.stringify(key)}: ${value}`);
+    aliasArray.push(`{ find: ${JSON.stringify(key)}, replacement: ${value} }`);
     return true;
   };
   // A project file a Jest setting names (`<rootDir>/x`, `./x`, `x`), or null.
@@ -533,7 +541,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
           // package. The directory is absolute: Vite resolves a substituted alias
           // relative to the importer.
           const find = `${regexLiteral(plainPrefix.key).slice(0, -2)}\\/(${plainPrefix.rest})$/`;
-          regexAliases.push(
+          addRegexAlias(
             `{ find: ${find}, replacement: ${absolutePath(plainPrefix.dir)} + "/$1" }`,
           );
           automatic.push(
@@ -582,7 +590,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
               : target.startsWith(".")
                 ? absolutePath(target)
                 : JSON.stringify(target);
-            regexAliases.push(`{ find: ${regexLiteral(literal)}, replacement: ${replacement} }`);
+            addRegexAlias(`{ find: ${regexLiteral(literal)}, replacement: ${replacement} }`);
             automatic.push(
               `moduleNameMapper '${pattern}' → resolve.alias { find: ${regexLiteral(literal)} } ` +
                 `(anchored: a string find would also catch '${literal}/…').`,
@@ -1144,15 +1152,9 @@ export function analyzeJestConfig(root: string): MigrationReport {
     );
   }
   // Vite's object form takes string keys only; a RegExp `find` needs the array form.
-  const aliasSource = regexAliases.length
+  const aliasSource = regexAlias
     ? `[\n      ...Object.entries(jestCompatAliases()).map(([find, replacement]) => ({ find, replacement })),\n` +
-      aliasEntries
-        .map((e) => {
-          const at = e.indexOf(": ");
-          return `      { find: ${e.slice(0, at)}, replacement: ${e.slice(at + 2)} },\n`;
-        })
-        .join("") +
-      regexAliases.map((e) => `      ${e},\n`).join("") +
+      aliasArray.map((e) => `      ${e},\n`).join("") +
       `    ]`
     : `{ ${["...jestCompatAliases()", ...aliasEntries].join(", ")} }`;
   // Under Vite+ the config is vite.config.ts with defineConfig from 'vite-plus', and
