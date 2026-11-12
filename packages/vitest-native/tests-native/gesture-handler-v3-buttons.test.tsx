@@ -94,3 +94,25 @@ it("a Touchable gets press-in, press-out and press, each with the button event",
   await userEvent.setup().press(screen.getByText("Buy"));
   expect(events).toEqual(["pressIn", "pressOut", "press:boolean"]);
 });
+
+// Gesture Handler 3's Touchable gives its native button no `accessible`, and on iOS the
+// button is an accessibility element only when told (isAccessibilityElement =
+// props.accessible, RNGestureHandlerButtonComponentView.mm). A role lookup reports that,
+// as VoiceOver would; the mock must not default it.
+it.each([
+  [false, "is not found by role without accessible, as on iOS"],
+  [true, "is found by role with accessible"],
+])("a Touchable with accessibilityRole (accessible: %s) %s", async (accessible) => {
+  await render(
+    <GestureHandlerRootView>
+      <StyledTouchable
+        {...(accessible ? { accessible: true } : {})}
+        accessibilityRole="button"
+        onPress={() => {}}
+      >
+        <Text>Buy</Text>
+      </StyledTouchable>
+    </GestureHandlerRootView>,
+  );
+  expect(screen.queryByRole("button", { name: "Buy" }) !== null).toBe(accessible);
+});
