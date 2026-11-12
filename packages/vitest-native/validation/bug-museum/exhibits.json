@@ -1134,6 +1134,28 @@
       }
     },
     {
+      "id": "pfs-hot-nonconfigurable-global",
+      "class": "per-file-state",
+      "title": "Under hot, a non-configurable global fails every later file in the worker",
+      "source": "#773 (an app suite reaching the openai SDK, 2026-11-11)",
+      "fixedBy": "a property no reset can remove joins the worker baseline",
+      "bugSignature": "^[b-e]\\.test\\.ts: .*hotRuntime state restoration failed",
+      "control": {
+        "why": "The stock runtime (hotRuntime: false) starts every file in a fresh worker, so each file defines the property on a clean global object.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "hotRuntime: { allowUnboundedMemory: true }",
+            "replace": "hotRuntime: false"
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS"
+      }
+    },
+    {
       "id": "pfs-hot-warning-dedupe",
       "class": "per-file-state",
       "title": "Under hot, React's warning dedupe hides a warning the file asserts",
