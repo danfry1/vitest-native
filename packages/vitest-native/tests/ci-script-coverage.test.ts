@@ -33,6 +33,8 @@ const NOT_ON_PULL_REQUESTS: Record<string, string> = {
   "format:check": "CI runs the root format:check, which checks the same directories",
   lint: "CI runs the root lint, which lints the same directories",
   prepublishOnly: "a local pre-publish bundle of checks that CI runs as separate steps",
+  "test:native:ownership":
+    "runs the four test:native:ownership:* parts for local use; CI runs the parts in test:native, in parallel",
   "test:native:conformance-mock":
     "the mock engine's conformance job, to be its own CI job (pK); remove this entry when it is wired",
 };

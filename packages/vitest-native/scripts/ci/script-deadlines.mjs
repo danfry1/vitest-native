@@ -11,13 +11,13 @@
 // 63a20219 to 1cb74f09 (perf-evidence/runs/20261107-pK-native-script-durations). A
 // script not listed keeps VN_SCRIPT_DEADLINE_MS (600 s): every other script's slowest
 // run was under 300 s. When a listed script's runs grow toward its deadline, measure
-// again and update the row; do not raise it blind.
+// again and update the row; do not raise it blind. A script that outgrows any sensible
+// deadline is split instead: test:native:ownership was eight Vitest runs in one script
+// (467-914 s on Windows) and is now four parts that run in parallel, each under 300 s.
 const MINUTE = 60_000;
 
 /** Script → { platform: deadline in ms }. Slowest green run in each comment. */
 export const SCRIPT_DEADLINES = {
-  // win 558.1 s (90f96474; later runs exceed 600 s), mac 412.8 s, linux 407.5 s.
-  "test:native:ownership": { win32: 20 * MINUTE, darwin: 14 * MINUTE, linux: 14 * MINUTE },
   // win 303.1 s, mac 153.5 s, linux 191.7 s.
   "test:native:project-babel": { win32: 11 * MINUTE, darwin: 6 * MINUTE, linux: 7 * MINUTE },
 };

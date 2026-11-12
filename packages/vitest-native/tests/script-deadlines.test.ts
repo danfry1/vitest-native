@@ -49,8 +49,16 @@ describe("per-script CI deadlines", () => {
     }
   });
 
+  it("start first in test:native, longest first", () => {
+    // run-scripts starts scripts in the order given, a few at a time, so the longest has
+    // to start first or it becomes the tail of the run (ownership started 18th of 24).
+    const order = scripts["test:native"].split(" ").filter((part) => part.startsWith("test:"));
+    const listed = Object.keys(table).sort((a, b) => table[b].win32 - table[a].win32);
+    expect(order.slice(0, listed.length)).toEqual(listed);
+  });
+
   it("fall back to the run's default for every other script", () => {
     expect(deadlineFor("test:native:main", 600_000, "win32")).toBe(600_000);
-    expect(deadlineFor("test:native:ownership", 600_000, "win32")).toBe(20 * 60_000);
+    expect(deadlineFor("test:native:project-babel", 600_000, "win32")).toBe(11 * 60_000);
   });
 });
