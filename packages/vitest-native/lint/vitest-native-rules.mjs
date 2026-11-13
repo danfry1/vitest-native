@@ -277,9 +277,29 @@ const noMonkeyPatching = {
 // --------------------------------------------------------------------------------------
 
 const ESCAPE_HELPER = /^escape/i;
+/** A module constant (SCREAMING_CASE): a pattern fragment the code wrote, not data. */
+const CONSTANT = /^[A-Z][A-Z0-9_]*$/;
+
+/** `parts.map(escapeX).join(…)`, or `.map((p) => escapeX(p))`: every part escaped. */
+const escapedJoin = (node) => {
+  if (node?.type !== "CallExpression" || memberName(node.callee) !== "join") return false;
+  const map = node.callee.object;
+  if (map?.type !== "CallExpression" || memberName(map.callee) !== "map") return false;
+  const fn = map.arguments[0];
+  if (fn?.type === "Identifier") return ESCAPE_HELPER.test(fn.name);
+  const body = fn?.type === "ArrowFunctionExpression" ? fn.body : null;
+  return body?.type === "CallExpression" && ESCAPE_HELPER.test(nameOf(body.callee) ?? "");
+};
+
 const safePart = (node) =>
   node?.type === "Literal" ||
+  (node?.type === "Identifier" && CONSTANT.test(node.name)) ||
   (node?.type === "TemplateLiteral" && node.expressions.every(safePart)) ||
+  // String.raw`…` reads as its template.
+  (node?.type === "TaggedTemplateExpression" &&
+    memberName(node.tag) === "raw" &&
+    node.quasi.expressions.every(safePart)) ||
+  escapedJoin(node) ||
   (node?.type === "CallExpression" && ESCAPE_HELPER.test(nameOf(node.callee) ?? "")) ||
   (node?.type === "BinaryExpression" &&
     node.operator === "+" &&
