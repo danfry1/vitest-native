@@ -1,0 +1,62 @@
+[
+  {
+    "export": "useClock",
+    "path": "useClock()",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePathInterpolation",
+    "path": "usePathInterpolation()",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useColorBuffer",
+    "path": "useColorBuffer()",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePointBuffer",
+    "path": "usePointBuffer()",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRectBuffer",
+    "path": "useRectBuffer()",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRSXformBuffer",
+    "path": "useRSXformBuffer()",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "drawAsImage",
+    "path": "drawAsImage()",
+    "reason": "Skia's mock returns undefined, not a Promise",
+    "issue": "#709"
+  },
+  {
+    "export": "drawAsPicture",
+    "path": "drawAsPicture()",
+    "reason": "Skia's mock returns undefined, not a Promise",
+    "issue": "#709"
+  },
+  {
+    "export": "useVideo",
+    "path": "useVideo()",
+    "reason": "Skia's mock returns null, not the video's shared values",
+    "issue": "#709"
+  },
+  {
+    "export": "useImageAsTexture",
+    "path": "useImageAsTexture()",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  }
+]

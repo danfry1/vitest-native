@@ -7,7 +7,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { mockCorrections } from "../src/presets/reanimated.js";
+import { derivedValue, mockCorrections, sharedValue } from "../src/presets/reanimated.js";
 
 const dir = path.dirname(
   createRequire(import.meta.url).resolve("react-native-reanimated/package.json"),
@@ -24,6 +24,11 @@ function noOpMock() {
     useComposedEventHandler: () => NOOP,
     useScrollOffset: () => ({ value: 0 }),
     useScrollViewOffset: () => ({ value: 0 }),
+    useTimestamp: () => ({ value: 0 }),
+    useDerivedValue: (updater: () => number) => ({ value: updater(), get: () => updater() }),
+    useAnimatedKeyboard: () => ({ height: 0, state: 0 }),
+    useAnimatedSensor: () => ({ sensor: { value: { x: 0, y: 0, z: 0 } } }),
+    makeMutable: (value: number) => value,
     useSharedValue: (value: number) => ({ value, get: () => value }),
     default: { interpolate: NOOP, clamp: NOOP, ScrollView: () => null },
   };
@@ -31,7 +36,16 @@ function noOpMock() {
 
 /** The same names, as a mock that does what they say. */
 function workingMock() {
-  const value = { value: 0, get: () => 0, addListener: NOOP, removeListener: NOOP };
+  // Reanimated 4's shared value shape, whole.
+  const value = {
+    _isReanimatedSharedValue: true,
+    value: 0,
+    get: () => 0,
+    set: NOOP,
+    modify: NOOP,
+    addListener: NOOP,
+    removeListener: NOOP,
+  };
   return {
     interpolate: () => "theirs",
     clamp: () => "theirs",
@@ -46,6 +60,11 @@ function workingMock() {
       hs.forEach((h) => h(e)),
     useScrollOffset: () => value,
     useScrollViewOffset: () => value,
+    useTimestamp: () => value,
+    useDerivedValue: () => value,
+    useAnimatedKeyboard: () => ({ height: value, state: value }),
+    useAnimatedSensor: () => ({ sensor: value }),
+    makeMutable: () => value,
     useSharedValue: () => value,
     default: { interpolate: () => "theirs", clamp: () => "theirs", ScrollView: () => null },
   };
@@ -59,6 +78,11 @@ const NAMES = [
   "useComposedEventHandler",
   "useScrollOffset",
   "useScrollViewOffset",
+  "useTimestamp",
+  "useDerivedValue",
+  "useAnimatedKeyboard",
+  "useAnimatedSensor",
+  "makeMutable",
 ] as const;
 
 describe("reanimated mock corrections", () => {
@@ -80,7 +104,7 @@ describe("reanimated mock corrections", () => {
     shared.removeListener(7);
     shared.value = 3;
     expect(seen).toEqual([2]);
-    expect(shared.get()).toBe(1); // the mock's own get(), over its own state
+    expect(shared.get()).toBe(3); // a whole shared value: get() reads what was written
   });
 
   // Every helper loaded, so each probe runs: in this worker interpolateColor.js does not
@@ -146,5 +170,41 @@ describe("reanimated mock corrections", () => {
     } finally {
       console.error = error;
     }
+  });
+});
+
+// Reanimated keeps a derived value current with a mapper over the shared values its
+// updater reads, run on every change of one (at once under Jest). Its mock computes the
+// updater at render only, so a read after set() was stale (#351). Outside a render here,
+// as the mock's hooks allow; tests-native/reanimated-shapes/derived-values.test.tsx renders.
+describe("derived values", () => {
+  it("the corrected useDerivedValue follows the shared values its updater reads", () => {
+    const fixed = mockCorrections(noOpMock(), dir);
+    const progress = fixed.useSharedValue(0);
+    const sweep = fixed.useDerivedValue(() => progress.get() * 360);
+    expect(sweep.get()).toBe(0);
+    progress.set(0.5);
+    expect(sweep.get()).toBe(180);
+    progress.value = 1;
+    expect(sweep.value).toBe(360);
+  });
+
+  it("a chain follows, listeners hear a changed result once, and reads are re-taken each run", () => {
+    const flag = sharedValue(true);
+    const a = sharedValue(1);
+    const b = sharedValue(10);
+    const picked = derivedValue(() => (flag.get() ? a.get() : b.get()));
+    const doubled = derivedValue(() => picked.value * 2);
+    const heard = vi.fn();
+    doubled.addListener(1, heard);
+    a.set(2);
+    expect(doubled.get()).toBe(4);
+    expect(heard).toHaveBeenCalledTimes(1);
+    flag.set(false);
+    expect(doubled.get()).toBe(20);
+    a.set(3); // no longer read
+    expect(heard).toHaveBeenCalledTimes(2);
+    b.set(11);
+    expect(doubled.get()).toBe(22);
   });
 });

@@ -1,0 +1,1004 @@
+[
+  {
+    "export": "defineAnimation",
+    "path": "defineAnimation",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "GentleSpringConfig",
+    "path": "GentleSpringConfig",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "GentleSpringConfigWithDuration",
+    "path": "GentleSpringConfigWithDuration",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Reanimated3DefaultSpringConfig",
+    "path": "Reanimated3DefaultSpringConfig",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Reanimated3DefaultSpringConfigWithDuration",
+    "path": "Reanimated3DefaultSpringConfigWithDuration",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "SnappySpringConfig",
+    "path": "SnappySpringConfig",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "SnappySpringConfigWithDuration",
+    "path": "SnappySpringConfigWithDuration",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "WigglySpringConfig",
+    "path": "WigglySpringConfig",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "WigglySpringConfigWithDuration",
+    "path": "WigglySpringConfigWithDuration",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "withClamp",
+    "path": "withClamp",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "contrastColor",
+    "path": "contrastColor",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "convertToRGBA",
+    "path": "convertToRGBA",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "isColor",
+    "path": "isColor",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ReanimatedLogLevel",
+    "path": "ReanimatedLogLevel",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "DynamicColorIOS",
+    "path": "DynamicColorIOS",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "PlatformColor",
+    "path": "PlatformColor",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "processColor",
+    "path": "processColor",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "InterfaceOrientation",
+    "path": "InterfaceOrientation",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "IOSReferenceFrame",
+    "path": "IOSReferenceFrame",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "SensorType",
+    "path": "SensorType",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LayoutAnimationConfig",
+    "path": "LayoutAnimationConfig",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "PerformanceMonitor",
+    "path": "PerformanceMonitor",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ReducedMotionConfig",
+    "path": "ReducedMotionConfig",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "SharedTransitionBoundary",
+    "path": "SharedTransitionBoundary",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "configureReanimatedLogger",
+    "path": "configureReanimatedLogger",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "enableLayoutAnimations",
+    "path": "enableLayoutAnimations",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "getViewProp",
+    "path": "getViewProp",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "isConfigured",
+    "path": "isConfigured",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "isReanimated3",
+    "path": "isReanimated3",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "makeMutable",
+    "path": "makeMutable()._value",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "makeMutable",
+    "path": "makeMutable().setDirtyFlag",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "NativeEventsManager",
+    "path": "NativeEventsManager",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Easing",
+    "path": "Easing.poly",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Easing",
+    "path": "Easing.sin",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Easing",
+    "path": "Easing.circle",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Easing",
+    "path": "Easing.exp",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Easing",
+    "path": "Easing.elastic",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Easing",
+    "path": "Easing.back",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Easing",
+    "path": "Easing.bounce",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Easing",
+    "path": "Easing.bezierFn",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Easing",
+    "path": "Easing.steps",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "getDynamicFeatureFlag",
+    "path": "getDynamicFeatureFlag",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "getStaticFeatureFlag",
+    "path": "getStaticFeatureFlag",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "setDynamicFeatureFlag",
+    "path": "setDynamicFeatureFlag",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useAnimatedRef",
+    "path": "useAnimatedRef()",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useAnimatedSensor",
+    "path": "useAnimatedSensor().config.interval",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useAnimatedSensor",
+    "path": "useAnimatedSensor().config.adjustToInterfaceOrientation",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useAnimatedSensor",
+    "path": "useAnimatedSensor().config.iosReferenceFrame",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useAnimatedStyle",
+    "path": "useAnimatedStyle().viewDescriptors",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useAnimatedStyle",
+    "path": "useAnimatedStyle().initial",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "useAnimatedStyle",
+    "path": "useAnimatedStyle().styleUpdaterContainer",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Extrapolate",
+    "path": "Extrapolate",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "advanceAnimationByFrame",
+    "path": "advanceAnimationByFrame",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "advanceAnimationByTime",
+    "path": "advanceAnimationByTime",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "getAnimatedStyle",
+    "path": "getAnimatedStyle",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "setUpTests",
+    "path": "setUpTests",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "withReanimatedTimer",
+    "path": "withReanimatedTimer",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "BaseAnimationBuilder",
+    "path": "BaseAnimationBuilder",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "BounceIn",
+    "path": "BounceIn",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "BounceInDown",
+    "path": "BounceInDown",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "BounceInLeft",
+    "path": "BounceInLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "BounceInRight",
+    "path": "BounceInRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "BounceInUp",
+    "path": "BounceInUp",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "BounceOut",
+    "path": "BounceOut",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "BounceOutDown",
+    "path": "BounceOutDown",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "BounceOutLeft",
+    "path": "BounceOutLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "BounceOutRight",
+    "path": "BounceOutRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "BounceOutUp",
+    "path": "BounceOutUp",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ComplexAnimationBuilder",
+    "path": "ComplexAnimationBuilder",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "CurvedTransition",
+    "path": "CurvedTransition",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "EntryExitTransition",
+    "path": "EntryExitTransition",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FadeIn",
+    "path": "FadeIn",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FadeInDown",
+    "path": "FadeInDown",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FadeInLeft",
+    "path": "FadeInLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FadeInRight",
+    "path": "FadeInRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FadeInUp",
+    "path": "FadeInUp",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FadeOut",
+    "path": "FadeOut",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FadeOutDown",
+    "path": "FadeOutDown",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FadeOutLeft",
+    "path": "FadeOutLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FadeOutRight",
+    "path": "FadeOutRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FadeOutUp",
+    "path": "FadeOutUp",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FadingTransition",
+    "path": "FadingTransition",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FlipInEasyX",
+    "path": "FlipInEasyX",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FlipInEasyY",
+    "path": "FlipInEasyY",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FlipInXDown",
+    "path": "FlipInXDown",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FlipInXUp",
+    "path": "FlipInXUp",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FlipInYLeft",
+    "path": "FlipInYLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FlipInYRight",
+    "path": "FlipInYRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FlipOutEasyX",
+    "path": "FlipOutEasyX",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FlipOutEasyY",
+    "path": "FlipOutEasyY",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FlipOutXDown",
+    "path": "FlipOutXDown",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FlipOutXUp",
+    "path": "FlipOutXUp",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FlipOutYLeft",
+    "path": "FlipOutYLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "FlipOutYRight",
+    "path": "FlipOutYRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "JumpingTransition",
+    "path": "JumpingTransition",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Keyframe",
+    "path": "Keyframe",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "Layout",
+    "path": "Layout",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LightSpeedInLeft",
+    "path": "LightSpeedInLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LightSpeedInRight",
+    "path": "LightSpeedInRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LightSpeedOutLeft",
+    "path": "LightSpeedOutLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LightSpeedOutRight",
+    "path": "LightSpeedOutRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "LinearTransition",
+    "path": "LinearTransition",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "PinwheelIn",
+    "path": "PinwheelIn",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "PinwheelOut",
+    "path": "PinwheelOut",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RollInLeft",
+    "path": "RollInLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RollInRight",
+    "path": "RollInRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RollOutLeft",
+    "path": "RollOutLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RollOutRight",
+    "path": "RollOutRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RotateInDownLeft",
+    "path": "RotateInDownLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RotateInDownRight",
+    "path": "RotateInDownRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RotateInUpLeft",
+    "path": "RotateInUpLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RotateInUpRight",
+    "path": "RotateInUpRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RotateOutDownLeft",
+    "path": "RotateOutDownLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RotateOutDownRight",
+    "path": "RotateOutDownRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RotateOutUpLeft",
+    "path": "RotateOutUpLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "RotateOutUpRight",
+    "path": "RotateOutUpRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "SequencedTransition",
+    "path": "SequencedTransition",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "SharedTransition",
+    "path": "SharedTransition",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "SlideInDown",
+    "path": "SlideInDown",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "SlideInLeft",
+    "path": "SlideInLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "SlideInRight",
+    "path": "SlideInRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "SlideInUp",
+    "path": "SlideInUp",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "SlideOutDown",
+    "path": "SlideOutDown",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "SlideOutLeft",
+    "path": "SlideOutLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "SlideOutRight",
+    "path": "SlideOutRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "SlideOutUp",
+    "path": "SlideOutUp",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "StretchInX",
+    "path": "StretchInX",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "StretchInY",
+    "path": "StretchInY",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "StretchOutX",
+    "path": "StretchOutX",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "StretchOutY",
+    "path": "StretchOutY",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomIn",
+    "path": "ZoomIn",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomInDown",
+    "path": "ZoomInDown",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomInEasyDown",
+    "path": "ZoomInEasyDown",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomInEasyUp",
+    "path": "ZoomInEasyUp",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomInLeft",
+    "path": "ZoomInLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomInRight",
+    "path": "ZoomInRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomInRotate",
+    "path": "ZoomInRotate",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomInUp",
+    "path": "ZoomInUp",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomOut",
+    "path": "ZoomOut",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomOutDown",
+    "path": "ZoomOutDown",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomOutEasyDown",
+    "path": "ZoomOutEasyDown",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomOutEasyUp",
+    "path": "ZoomOutEasyUp",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomOutLeft",
+    "path": "ZoomOutLeft",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomOutRight",
+    "path": "ZoomOutRight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomOutRotate",
+    "path": "ZoomOutRotate",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ZoomOutUp",
+    "path": "ZoomOutUp",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "startMapper",
+    "path": "startMapper",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "stopMapper",
+    "path": "stopMapper",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "reanimatedVersion",
+    "path": "reanimatedVersion",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "dispatchCommand",
+    "path": "dispatchCommand",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "getRelativeCoords",
+    "path": "getRelativeCoords",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "setNativeProps",
+    "path": "setNativeProps",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "getUseOfValueInStyleWarning",
+    "path": "getUseOfValueInStyleWarning",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "createAnimatedPropAdapter",
+    "path": "createAnimatedPropAdapter",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "finishScreenTransition",
+    "path": "finishScreenTransition",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "ScreenTransition",
+    "path": "ScreenTransition",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "startScreenTransition",
+    "path": "startScreenTransition",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "createWorkletRuntime",
+    "path": "createWorkletRuntime",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "executeOnUIRuntimeSync",
+    "path": "executeOnUIRuntimeSync",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "isWorkletFunction",
+    "path": "isWorkletFunction",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "makeShareableCloneRecursive",
+    "path": "makeShareableCloneRecursive",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "runOnRuntime",
+    "path": "runOnRuntime",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "createCSSAnimatedComponent",
+    "path": "createCSSAnimatedComponent",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "cubicBezier",
+    "path": "cubicBezier",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "linear",
+    "path": "linear",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "steps",
+    "path": "steps",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  },
+  {
+    "export": "css",
+    "path": "css",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "n/a (mock engine preset)"
+  }
+]

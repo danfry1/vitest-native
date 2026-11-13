@@ -12,7 +12,7 @@
  * runs both runners for real and checks that their live reports put every test in the
  * bucket the recorded ones do. VN_COMPARE_RECORD=1 re-records both reports from that run
  * (then run oxfmt on fixtures/compare-reports/). Each spawns Vitest, so they run under
- * vitest.e2e.config.ts (`test:cli-compare-e2e`), not in the unit suite.
+ * vitest.e2e.config.ts (`test:e2e`), not in the unit suite.
  */
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";

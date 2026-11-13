@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
@@ -36,12 +37,12 @@ const REANIMATED_MOCK: LibraryMock = {
   // Reanimated's mock (4.7.1, and its main branch in October 2026) answers `interpolate`,
   // `interpolateColor` and `clamp` with a no-op, so every interpolated style is
   // `undefined`; its `useAnimatedScrollHandler` and `useComposedEventHandler` never run
-  // their handlers; its `useScrollOffset` and `useScrollViewOffset` return
-  // `{ value: 0 }`, which is not a shared value; and its shared values have no
-  // listeners, which Gesture Handler 3 adds to one given as gesture config. Those
-  // names, and only while the mock's value still behaves so (mockCorrections), are
+  // their handlers; and what its value hooks give lacks Reanimated 4's shared value shape
+  // (no modify() or listeners, which Gesture Handler 3 adds to one given as gesture
+  // config; `{ value: 0 }` from the offsets and the timestamp; numbers for the keyboard).
+  // Those names, and only while the mock's value still behaves so (mockCorrections), are
   // replaced: the helpers by reanimated's own (ownHelpers), the rest by ones that work
-  // (scrollHandlers, withListeners). A reanimated whose mock does better keeps its own.
+  // (scrollHandlers, sharedValue). A reanimated whose mock does better keeps its own.
   // Under the native engine, beside the mock its library registry serves.
   extend: (mock, dir) => mockCorrections(mock, dir, true),
 };
@@ -106,73 +107,166 @@ function neverCalls(build: (handler: () => void) => unknown): boolean {
   });
 }
 
-/** Whether `useOffset` (called outside a render) returns something that is not a shared value. */
-function notASharedValue(useOffset: unknown): boolean {
-  if (typeof useOffset !== "function") return false;
-  return quietly(() => {
-    try {
-      const value = useOffset();
-      return !(value && typeof value.get === "function");
-    } catch {
-      return false;
-    }
-  });
+/** The methods a Reanimated 4 shared value has, besides `value`. */
+const SHARED_VALUE_METHODS = ["get", "set", "modify", "addListener", "removeListener"] as const;
+
+/**
+ * Whether `value` has Reanimated 4's shared value shape: the `_isReanimatedSharedValue`
+ * mark its `isSharedValue()` checks (Gesture Handler 3 checks it on gesture config), a
+ * `value`, and get/set/modify/addListener/removeListener.
+ */
+export function isSharedValueShaped(value: unknown): boolean {
+  if (value === null || typeof value !== "object") return false;
+  const shared = value as Record<string, unknown>;
+  return (
+    shared._isReanimatedSharedValue === true &&
+    "value" in shared &&
+    SHARED_VALUE_METHODS.every((name) => typeof shared[name] === "function")
+  );
 }
 
-/** Whether `useSharedValue` (called outside a render) gives a value without listeners. */
-function lacksListeners(useSharedValue: unknown): boolean {
-  if (typeof useSharedValue !== "function") return false;
+/** What a probe answers when the call throws: a hook that needs a render, taken as working. */
+const NEEDS_RENDER = Symbol("needs a render");
+
+/** What `call` returns outside a render, or NEEDS_RENDER when it throws. */
+function probeHook(call: () => unknown): unknown {
   return quietly(() => {
     try {
-      const value = useSharedValue(0);
-      return (
-        value !== null &&
-        typeof value === "object" &&
-        (typeof value.addListener !== "function" || typeof value.removeListener !== "function")
-      );
+      return call();
     } catch {
-      return false;
+      return NEEDS_RENDER;
     }
   });
 }
 
 /**
- * `shared`, with a shared value's listeners: `addListener(id, listener)` and
- * `removeListener(id)`, each listener called with the new value when `.value` is
- * assigned or `.set()` called, as on reanimated's shared values. Gesture Handler 3
- * listens to a shared value given as gesture config (`usePanGesture({ enabled })`).
+ * A shared value with Reanimated 4's API: `.value` and `get()`, `set(value | updater)`,
+ * `modify(modifier?, forceUpdate = true)` (the value becomes the modifier's result),
+ * `addListener(id, listener)` / `removeListener(id)`, each listener called with the new
+ * value on every write, and the `_isReanimatedSharedValue` mark. A read (`.value` or
+ * `get()`) is recorded while a derived value's updater runs (derivedValue).
  */
-function withListeners<T extends object>(shared: T): T {
-  const listeners = new Map<unknown, (value: unknown) => void>();
+export function sharedValue<T>(init: T) {
+  let current = init;
+  const listeners = new Map<unknown, (value: T) => void>();
   const notify = () => {
-    for (const listener of listeners.values()) listener((shared as { value?: unknown }).value);
+    // A snapshot: a listener that re-subscribes (derivedValue) is not called again.
+    for (const listener of Array.from(listeners.values())) listener(current);
   };
-  return new Proxy(shared, {
-    get(target, prop) {
-      if (prop === "addListener") {
-        return (id: unknown, listener: (value: unknown) => void) => {
-          listeners.set(id, listener);
-        };
+  const shared = {
+    _isReanimatedSharedValue: true as const,
+    get value(): T {
+      derivedReads?.add(shared);
+      return current;
+    },
+    set value(next: T) {
+      current = next;
+      notify();
+    },
+    get: (): T => {
+      derivedReads?.add(shared);
+      return current;
+    },
+    set(next: T | ((value: T) => T)) {
+      current = typeof next === "function" ? (next as (value: T) => T)(current) : next;
+      notify();
+    },
+    modify(modifier?: (value: T) => T, forceUpdate = true) {
+      if (modifier) current = modifier(current);
+      if (forceUpdate !== false) notify();
+    },
+    addListener(id: unknown, listener: (value: T) => void) {
+      listeners.set(id, listener);
+    },
+    removeListener(id: unknown) {
+      listeners.delete(id);
+    },
+  };
+  return shared;
+}
+
+type SharedValue = ReturnType<typeof sharedValue<unknown>>;
+
+/** The shared values read while a derived value's updater runs, or null outside one. */
+let derivedReads: Set<SharedValue> | null = null;
+
+/**
+ * Reanimated's useDerivedValue: a shared value holding what `updater` returns, recomputed
+ * whenever a shared value the updater read changes, without a render. Reanimated starts a
+ * mapper over the updater's inputs and runs it on every change of one (at once under
+ * Jest, src/mappers.ts maybeRequestUpdates); here the inputs are the shared values the
+ * last run read, so it needs no Babel plugin. It also recomputes on every render, as the
+ * mock's does, so a value the updater takes from props is current, and once more on
+ * mount, as Reanimated's mapper runs when it starts. Listeners hear a changed result, and
+ * the subscriptions end when the component unmounts.
+ */
+export function derivedValue(updater: () => unknown): SharedValue {
+  // Outside a render, which the mock allows, a new one each call, with no component to
+  // unmount; in one, kept per component (perComponent).
+  const rendering = useRefOrNull<DerivedState>();
+  const state = rendering?.current ?? derivedState(updater);
+  if (rendering && rendering.current === null) rendering.current = state;
+  state.updater = updater;
+  state.run();
+  if (rendering) {
+    // Subscribed again on mount, as Reanimated starts its mapper in an effect (a
+    // StrictMode remount stops it first).
+    React.useEffect(() => {
+      state.run();
+      return () => state.stop();
+    }, [state]);
+  }
+  return state.derived;
+}
+
+type DerivedState = ReturnType<typeof derivedState>;
+
+function derivedState(updater: () => unknown) {
+  const held = {
+    derived: sharedValue<unknown>(undefined),
+    updater,
+    inputs: new Set<SharedValue>(),
+    ran: false,
+    last: undefined as unknown,
+    run() {
+      const outer = derivedReads;
+      const read = new Set<SharedValue>();
+      derivedReads = read;
+      let next: unknown;
+      try {
+        next = held.updater();
+      } finally {
+        derivedReads = outer;
       }
-      if (prop === "removeListener") return (id: unknown) => listeners.delete(id);
-      const value = (target as Record<PropertyKey, unknown>)[prop];
-      if (prop === "set" && typeof value === "function") {
-        return (next: unknown) => {
-          value(next);
-          notify();
-        };
+      read.delete(held.derived);
+      for (const input of held.inputs) if (!read.has(input)) input.removeListener(held);
+      for (const input of read) if (!held.inputs.has(input)) input.addListener(held, held.run);
+      held.inputs = read;
+      if (!held.ran || !Object.is(held.last, next)) {
+        held.ran = true;
+        held.last = next;
+        held.derived.value = next;
       }
-      return value;
     },
-    has(target, prop) {
-      return prop === "addListener" || prop === "removeListener" || Reflect.has(target, prop);
+    stop() {
+      for (const input of held.inputs) input.removeListener(held);
+      held.inputs.clear();
     },
-    set(target, prop, next) {
-      const done = Reflect.set(target, prop, next);
-      if (done && prop === "value") notify();
-      return done;
-    },
-  });
+  };
+  return held;
+}
+
+/**
+ * `create()` once per component, as Reanimated's hooks keep their shared values: a
+ * listener added on one render (Gesture Handler's, on a gesture's `enabled`) hears a
+ * write made through a later render's value. Outside a render, which the mock allows, a
+ * new one each call.
+ */
+function perComponent<T>(create: () => T): T {
+  const held = useRefOrNull<T>();
+  if (held === null) return create();
+  if (held.current === null) held.current = create();
+  return held.current;
 }
 
 /**
@@ -184,6 +278,7 @@ export function mockCorrections(
   dir: string,
   fromRegistry = false,
   helpers: Helpers = ownHelpers(dir, fromRegistry),
+  real: Record<string, any> | null = ownIndex(dir, fromRegistry),
 ): Record<string, any> {
   const probes: Record<keyof Helpers, (f: Fn) => unknown> = {
     interpolate: (f) => f(5, [0, 10], [0, 100]),
@@ -211,24 +306,115 @@ export function mockCorrections(
   if (neverCalls((h) => mock.useComposedEventHandler?.([h]))) {
     fixed.useComposedEventHandler = handlers.useComposedEventHandler;
   }
-  // Shared values without listeners get them; the offsets below are built on the result.
-  let useSharedValue = mock.useSharedValue;
-  if (lacksListeners(mock.useSharedValue)) {
-    const own = mock.useSharedValue;
-    // One value per component, as reanimated's own hook keeps it: a listener added on
-    // one render (Gesture Handler's, on a gesture's `enabled`) hears a write made
-    // through a later render's value. Outside a render, which the mock allows, a new one.
-    useSharedValue = (init: unknown) => {
-      const held = useRefOrNull<object>();
-      if (held === null) return withListeners(own(init));
-      if (held.current === null) held.current = withListeners(own(init));
-      return held.current;
-    };
-    fixed.useSharedValue = useSharedValue;
+  // Every hook that gives a shared value, and makeMutable: probed outside a render (the
+  // mock's hooks need none) and replaced only while what it gives lacks Reanimated 4's
+  // shape (isSharedValueShaped). 4.7.1's mock gives shared values without modify() or
+  // listeners, a derived value without the mark, `{ value: 0 }` for the offsets and the
+  // timestamp, plain numbers for the keyboard, a sensor without get(), and makeMutable's
+  // argument itself (#351: "first.get is not a function").
+  const gives = (name: string, call: (hook: Fn) => unknown) => {
+    const hook = mock[name];
+    return typeof hook === "function" ? probeHook(() => call(hook)) : undefined;
+  };
+  const wrong = (name: string, call: (hook: Fn) => unknown) => {
+    if (typeof mock[name] !== "function") return false;
+    const given = gives(name, call);
+    return given !== NEEDS_RENDER && !isSharedValueShaped(given);
+  };
+  if (wrong("useSharedValue", (hook) => hook(0))) {
+    fixed.useSharedValue = (init: unknown) => perComponent(() => sharedValue(init));
   }
-  const offsets = scrollHandlers(useSharedValue).useScrollOffset;
-  for (const name of ["useScrollOffset", "useScrollViewOffset"]) {
-    if (notASharedValue(mock[name])) fixed[name] = offsets;
+  if (wrong("makeMutable", (hook) => hook(0))) {
+    fixed.makeMutable = (init: unknown) => sharedValue(init);
+  }
+  if (wrong("useDerivedValue", (hook) => hook(() => 0))) {
+    fixed.useDerivedValue = derivedValue;
+  }
+  for (const name of ["useScrollOffset", "useScrollViewOffset", "useTimestamp"]) {
+    if (wrong(name, (hook) => hook())) {
+      fixed[name] = () => perComponent(() => sharedValue(0));
+    }
+  }
+  const keyboard = gives("useAnimatedKeyboard", (hook) => hook()) as Record<string, unknown>;
+  if (
+    typeof mock.useAnimatedKeyboard === "function" &&
+    (keyboard as unknown) !== NEEDS_RENDER &&
+    !(isSharedValueShaped(keyboard?.height) && isSharedValueShaped(keyboard?.state))
+  ) {
+    const own = mock.useAnimatedKeyboard as Fn;
+    // height 0 and state 0 (KeyboardState.UNKNOWN), as the mock's numbers are.
+    fixed.useAnimatedKeyboard = (...args: unknown[]) =>
+      perComponent(() => ({ ...own(...args), height: sharedValue(0), state: sharedValue(0) }));
+  }
+  const sensor = gives("useAnimatedSensor", (hook) => hook(0)) as Record<string, unknown>;
+  if (
+    typeof mock.useAnimatedSensor === "function" &&
+    (sensor as unknown) !== NEEDS_RENDER &&
+    !isSharedValueShaped(sensor?.sensor)
+  ) {
+    const own = mock.useAnimatedSensor as Fn;
+    // The mock's own reading (x, y, z, interfaceOrientation …), as the value.
+    fixed.useAnimatedSensor = (...args: unknown[]) =>
+      perComponent(() => {
+        const given = own(...args) ?? {};
+        const reading = given.sensor?.value ?? given.sensor;
+        return { ...given, sensor: sharedValue(reading) };
+      });
+  }
+  // Layout animations and Keyframe: the mock gives one shared object per builder, with
+  // its methods returning itself, so `new FadeIn()`, `instanceof FadeIn` and a class that
+  // extends a builder fail. Reanimated's own classes, from the index the mock itself
+  // imports, wherever a real export is a builder class (BaseAnimationBuilder or a class
+  // that extends it; Keyframe by name) and the mock serves something else (#696).
+  if (real) {
+    const base = real.BaseAnimationBuilder;
+    for (const [name, own] of Object.entries(real)) {
+      const builder =
+        typeof own === "function" &&
+        (own === base ||
+          (typeof base === "function" && own.prototype instanceof base) ||
+          name === "Keyframe");
+      if (builder && name in mock && mock[name] !== own) fixed[name] = own;
+    }
+  }
+  // useAnimatedRef: the mock's is `{ current }`; Reanimated's is a function ref (React
+  // calls it with the node, and with null on unmount) with `current`, `observe` and
+  // `getTag`, kept per component (#696).
+  if (
+    typeof mock.useAnimatedRef === "function" &&
+    typeof gives("useAnimatedRef", (hook) => hook()) === "object"
+  ) {
+    fixed.useAnimatedRef = () =>
+      perComponent(() => {
+        const ref: any = (node?: unknown) => {
+          if (node !== undefined) ref.current = node;
+          return ref.current;
+        };
+        ref.current = null;
+        ref.observe = () => () => {};
+        ref.getTag = () => null;
+        return ref;
+      });
+  }
+  // Worklet runtimes, while the mock's are no-ops: createWorkletRuntime gives a runtime
+  // (its name and an id, as Reanimated's WorkletRuntime has), and runOnRuntime gives the
+  // function to call, which runs the worklet, as the mock's runOnUI does (#696).
+  const runtime = gives("createWorkletRuntime", (hook) => hook({ name: "probe" })) as any;
+  if (typeof mock.createWorkletRuntime === "function" && typeof runtime?.runtimeId !== "number") {
+    let next = 1;
+    fixed.createWorkletRuntime = (config?: string | { name?: string }) => ({
+      name: (typeof config === "string" ? config : config?.name) ?? "",
+      runtimeId: next++,
+    });
+  }
+  if (
+    typeof mock.runOnRuntime === "function" &&
+    typeof gives("runOnRuntime", (hook) => hook({}, () => {})) !== "function"
+  ) {
+    fixed.runOnRuntime =
+      (_runtime: unknown, worklet: Fn) =>
+      (...args: unknown[]) =>
+        worklet(...args);
   }
   // Reanimated's setUpTests() registers its own toHaveAnimatedStyle and
   // toHaveAnimatedProps on the global `expect` (or on Jest's `expect` package when there
@@ -365,6 +551,23 @@ function registryHolds(file: string): boolean {
   return dispatch?.channel("registry").libraryHolds?.(file) === true;
 }
 
+/**
+ * Reanimated's own index, which its mock imports (`from './index'`): the module the mock
+ * loaded, from the library registry that holds it beside the mock, or from Node's cache
+ * where the index loaded through Node (per-file module loading). Never a second copy:
+ * null where neither holds it (unit tests), and the corrections that need it stay off.
+ */
+function ownIndex(dir: string, fromRegistry: boolean): Record<string, any> | null {
+  if (!fromRegistry) return null;
+  const index = path.join(dir, "src/index.ts");
+  const required = createRequire(path.join(dir, "package.json"));
+  // Without the library registry (per-file module loading), Node loaded the index for
+  // the mock already: its cached module, under Node's real-path spelling, is the same one.
+  const real = loadOrNull(() => ({ path: fs.realpathSync(index) }))?.path ?? index;
+  if (!registryHolds(index) && !required.cache[real] && !required.cache[index]) return null;
+  return loadOrNull(() => required(index));
+}
+
 /** What `load` returns, or null when it throws: not this version's layout, or not loadable here. */
 function loadOrNull(load: () => Record<string, any>): Record<string, any> | null {
   try {
@@ -479,9 +682,11 @@ export function reanimated(): Preset {
           "useComposedEventHandler",
           "useScrollOffset",
           "useScrollViewOffset",
+          "useTimestamp",
           "useAnimatedGestureHandler",
           "useAnimatedReaction",
           "useAnimatedKeyboard",
+          "useAnimatedSensor",
           "useReducedMotion",
           "useFrameCallback",
           "useEvent",
@@ -572,32 +777,8 @@ export function reanimated(): Preset {
           "KeyboardState",
         ],
         factory: () => {
-          function createSharedValue(init: any) {
-            const listeners = new Map<number, Function>();
-            const sv = {
-              // What reanimated's own isSharedValue checks for.
-              _isReanimatedSharedValue: true,
-              value: init,
-              get() {
-                return sv.value;
-              },
-              set(value: any) {
-                sv.value = typeof value === "function" ? value(sv.value) : value;
-                listeners.forEach((fn) => fn(sv.value));
-              },
-              addListener(id: number, listener: Function) {
-                listeners.set(id, listener);
-              },
-              removeListener(id: number) {
-                listeners.delete(id);
-              },
-              modify(modifier?: Function, forceUpdate?: boolean) {
-                if (modifier) modifier(sv.value);
-                if (forceUpdate !== false) listeners.forEach((fn) => fn(sv.value));
-              },
-            };
-            return sv;
-          }
+          // Reanimated 4's shared value shape (sharedValue above), as the corrections give.
+          const createSharedValue = (init: any) => sharedValue(init);
 
           function useSharedValue(init: any) {
             const ref = React.useRef(createSharedValue(init));
@@ -612,9 +793,7 @@ export function reanimated(): Preset {
             return updater();
           }
 
-          function useDerivedValue(updater: () => any) {
-            return createSharedValue(updater());
-          }
+          const useDerivedValue = derivedValue;
 
           const { useAnimatedScrollHandler, useComposedEventHandler, useScrollOffset } =
             scrollHandlers(createSharedValue);
@@ -659,6 +838,20 @@ export function reanimated(): Preset {
             return {
               state: createSharedValue(0),
               height: createSharedValue(0),
+            };
+          }
+
+          // A sensor that never moves: Reanimated's mock gives the same reading.
+          function useAnimatedSensor(sensorType: number, config?: unknown) {
+            const sensor = React.useRef(
+              createSharedValue({ x: 0, y: 0, z: 0, interfaceOrientation: 0 }),
+            ).current;
+            return {
+              sensor,
+              unregister: () => {},
+              isAvailable: false,
+              config: config ?? {},
+              sensorType,
             };
           }
 
@@ -820,9 +1013,12 @@ export function reanimated(): Preset {
             useComposedEventHandler,
             useScrollOffset,
             useScrollViewOffset: useScrollOffset,
+            // A shared value that stays 0: no frames advance in a test.
+            useTimestamp: useScrollOffset,
             useAnimatedGestureHandler,
             useAnimatedReaction,
             useAnimatedKeyboard,
+            useAnimatedSensor,
             useReducedMotion,
             useFrameCallback,
             useEvent,

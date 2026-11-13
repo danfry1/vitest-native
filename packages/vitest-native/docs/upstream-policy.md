@@ -30,7 +30,7 @@ Every supported line has a **hard floor**, and may have a **recommended floor**.
 |---|---|---|
 | Meaning | The engine can't run correctly below it. | A release below it has an upstream bug that reaches vitest-native users; it still works. |
 | Below it | Startup refuses (`UNSUPPORTED_PEER` or `UNSUPPORTED_NODE`); doctor reports it. | One warning at startup and a doctor entry. Both name the upstream issue and the release that fixes it. |
-| Where | The range's `minimum`. | A `recommended` entry beside it: version, upstream issue, one-line effect. |
+| Where | The range's `minimum`. | An entry in `RECOMMENDED_FLOORS` beside it: version, upstream issue, one-line effect. |
 
 **When an upstream fixes a bug in a later release of a supported line:**
 - **Moves the recommended floor** to that release, in any release.
@@ -40,7 +40,7 @@ Every supported line has a **hard floor**, and may have a **recommended floor**.
 **Applied to Vitest 5.1.0 (#611):**
 - **What it fixes:** vitest-dev/vitest#11682, where a startup error in Vitest 5.0.5 with Vite 8.3.5 is replaced by "No test files found" and a formatter crash. The error is hidden, but test results aren't wrong.
 - **The floor:** 5.1.0 becomes the recommended floor for Vitest 5, and the hard floor stays 5.0.0.
-- **The pin:** the repository's own Vitest pin moves to 5.1.0 once its 7-day release age has passed (see §4).
+- **The pin:** the repository's own Vitest pin is 5.1.0, moved once its 7-day release age had passed (see §4).
 
 ## 3. Upstream bugs: the ladder
 
@@ -88,7 +88,7 @@ Unchanged from versioning.md:
   - canary results, and new upstream majors due.
 
 ## Follow-ups this implies (CI and code)
-1. **Recommended floors** (with #611): a `recommended` field in `peer-requirements.ts`, with the startup warning and the doctor entry. Its first entry is Vitest 5.1.0 (#611).
+1. **Recommended floors** (done, #611): `RECOMMENDED_FLOORS` in `peer-requirements.ts`, with one startup warning per run and a doctor entry. Its first entry is Vitest 5.1.0.
 2. **Upstream workarounds** (#614): `docs/upstream-workarounds.md`, and the need and expiry test pattern.
 3. **Generated tables** (#615): the README and versioning.md requirement tables generated from (or tested against) the single source.
 4. **More latest-supported axes** (#616): add Vite, RNTL and Expo.

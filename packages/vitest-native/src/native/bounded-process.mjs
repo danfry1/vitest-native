@@ -7,6 +7,7 @@
 // able to corrupt the protocol.
 import { spawn } from "node:child_process";
 import os from "node:os";
+import { suspendedNote, suspensionTracker } from "./suspension.mjs";
 
 // The protocol channel carries the one answer and is capped strictly. stdout/stderr
 // belong to arbitrary user and toolchain code, which may log freely: only a tail is
@@ -84,6 +85,11 @@ function attempt(
     let overflow = false;
     let settled = false;
     let timer;
+    // The timeout counts the helper's run, not time the machine spends asleep
+    // (suspension.mjs): a timer alone would fire on wake, mid-run (#689).
+    const pollMs = Math.min(1000, timeoutMs);
+    const started = performance.now();
+    const suspension = suspensionTracker({ intervalMs: pollMs });
     const onAbort = () => {
       child.kill("SIGKILL");
       finish({ ok: false, oom: false, cancelled: true, error: `${label} was cancelled`, heapMb });
@@ -91,7 +97,12 @@ function attempt(
     const finish = (result) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      clearInterval(timer);
+      // A failure says when the machine slept meanwhile: what looked like a slow helper
+      // was a suspended one.
+      if (!result.ok && typeof result.error === "string") {
+        result = { ...result, error: result.error + suspendedNote(suspension.suspendedMs) };
+      }
       signal?.removeEventListener("abort", onAbort);
       resolve(result);
     };
@@ -165,7 +176,9 @@ function attempt(
           `${label} exited ${code ?? `on ${exitSignal ?? "an unknown signal"}`}`,
       });
     });
-    timer = setTimeout(() => {
+    timer = setInterval(() => {
+      suspension.tick();
+      if (performance.now() - started - suspension.suspendedMs <= timeoutMs) return;
       child.kill("SIGKILL");
       finish({
         ok: false,
@@ -173,7 +186,7 @@ function attempt(
         heapMb,
         error: `${label} exceeded ${timeoutMs}ms`,
       });
-    }, timeoutMs);
+    }, pollMs);
     timer.unref?.();
     try {
       child.stdin?.end(JSON.stringify(input));

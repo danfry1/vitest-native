@@ -437,6 +437,37 @@ describe("migrate", () => {
     expect(text).toContain("'someCustomKey' — unrecognized Jest key");
   });
 
+  it("keeps Jest's mapper order in resolve.alias, where the first match wins", () => {
+    // Shape from cherry-studio-app: the specific `@/assets/` mapper precedes the
+    // catch-all `@/`. A string `find: "@"` also takes `@/assets/x`, so emitting the
+    // string aliases ahead of the RegExp ones sent `@/assets/x` to src/assets/x.
+    const config = analyzeJestConfig(
+      fixture({
+        "package.json": { name: "x" },
+        "jest.config.json": {
+          moduleNameMapper: {
+            "^@shared/(.*)$": "<rootDir>/packages/shared/$1",
+            "^@/assets/(.*)$": "<rootDir>/assets/$1",
+            "^@/(.*)$": "<rootDir>/src/$1",
+            "^@logger$": "<rootDir>/src/logger.ts",
+          },
+        },
+      }),
+    ).suggestedConfig;
+    const at = (needle: string) => {
+      const index = config.indexOf(needle);
+      expect(index, needle).toBeGreaterThan(-1);
+      return index;
+    };
+    const shared = at("find: /^@shared\\/(.*)$/");
+    const assets = at("find: /^@\\/assets\\/(.*)$/");
+    const catchAll = at(`find: "@", replacement`);
+    const logger = at("find: /^@logger$/");
+    expect([shared, assets, catchAll, logger]).toEqual(
+      [shared, assets, catchAll, logger].toSorted((a, b) => a - b),
+    );
+  });
+
   it("translates any literal prefix mapper and drops keys with no Vitest effect", () => {
     // Shapes from Rocket.Chat.ReactNative and react-native-paper.
     const report = analyzeJestConfig(
