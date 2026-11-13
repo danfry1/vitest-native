@@ -159,6 +159,31 @@ export function nonRegistryPackages(scratchLock, { manifest, dir, tarballs = [] 
   return found.sort();
 }
 
+/**
+ * Where a lockfile holds `name` at a version other than `version`, and every range its
+ * tree asks for `name` with, by the package that asks: what an unapplied override needs.
+ */
+export function otherCopies(lock, name, version) {
+  const copies = [];
+  const askers = [];
+  for (const [key, entry] of Object.entries(lock.packages ?? {})) {
+    const split = splitId(entry[0]);
+    if (split?.name === name && split.spec !== version) copies.push(`${entry[0]} at ${key}`);
+    const meta = entry.find((part) => part && typeof part === "object" && !Array.isArray(part));
+    for (const field of RANGE_FIELDS) {
+      const range = meta?.[field]?.[name];
+      if (range !== undefined) askers.push(`${entry[0]} ${field} ${range}`);
+    }
+  }
+  for (const workspace of Object.values(lock.workspaces ?? {})) {
+    for (const field of RANGE_FIELDS) {
+      const range = workspace[field]?.[name];
+      if (range !== undefined) askers.push(`top level ${field} ${range}`);
+    }
+  }
+  return `${copies.join(", ") || "no other copy"}; asked for by ${askers.join(", ") || "nothing"}`;
+}
+
 /** `name@version` for every scratch package the repository's lockfile does not have. */
 export function newPackages(repoLock, scratchLock) {
   const repo = lockedVersions(repoLock);
@@ -242,6 +267,11 @@ export async function scratchInstall(dir, options = {}) {
   const overrides = {};
   for (let round = 1; ; round++) {
     const more = chooseOverrides({ repoLock, scratchLock: readLock(), topLevel, satisfies });
+    // An override already set that bun left unapplied comes back each round; the check
+    // below names where the other copy is.
+    for (const [name, version] of Object.entries(more)) {
+      if (overrides[name] === version) delete more[name];
+    }
     if (Object.keys(more).length === 0) break;
     if (round > MAX_ROUNDS) {
       throw new Error(
@@ -266,7 +296,9 @@ export async function scratchInstall(dir, options = {}) {
   );
   if (ignored.length > 0) {
     throw new Error(
-      `scratch-install: bun did not apply these overrides: ${ignored.map(([n, v]) => `${n}@${v}`).join(", ")}`,
+      `scratch-install: bun did not apply these overrides: ${ignored
+        .map(([name, version]) => `${name}@${version} (${otherCopies(scratchLock, name, version)})`)
+        .join("; ")}`,
     );
   }
 

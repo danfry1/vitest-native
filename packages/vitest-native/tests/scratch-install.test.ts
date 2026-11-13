@@ -253,6 +253,30 @@ describe("scratch-install", () => {
     expect(calls.at(-1)).toContain("--frozen-lockfile");
   });
 
+  it("names the copy bun left when an override does not apply, instead of retrying it", async () => {
+    const dir = scratch({ "react-native": "0.86.3", react: "19.2.8" });
+    // bun applies the vite override at the top of the tree but keeps a nested 8.3.7.
+    const { exec, calls } = fakeBun((overrides) =>
+      scratchResolution(overrides).replace(
+        '    "rolldown": [',
+        '    "react-native/vite": ["vite@8.3.7", "", { "dependencies": { "rolldown": "1.2.18" } }, "x"],\n    "rolldown": [',
+      ),
+    );
+    const error = await scratchInstall(dir, {
+      exec,
+      satisfies,
+      publishTime: () => NOW - 30 * DAY,
+      now: NOW,
+      repoLockText: REPO_LOCK,
+      log() {},
+    }).catch((e: Error) => e);
+    expect(String(error)).toContain("bun did not apply these overrides: vite@8.3.5");
+    expect(String(error)).toContain("vite@8.3.7 at react-native/vite");
+    expect(String(error)).toContain("react-native@0.86.3 dependencies ^8.3.0");
+    // One resolution, one with the override, one more that adds nothing new.
+    expect(calls.filter((call) => call.includes("--lockfile-only")).length).toBe(2);
+  });
+
   it("refuses a transitive package from git before checking ages or installing", async () => {
     const dir = scratch({ "react-native": "0.86.3", react: "19.2.8" });
     const { exec, calls } = fakeBun((overrides) =>
