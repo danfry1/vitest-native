@@ -24,7 +24,12 @@ import { projectContext } from "../context.mjs";
 import { assertOneReact, rendererRequire } from "../preset-react.mjs";
 
 /** The packages served as one copy, by Vite and by Node. */
-export const REACT_DEDUPE = Object.freeze(["react", "react-test-renderer", "test-renderer", "react-is"]);
+export const REACT_DEDUPE = Object.freeze([
+  "react",
+  "react-test-renderer",
+  "test-renderer",
+  "react-is",
+]);
 
 /** Whether a bare request names a deduped package or one of its subpaths. */
 export function isDeduped(request) {

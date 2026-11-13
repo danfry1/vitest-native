@@ -27,11 +27,14 @@ write(
   path.join(lib, "index.js"),
   `const React = require("react");
 exports.React = React;
+// Node's ESM resolver, not require's: a module this library imports.
+exports.importReact = () => import("./esm.mjs").then((m) => m.React);
 exports.Counter = function Counter(props) {
   const [n] = React.useState(1);
   return React.createElement(props.as, null, "count " + n);
 };`,
 );
+write(path.join(lib, "esm.mjs"), 'import React from "react";\nexport { React };\n');
 const nested = path.join(lib, "node_modules", "react");
 write(path.join(nested, "package.json"), JSON.stringify({ name: "react", main: "index.js" }));
 write(path.join(nested, "index.js"), 'module.exports = { copy: "nested" };');
@@ -41,6 +44,10 @@ describe("a Node-owned library with its own nested React", () => {
 
   it("gets the React the test renders with", () => {
     expect(loaded.React).toBe(React);
+  });
+
+  it("gets the same React through import", async () => {
+    expect(await loaded.importReact()).toBe(React);
   });
 
   it("runs its hooks inside the renderer's render", async () => {
