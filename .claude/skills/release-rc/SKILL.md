@@ -7,7 +7,7 @@ description: Cut a vitest-native release candidate (or a release). Use when prep
 
 1. **Review the pending changesets first** (see `changeset-style`) and land the edits.
 2. **Open the version PR from a fresh branch on main.** Run `bun install --frozen-lockfile`,
-   then `bunx changeset version`, then set the version to `<version>-rc.<n>` (CONTRIBUTING.md,
+   then `bun run changeset version`, then set the version to `<version>-rc.<n>` (CONTRIBUTING.md,
    "Prereleases"). Keep the notes under one `## <version>` heading; a candidate can add a
    second one, so check.
 3. **Add the thank-you paragraph** from `scripts/release-thanks.mjs` (CONTRIBUTING.md,

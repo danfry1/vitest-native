@@ -11,7 +11,7 @@ import { libraryMockModule, type LibraryMock } from "./library-mock.js";
 // (`react-native-keyboard-controller/jest`), as a Jest suite installs it: its hooks
 // return React Native `Animated.Value`s and are mock functions. Under the mock engine,
 // and for a version without that mock, the module below serves.
-const KEYBOARD_CONTROLLER_MOCK: LibraryMock = {
+export const KEYBOARD_CONTROLLER_MOCK: LibraryMock = {
   pkg: "react-native-keyboard-controller",
   entry: "jest",
   file: "jest/index.js",

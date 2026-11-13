@@ -205,6 +205,74 @@ export function wrapForOwnership(installed, root, model) {
 }
 
 /**
+ * Copies each package under `vendor` into `modules`, as a registry install copies it.
+ * Anything already at that name (an exhibit's `links` entry, or a link from a caller that
+ * vendors after linkAll) is removed first, link and all: copying onto a link writes into
+ * the directory it points to, which for an installed package is bun's shared store. In
+ * materialise's own order the vendored copy comes before linkAll, which then skips it.
+ */
+export function copyVendored(vendor, modules) {
+  if (!fs.existsSync(vendor)) return;
+  for (const entry of fs.readdirSync(vendor)) {
+    const names = entry.startsWith("@")
+      ? fs.readdirSync(path.join(vendor, entry)).map((n) => `${entry}/${n}`)
+      : [entry];
+    for (const name of names) {
+      const to = path.join(modules, name);
+      // A link, removed as a link: rmSync does not follow it into its target.
+      fs.rmSync(to, { recursive: true, force: true });
+      fs.mkdirSync(path.dirname(to), { recursive: true });
+      fs.cpSync(path.join(vendor, name), to, { recursive: true });
+    }
+  }
+}
+
+/** Where the hot-axis wrapper records each reactNative() call it saw, in the exhibit root. */
+export const HOT_MARKER = ".museum-hot-calls";
+
+/**
+ * `run.mjs --hot <off|auto>`: every exhibit in one mode, whatever its config says, as the
+ * question of a default for `hotRuntime` needs (most exhibits pin `hotRuntime: false`,
+ * written before there was a choice). `off` gives every reactNative() call
+ * `hotRuntime: false`. `auto` gives every call `'auto'`, except a call that already asks
+ * for the hot runtime (`true`, an object, `'auto'`): an exhibit written for it keeps its
+ * own. Each call appends to HOT_MARKER: "exhibit" (its own hot runtime kept), "overrode"
+ * (`off` turned off a hot runtime the exhibit asked for, which removes the precondition of
+ * an exhibit written for it) or "axis". Wraps whatever the installed
+ * copy's main entry is, so it composes with wrapForOwnership.
+ */
+export function wrapForHot(installed, root, mode) {
+  const manifestFile = path.join(installed, "package.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+  const main = manifest.exports?.["."];
+  if (typeof main?.default !== "string")
+    throw new Error(`--hot: ${manifestFile} has no exports["."].default to wrap`);
+  const wrapper = "museum-hot.mjs";
+  const value = mode === "off" ? "false" : JSON.stringify("auto");
+  fs.writeFileSync(
+    path.join(installed, wrapper),
+    [
+      "// Written by the bug museum (run.mjs --hot): every reactNative() call gets the",
+      "// axis's hotRuntime (see wrapForHot). A local export shadows the star re-export.",
+      'import fs from "node:fs";',
+      `import { reactNative as buildReactNative } from ${JSON.stringify(main.default)};`,
+      `export * from ${JSON.stringify(main.default)};`,
+      "export function reactNative(options) {",
+      "  const asked = options?.hotRuntime;",
+      '  const hot = asked === true || asked === "auto" || (asked !== null && typeof asked === "object");',
+      `  const own = ${mode === "auto"} && hot;`,
+      `  const mark = own ? "exhibit" : ${mode === "off"} && hot ? "overrode" : "axis";`,
+      `  fs.appendFileSync(${JSON.stringify(path.join(root, HOT_MARKER))}, mark + "\\n");`,
+      `  return buildReactNative(own ? options : { ...options, hotRuntime: ${value} });`,
+      "}",
+      "",
+    ].join("\n"),
+  );
+  manifest.exports["."] = { ...main, default: `./${wrapper}` };
+  fs.writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
+/**
  * Materialise `exhibit` (an exhibits.json entry) under `work`. Returns the app root.
  * `build` is the vitest-native package directory under test; `ownershipModel` other than
  * "off" wraps the installed copy (wrapForOwnership). `from` is the app directory to copy,
@@ -218,6 +286,7 @@ export function materialise(
     deps = build,
     edits = [],
     ownershipModel = "off",
+    hotMode = null,
     from = path.join(museumRoot, "exhibits", exhibit.id),
   },
 ) {
@@ -249,19 +318,11 @@ export function materialise(
     if (nested) fs.cpSync(path.join(root, dir), at, { recursive: true, dereference: true });
     else fs.symlinkSync(path.join(root, dir), at);
   }
-  const vendor = path.join(root, "vendor");
-  if (fs.existsSync(vendor)) {
-    for (const entry of fs.readdirSync(vendor)) {
-      const names = entry.startsWith("@")
-        ? fs.readdirSync(path.join(vendor, entry)).map((n) => `${entry}/${n}`)
-        : [entry];
-      for (const name of names)
-        fs.cpSync(path.join(vendor, name), path.join(modules, name), { recursive: true });
-    }
-  }
+  copyVendored(path.join(root, "vendor"), modules);
   copyPackage(build, path.join(modules, "vitest-native"));
   if (ownershipModel !== "off")
     wrapForOwnership(path.join(modules, "vitest-native"), root, ownershipModel);
+  if (hotMode !== null) wrapForHot(path.join(modules, "vitest-native"), root, hotMode);
   const expo = declaresExpo(root);
   // The installed packages of the build's own ref, not this checkout's: an old build is
   // judged against what that ref declared (Expo, React Native, RNTL), never today's.

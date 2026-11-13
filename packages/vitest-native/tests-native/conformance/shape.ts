@@ -37,11 +37,14 @@ export function differences(value: unknown, shape: Shape, path: string): string[
     case "array":
       return Array.isArray(value) ? [] : [`${path}: is ${actual}, declared array`];
     case "function":
-      // A component may be an exotic object (forwardRef, memo), which React renders as one.
-      if (actual === "object" && "$$typeof" in (value as object)) return [];
-      return actual === "function" ? [] : [`${path}: is ${actual}, declared function`];
     case "object": {
-      if (actual !== "object" && actual !== "function") {
+      if (shape.kind === "function") {
+        // A component may be an exotic object (forwardRef, memo), which React renders as one.
+        const component = actual === "object" && "$$typeof" in (value as object);
+        if (actual !== "function" && !component) {
+          return [`${path}: is ${actual}, declared function`];
+        }
+      } else if (actual !== "object" && actual !== "function") {
         return [`${path}: is ${actual}, declared ${describeShape(shape)}`];
       }
       const found: string[] = [];
@@ -51,7 +54,9 @@ export function differences(value: unknown, shape: Shape, path: string): string[
         // (bottom-sheet's internal hooks) has no `has` trap, so `in` alone says missing.
         const read = readMember(value as Record<string, unknown>, name);
         if (read === THREW || (!(name in (value as object)) && read === undefined)) {
-          if (!member.optional) found.push(`${here}: missing, declared ${describeShape(member)}`);
+          // A member declared `never` (a type-level brand) cannot exist at runtime.
+          if (!member.optional && member.kind !== "never")
+            found.push(`${here}: missing, declared ${describeShape(member)}`);
           continue;
         }
         found.push(...differences(read, member, here));
