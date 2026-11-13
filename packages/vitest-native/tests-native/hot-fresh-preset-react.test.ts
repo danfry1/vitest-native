@@ -15,8 +15,8 @@
  * - reanimated: useDerivedValue's subscription, made in an effect and stopped on unmount,
  *   and a shared value kept per component;
  * - unistyles: useUnistyles(), which subscribes with useSyncExternalStore;
- * - mmkv: useMMKVString(), which keeps its value with useState (a stand-in package in
- *   vendor/, which the preset replaces);
+ * - mmkv: useMMKVString(), which keeps its value with useState (a 2.x stand-in in vendor/:
+ *   from 3 on the library tests itself and the preset steps aside);
  * - webview: WebView hands its methods to a ref (useImperativeHandle; a stand-in too);
  * - gesture-handler: the library itself, which the native engine runs with its own Jest
  *   setup rather than the preset, with its Pressable;
