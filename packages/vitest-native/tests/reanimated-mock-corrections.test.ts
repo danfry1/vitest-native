@@ -8,7 +8,7 @@ import React from "react";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { mockCorrections } from "../src/presets/reanimated.js";
+import { derivedValue, mockCorrections, sharedValue } from "../src/presets/reanimated.js";
 import { renderHook } from "@testing-library/react-native";
 
 const dir = path.dirname(
@@ -257,5 +257,41 @@ describe("reanimated mock corrections", () => {
       });
       expect(() => useSharedValue(6)).toThrow(bug);
     });
+  });
+});
+
+// Reanimated keeps a derived value current with a mapper over the shared values its
+// updater reads, run on every change of one (at once under Jest). Its mock computes the
+// updater at render only, so a read after set() was stale (#351). Outside a render here,
+// as the mock's hooks allow; tests-native/reanimated-shapes/derived-values.test.tsx renders.
+describe("derived values", () => {
+  it("the corrected useDerivedValue follows the shared values its updater reads", () => {
+    const fixed = mockCorrections(React, noOpMock(), dir);
+    const progress = fixed.useSharedValue(0);
+    const sweep = fixed.useDerivedValue(() => progress.get() * 360);
+    expect(sweep.get()).toBe(0);
+    progress.set(0.5);
+    expect(sweep.get()).toBe(180);
+    progress.value = 1;
+    expect(sweep.value).toBe(360);
+  });
+
+  it("a chain follows, listeners hear a changed result once, and reads are re-taken each run", () => {
+    const flag = sharedValue(true);
+    const a = sharedValue(1);
+    const b = sharedValue(10);
+    const picked = derivedValue(React, () => (flag.get() ? a.get() : b.get()));
+    const doubled = derivedValue(React, () => picked.value * 2);
+    const heard = vi.fn();
+    doubled.addListener(1, heard);
+    a.set(2);
+    expect(doubled.get()).toBe(4);
+    expect(heard).toHaveBeenCalledTimes(1);
+    flag.set(false);
+    expect(doubled.get()).toBe(20);
+    a.set(3); // no longer read
+    expect(heard).toHaveBeenCalledTimes(2);
+    b.set(11);
+    expect(doubled.get()).toBe(22);
   });
 });

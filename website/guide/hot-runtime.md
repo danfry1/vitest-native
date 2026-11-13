@@ -49,6 +49,17 @@ Workers stay alive, and some state is known to carry over from one file to the n
 
 With `hotRuntime: { freshRuntime: true }` (experimental), React, its renderers, `scheduler` and React Native Testing Library run again for every file, so the first five of these no longer apply: each file counts `useId` from the start, sees React's warnings, renders outside any `act()` scope an earlier file left open, loads the scheduler under its own timers, and has RNTL reinstall fake timers. It costs re-running those packages, about 5 ms per file with four workers and 17 ms with one, measured on a 135-file suite. A worker also holds a few earlier copies of React at a time, about 18 MB more heap than without the option in one measurement; it does not grow with the number of files, and worker recycling (`memoryLimit`, `recycleAfterFiles`) bounds it as usual.
 
+vitest-native's presets build their mocks with each file's React. A [preset of your own](/guide/presets#your-own-presets) whose factory makes components, contexts or hooks should do the same, using the React the factory is given rather than one imported at the module's top level, which keeps the first file's copy:
+
+```ts
+'my-lib': {
+  exports: ['ThingView'],
+  factory: ({ React }) => ({
+    ThingView: (props) => React.createElement('ThingView', props),
+  }),
+},
+```
+
 [Troubleshooting](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) describes each one and how to confirm it. Beyond these, vitest-native cannot discover every piece of state a third-party library keeps for the life of a process. A test that passes on its own but fails after other files is the sign: set `hotRuntime: false` for that suite, and [report it](https://github.com/danfry1/vitest-native/issues) with the library involved.
 
 ## Workers and memory
