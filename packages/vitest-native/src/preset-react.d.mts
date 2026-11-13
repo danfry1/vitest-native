@@ -7,3 +7,5 @@ export function presetFactoryContext(
   root: string,
   options?: { check?: boolean },
 ): { React: any };
+export function rendererRequire(root: string): NodeJS.Require;
+export function assertOneReact(root: string, user?: string): void;

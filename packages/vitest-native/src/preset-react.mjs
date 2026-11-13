@@ -21,18 +21,35 @@ import { VitestNativeError } from "./errors.mjs";
  * a copy that never renders cannot tell a hook call inside a render from one outside it.
  */
 export function presetFactoryContext(pkg, root, { check = false } = {}) {
-  const fromRoot = createRequire(path.join(root, "package.json"));
-  const fromRenderer = requireFrom(fromRoot, "react-native/package.json");
-  if (check && !checkedRoots.has(root)) {
-    checkOneReact(pkg, fromRoot, fromRenderer);
-    checkedRoots.add(root);
-  }
-  return { React: fromRenderer("react") };
+  if (check) assertOneReact(root, `the ${pkg} preset builds its mock with`);
+  return { React: rendererRequire(root)("react") };
 }
 
-// Roots whose React copies agree. The check compares installed files, which do not change
-// during a run, so it holds for every later file in the worker; a root that fails is not
-// added, and each preset built there fails again.
+/**
+ * A require from where the test's renderer resolves its packages: the directory
+ * `react-native` resolves to from `root`, or `root` where `react-native` is not
+ * installed. The one anchor for which copy of React (and its siblings) a test uses:
+ * preset factories take React from it, and anything else that must agree with them
+ * resolves from it too.
+ */
+export function rendererRequire(root) {
+  return requireFrom(createRequire(path.join(root, "package.json")), "react-native/package.json");
+}
+
+/**
+ * Fails with PRESET_REACT_MISMATCH when the project or React Native Testing Library
+ * resolves another copy of React than rendererRequire's. `user` names who uses the
+ * anchor's copy, for the message. Once per root in a worker: the check compares
+ * installed files, which do not change during a run; a root that fails is not recorded,
+ * so each later call fails again.
+ */
+export function assertOneReact(root, user = "vitest-native uses") {
+  if (checkedRoots.has(root)) return;
+  const fromRoot = createRequire(path.join(root, "package.json"));
+  checkOneReact(user, fromRoot, rendererRequire(root));
+  checkedRoots.add(root);
+}
+
 const checkedRoots = new Set();
 
 /** A require from the file `fromRoot` resolves `request` to, or `fromRoot` where there is none. */
@@ -48,7 +65,7 @@ function requireFrom(fromRoot, request) {
   return path.isAbsolute(file) ? createRequire(file) : fromRoot;
 }
 
-function checkOneReact(pkg, fromRoot, fromRenderer) {
+function checkOneReact(user, fromRoot, fromRenderer) {
   const react = fromRenderer.resolve("react");
   const others = [["the project", fromRoot]];
   const rntl = requireFrom(fromRoot, "@testing-library/react-native/package.json");
@@ -58,7 +75,7 @@ function checkOneReact(pkg, fromRoot, fromRenderer) {
     if (theirs !== react) {
       throw new VitestNativeError(
         "PRESET_REACT_MISMATCH",
-        `the ${pkg} preset builds its mock with the React react-native uses (${react}), ` +
+        `${user} the React react-native uses (${react}), ` +
           `but ${who} resolves another copy (${theirs}). Hooks and contexts from one copy ` +
           `fail in a tree the other renders. Install one copy of react: dedupe it in the ` +
           `workspace, or align the versions the packages ask for.`,

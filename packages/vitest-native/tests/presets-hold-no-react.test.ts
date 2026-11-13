@@ -3,11 +3,11 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { RUNTIME_RESIDENT_PACKAGES } from "../src/native/ownership.mjs";
+import { isPerFilePackage } from "../lint/per-file-packages.mjs";
 
 // vitest-native's presets load once per worker and stay resident under the hot runtime,
-// while hotRuntime.freshRuntime evaluates React (RUNTIME_RESIDENT_PACKAGES) again for each
-// file. A preset module that takes React once per worker, directly or through
+// while hotRuntime.freshRuntime evaluates React again for each file (the packages in
+// lint/per-file-packages.mjs, the lint rule's list). A preset module that takes React once per worker, directly or through
 // vitest-native's own modules it loads (mocks/host.ts, say), keeps the first file's copy
 // (#719): a factory takes the file's React from its context instead. The lint rule
 // preset-react-per-file reports a preset's own; this follows the indirect ones, from the
@@ -27,22 +27,53 @@ const traverse = (babel("@babel/traverse") as { default: (ast: any, visitors: an
 // specifiers name another package's files, not vitest-native's.
 type Load = { specifier: string; oncePerWorker: boolean; anchored?: boolean };
 
-/** Whether a require at `path` runs once per worker: at module scope (or in a function
- * called where it is defined), or with its result kept in a module-scope binding. */
-function oncePerWorker(callPath: any): boolean {
-  for (let fn = callPath.getFunctionParent(); fn; fn = fn.getFunctionParent()) {
-    if (fn.parentPath.isCallExpression() && fn.parentPath.node.callee === fn.node) continue;
-    for (let at = callPath.parentPath; at && at !== fn; at = at.parentPath) {
-      if (!at.isAssignmentExpression()) continue;
-      let left = at.node.left;
-      while (left.type === "MemberExpression") left = left.object;
-      if (left.type === "Identifier" && at.scope.getBinding(left.name)?.scope.path.isProgram()) {
-        return true;
+/** Whether `fnPath` runs once per worker: called where it is defined at module scope, or
+ * a named function called at module scope, directly or through another such function. */
+function runsAtLoad(fnPath: any, seen = new Set<any>()): boolean {
+  if (seen.has(fnPath.node)) return false;
+  seen.add(fnPath.node);
+  const callers: any[] = [];
+  if (fnPath.parentPath.isCallExpression() && fnPath.parentPath.node.callee === fnPath.node) {
+    callers.push(fnPath.parentPath);
+  } else {
+    const id = fnPath.node.id ?? (fnPath.parentPath.isVariableDeclarator() && fnPath.parent.id);
+    const binding = id?.type === "Identifier" ? fnPath.scope.parent?.getBinding(id.name) : null;
+    for (const ref of binding?.referencePaths ?? []) {
+      if (ref.parentPath.isCallExpression() && ref.parentPath.node.callee === ref.node) {
+        callers.push(ref.parentPath);
       }
     }
-    return false;
   }
-  return true;
+  return callers.some((call) => {
+    const outer = call.getFunctionParent();
+    return outer === null || runsAtLoad(outer, seen);
+  });
+}
+
+/** Whether a require at `callPath` runs once per worker: in code that runs at load
+ * (runsAtLoad), or with its result kept in a module-scope binding, by assignment or
+ * through a method of one (`cache.set(key, require("react"))`). */
+function oncePerWorker(callPath: any): boolean {
+  const fn = callPath.getFunctionParent();
+  if (fn === null || runsAtLoad(fn)) return true;
+  const moduleScoped = (node: any) => {
+    while (node?.type === "MemberExpression") node = node.object;
+    return (
+      node?.type === "Identifier" && callPath.scope.getBinding(node.name)?.scope.path.isProgram()
+    );
+  };
+  for (let at = callPath.parentPath; at && at !== fn; at = at.parentPath) {
+    if (at.isAssignmentExpression() && moduleScoped(at.node.left)) return true;
+    if (
+      at.isCallExpression() &&
+      at.node.callee.type === "MemberExpression" &&
+      moduleScoped(at.node.callee) &&
+      !callPath.findParent((p: any) => p.node === at.node.callee)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** The modules a file loads: static value imports and re-exports, `import()`, and
@@ -119,9 +150,6 @@ function sourceFile(from: string, specifier: string): string {
   throw new Error(`${path.relative(src, from)}: cannot find ${specifier}`);
 }
 
-const isResidentPackage = (specifier: string) =>
-  RUNTIME_RESIDENT_PACKAGES.some((pkg) => specifier === pkg || specifier.startsWith(`${pkg}/`));
-
 const captures = new Map<string, boolean>();
 /** Whether evaluating `file` imports a package freshRuntime evaluates per file. */
 function capturesReact(file: string): boolean {
@@ -136,7 +164,7 @@ function capturesReact(file: string): boolean {
     if (specifier.startsWith("#") || specifier.startsWith("vitest-native")) {
       throw new Error(`${path.relative(src, file)}: follow ${specifier} to its source file`);
     }
-    return once && isResidentPackage(specifier);
+    return once && isPerFilePackage(specifier);
   });
   captures.set(file, result);
   return result;

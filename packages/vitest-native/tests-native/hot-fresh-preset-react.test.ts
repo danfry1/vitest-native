@@ -15,6 +15,9 @@
  * - reanimated: useDerivedValue's subscription, made in an effect and stopped on unmount,
  *   and a shared value kept per component;
  * - unistyles: useUnistyles(), which subscribes with useSyncExternalStore;
+ * - mmkv: useMMKVString(), which keeps its value with useState (a 2.x stand-in in vendor/:
+ *   from 3 on the library tests itself and the preset steps aside);
+ * - webview: WebView hands its methods to a ref (useImperativeHandle; a stand-in too);
  * - gesture-handler: the library itself, which the native engine runs with its own Jest
  *   setup rather than the preset, with its Pressable;
  * - own-mock: safe-area serving the installed library's own mock.
@@ -30,6 +33,8 @@ const FILES = {
   navigation: ["navigation-1.test.tsx", "navigation-2.test.tsx"],
   reanimated: ["derived-1.test.tsx", "derived-2.test.tsx"],
   unistyles: ["theme-1.test.tsx", "theme-2.test.tsx"],
+  mmkv: ["storage-1.test.tsx", "storage-2.test.tsx"],
+  webview: ["web-1.test.tsx", "web-2.test.tsx"],
   "gesture-handler": ["pressable-1.test.tsx", "pressable-2.test.tsx"],
 };
 const run = (id: string, edits: { file: string; find: string; replace: string }[] = []) =>
@@ -39,7 +44,15 @@ const resident = (files: string[]) => [
   ...files.map((file) => ({ file, find: "const fresh = true;", replace: "const fresh = false;" })),
 ];
 
-it.each(["safe-area", "navigation", "reanimated", "unistyles", "gesture-handler"] as const)(
+it.each([
+  "safe-area",
+  "navigation",
+  "reanimated",
+  "unistyles",
+  "mmkv",
+  "webview",
+  "gesture-handler",
+] as const)(
   "%s under freshRuntime: every file renders, each with its own React",
   (preset) => {
     const { status, output } = run(`fresh-preset-${preset}`);
@@ -50,7 +63,15 @@ it.each(["safe-area", "navigation", "reanimated", "unistyles", "gesture-handler"
   150_000,
 );
 
-it.each(["safe-area", "navigation", "reanimated", "unistyles", "gesture-handler"] as const)(
+it.each([
+  "safe-area",
+  "navigation",
+  "reanimated",
+  "unistyles",
+  "mmkv",
+  "webview",
+  "gesture-handler",
+] as const)(
   "%s with React resident: every file renders, with the first file's React",
   (preset) => {
     const { status, output } = run(`fresh-preset-${preset}`, resident(FILES[preset]));

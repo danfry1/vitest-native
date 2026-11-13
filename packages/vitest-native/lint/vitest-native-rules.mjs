@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { RUNTIME_RESIDENT_PACKAGES } from "../src/native/ownership.mjs";
+import { isPerFilePackage } from "./per-file-packages.mjs";
 
 const BASELINE = JSON.parse(
   fs.readFileSync(fileURLToPath(new URL("./baseline.json", import.meta.url)), "utf8"),
@@ -371,17 +371,6 @@ const noDocUrlsInSrc = {
 
 // --------------------------------------------------------------------------------------
 
-// The packages freshRuntime evaluates again for each file (RUNTIME_RESIDENT_PACKAGES,
-// resident only without it), plus React Native: the registry re-evaluates its modules
-// for each file, so a module-scope copy is the first file's components, built with the
-// first file's React.
-const PER_FILE_PACKAGES = [...RUNTIME_RESIDENT_PACKAGES, "react-native", "@react-native/*"];
-const PER_FILE_PACKAGE = new RegExp(
-  `^(?:${PER_FILE_PACKAGES.map((name) =>
-    name.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace("/*", "/[^/]+"),
-  ).join("|")})(?:/|$)`,
-);
-
 /** A string literal, or a template literal without expressions: the module requested. */
 function staticSource(node) {
   if (node?.type === "Literal" && typeof node.value === "string") return node.value;
@@ -392,7 +381,7 @@ function staticSource(node) {
 }
 
 /**
- * A preset's module loads no per-file package (PER_FILE_PACKAGE) once per worker.
+ * A preset's module loads no per-file package (per-file-packages.mjs) once per worker.
  * vitest-native's presets load once per worker and stay resident under the hot runtime,
  * while freshRuntime evaluates React again for each file: a copy taken once keeps the
  * first file's, and a later file fails with "Invalid hook call" (#719). A factory takes
@@ -400,8 +389,10 @@ function staticSource(node) {
  * - a value import or re-export (a type-only one is fine);
  * - `import("…")`, which Node caches for the worker;
  * - `require`, `module.require`, `createRequire(…)(…)` or a function `createRequire`
- *   returned, at module scope or in a function called there, or inside a function whose
- *   result is kept in a module-scope binding (a lazy cache, `R ??= require("react")`).
+ *   returned, where it runs once per worker: at module scope; in a function called where
+ *   it is defined, or a named one called at module scope (directly or through another
+ *   such function); or kept in a module-scope binding, by assignment (a lazy cache,
+ *   `R ??= require("react")`) or a method call (`cache.set(key, require("react"))`).
  * A require in a function that returns it (`() => require("react-native")`) is per call
  * and fine. Imports through vitest-native's own modules are followed by
  * tests/presets-hold-no-react.test.ts.
@@ -420,7 +411,7 @@ const presetReactPerFile = {
     const moduleBindings = new Set();
     const requireFunctions = new Set(["require"]);
     const report = (node, messageId, source) => {
-      if (typeof source === "string" && PER_FILE_PACKAGE.test(source)) {
+      if (typeof source === "string" && isPerFilePackage(source)) {
         context.report({ node, messageId, data: { source } });
       }
     };
@@ -441,28 +432,42 @@ const presetReactPerFile = {
         callee.object.name === "module" &&
         callee.property.name === "require") ||
       isCreateRequire(callee);
-    const keptInModuleBinding = (chain) =>
+    const rootName = (node) => {
+      while (node?.type === "MemberExpression") node = node.object;
+      return node?.type === "Identifier" ? node.name : null;
+    };
+    const within = (outer, node) => node.start >= outer.start && node.end <= outer.end;
+    // Kept in a module-scope binding: assigned to one (or a property of one), or passed to
+    // a method of one, between the function and the call.
+    const keptInModuleBinding = (chain, node) =>
       chain.some(
-        (node) =>
-          node.type === "AssignmentExpression" &&
-          ((node.left.type === "Identifier" && moduleBindings.has(node.left.name)) ||
-            (node.left.type === "MemberExpression" &&
-              node.left.object.type === "Identifier" &&
-              moduleBindings.has(node.left.object.name))),
+        (at) =>
+          (at.type === "AssignmentExpression" && moduleBindings.has(rootName(at.left))) ||
+          (at.type === "CallExpression" &&
+            at !== node &&
+            at.callee.type === "MemberExpression" &&
+            moduleBindings.has(rootName(at.callee)) &&
+            !within(at.callee, node)),
       );
-    // Whether the call runs once per worker: no enclosing function but ones called where
-    // they are defined, or its result kept in a module-scope binding.
-    const oncePerWorker = (node) => {
-      const ancestors = context.sourceCode.getAncestors(node);
+    // The function a call runs in, skipping ones called where they are defined: its name
+    // (a function declaration, or one assigned to a variable), MODULE at module scope, or
+    // null for an unnamed function, which runs whenever whoever holds it calls it.
+    const MODULE = Symbol("module scope");
+    const enclosing = (ancestors) => {
       for (let i = ancestors.length - 1; i >= 0; i--) {
         const fn = ancestors[i];
         if (!fn.type.includes("Function")) continue;
         const parent = ancestors[i - 1];
         if (parent?.type === "CallExpression" && parent.callee === fn) continue;
-        return keptInModuleBinding(ancestors.slice(i));
+        const name = fn.id?.name ?? (parent?.type === "VariableDeclarator" ? parent.id.name : null);
+        return { fn: name ?? null, chain: ancestors.slice(i) };
       }
-      return true;
+      return { fn: MODULE, chain: [] };
     };
+    // Calls by name, from the function they run in, to find the functions that run once
+    // per worker at Program:exit; and the requires waiting on that answer.
+    const calls = new Map();
+    const pending = [];
     return {
       Program(node) {
         for (const statement of node.body) {
@@ -507,8 +512,29 @@ const presetReactPerFile = {
         report(node, "require", staticSource(node.source));
       },
       CallExpression(node) {
-        if (!isRequire(node.callee) || !oncePerWorker(node)) return;
-        report(node, "require", staticSource(node.arguments[0]));
+        const { fn, chain } = enclosing(context.sourceCode.getAncestors(node));
+        if (node.callee.type === "Identifier" && fn !== null) {
+          if (!calls.has(fn)) calls.set(fn, new Set());
+          calls.get(fn).add(node.callee.name);
+        }
+        if (!isRequire(node.callee)) return;
+        const source = staticSource(node.arguments[0]);
+        if (fn === MODULE || keptInModuleBinding(chain, node)) report(node, "require", source);
+        else if (fn !== null) pending.push({ node, source, fn });
+      },
+      "Program:exit"() {
+        const reached = new Set();
+        const queue = [MODULE];
+        while (queue.length > 0) {
+          for (const callee of calls.get(queue.pop()) ?? []) {
+            if (reached.has(callee)) continue;
+            reached.add(callee);
+            queue.push(callee);
+          }
+        }
+        for (const { node, source, fn } of pending) {
+          if (reached.has(fn)) report(node, "require", source);
+        }
       },
     };
   },
