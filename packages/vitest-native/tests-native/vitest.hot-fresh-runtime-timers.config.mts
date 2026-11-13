@@ -13,6 +13,9 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     reactNative({
       engine: "native",
+      // No presets: a preset whose module holds React per worker makes freshRuntime
+      // decline (#719), and these gates are about freshRuntime itself.
+      presets: [],
       hotRuntime:
         mode === "perfile" ? false : { allowUnboundedMemory: true, freshRuntime: mode === "fresh" },
     }),

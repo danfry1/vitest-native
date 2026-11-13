@@ -1,0 +1,14 @@
+{
+  "name": "museum-pre-351-reanimated-derived-stale",
+  "private": true,
+  "dependencies": {
+    "react": "*",
+    "react-native": "*",
+    "react-native-reanimated": "*",
+    "react-native-skia": "*",
+    "react-native-worklets": "*"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "*"
+  }
+}

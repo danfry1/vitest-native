@@ -77,6 +77,16 @@ function resolveExtensionless(base) {
 }
 // Synthetic URL scheme for preset mocks served to the ESM graph (see below).
 const PRESET_SCHEME = "vitest-native-preset:";
+// Under the hot runtime the URL carries the generation, as a stamped file does (see
+// versionable): Node keeps an ES module by URL for the worker's life, and the module reads
+// the preset mocks of the file that first evaluates it. Unstamped, every later file's ES
+// imports of a preset package got the first file's mocks, so a file's mockReturnValue or
+// call assertion reached another file's mock. One URL per generation is one module per
+// test file, however many of its ES modules import the package.
+function presetURL(specifier) {
+  const gen = generationOf();
+  return gen > 0 ? `${PRESET_SCHEME}${specifier}?vnhot=${gen}` : PRESET_SCHEME + specifier;
+}
 // A preset reached by resolved file: only CommonJS that this loader compiled requires
 // through that path (see presetRequestForFile), and on Node 22.13 that `require` reads
 // a CommonJS cache an ES module job never fills ("Cannot read properties of undefined
@@ -313,7 +323,7 @@ function resolveBefore(specifier, context, presets = true) {
   // Node-safe utility entries (jest-utils, mock, plugin) — those pass through
   // to the real file.
   if (presets && isPresetSpecifier(specifier)) {
-    return { done: { url: PRESET_SCHEME + specifier, shortCircuit: true } };
+    return { done: { url: presetURL(specifier), shortCircuit: true } };
   }
 
   const parent =
@@ -395,7 +405,7 @@ function resolveAfter(resolved, context) {
       Object.prototype.hasOwnProperty.call(presetExports, pkg),
     );
     if (hit && isPackageEntryFile(hit.pkg, file, parent)) {
-      return { url: PRESET_SCHEME + hit.pkg, shortCircuit: true };
+      return { url: presetURL(hit.pkg), shortCircuit: true };
     }
   }
   // JSON imports without an explicit `with { type: 'json' }` attribute throw
@@ -906,7 +916,7 @@ function loadModule(url, context, nextLoad) {
     return { format: "commonjs", source, shortCircuit: true };
   }
   if (url.startsWith(PRESET_SCHEME)) {
-    const specifier = url.slice(PRESET_SCHEME.length);
+    const specifier = url.slice(PRESET_SCHEME.length).replace(STAMP, "");
     // A subpath the preset shadows as a module of its own is served from that module
     // (see the plugin's virtual:preset load hook).
     const pkg = Object.prototype.hasOwnProperty.call(presetExports, specifier)

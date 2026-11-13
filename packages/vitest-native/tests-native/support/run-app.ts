@@ -8,27 +8,21 @@
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { stripVTControlCharacters } from "node:util";
-import { afterAll } from "vitest";
 // @ts-expect-error — runtime .mjs, no types
 import {
   materialise,
   museumRoot,
   packageRoot,
 } from "../../validation/bug-museum/lib/materialise.mjs";
+import { runTempRoot } from "./run-temp-root";
 
 export interface Edit {
   file: string;
   find: string;
   replace: string;
 }
-
-const works: string[] = [];
-afterAll(() => {
-  for (const work of works) fs.rmSync(work, { recursive: true, force: true });
-});
 
 export function runApp(
   id: string,
@@ -38,8 +32,7 @@ export function runApp(
     cwd = (root) => root,
   }: { from?: string; edits?: Edit[]; cwd?: (root: string) => string } = {},
 ): { status: number | null; output: string } {
-  const work = fs.mkdtempSync(path.join(os.tmpdir(), `vn-${id}-`));
-  works.push(work);
+  const work = fs.mkdtempSync(path.join(runTempRoot(), `vn-${id}-`));
   const exhibit = JSON.parse(
     fs.readFileSync(path.join(museumRoot, "exhibits.json"), "utf8"),
   ).exhibits.find((e: { id: string }) => e.id === id) ?? { id };

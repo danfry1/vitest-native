@@ -65,7 +65,7 @@ Usage:
       --strict                confirm a parametrised (%p) row only by its title, never by its place
   vitest-native compare --hot                    run the suite per file and with hotRuntime 'auto',
                                                  list every test whose result differs
-      --runs <n>              runs per mode (2)         --seed <n>              seed for the shuffled hot run
+      --runs <n>              runs per mode (3)         --seed <n>              seed for the shuffled hot run
       --no-shuffle            skip the shuffled hot run (--vitest-args, --vitest-config, --json, --timeout as above)
       exits 0 when every Jest-passing test passes under Vitest and \`vitest run\` exits 0,
       1 when not, 2 when a runner could not run or the project changed, 130 when interrupted
@@ -150,9 +150,9 @@ export function main(
           json: parsed.json,
           timeoutMs: parsed.timeoutMs,
           showOutput: parsed.showOutput,
-          runs: parsed.runs ?? 2,
-          shuffle: parsed.shuffle ?? true,
-          seed: parsed.seed ?? 0,
+          runs: parsed.runs,
+          shuffle: parsed.shuffle,
+          seed: parsed.seed,
         });
       }
       return runCompare({ ...parsed, root, log });

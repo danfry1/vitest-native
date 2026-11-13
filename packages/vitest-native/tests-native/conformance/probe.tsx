@@ -13,7 +13,7 @@
 import React from "react";
 import { Text } from "react-native";
 import { render } from "@testing-library/react-native";
-import { expect, it } from "vitest";
+import { it } from "vitest";
 import {
   describeShape,
   differences,
@@ -124,8 +124,15 @@ export function probeModule(
       } else {
         const value = module[name];
         if (declared.kind === "class") {
-          if (typeof value !== "function")
+          // A class component may be served as an exotic object (forwardRef, memo), which
+          // renders the same; it is checked as a component, not constructed.
+          const component =
+            typeof value === "object" && value !== null && "$$typeof" in (value as object);
+          if (component) {
+            report.unchecked.push(`${name} (a component, served as an exotic object)`);
+          } else if (typeof value !== "function") {
             found.push(`${name}: is ${typeof value}, declared class`);
+          }
         } else if (declared.kind === "function") {
           if (typeof value === "string" && isComponent(name, declared)) {
             // A host component's name, as a library's own Jest mock often serves a view
@@ -181,6 +188,9 @@ export function probeModule(
           (report.extra.length ? `\n  beyond the types: ${report.extra.join(", ")}` : ""),
       );
     }
-    expect(stale, "waivers that no longer fail (remove them)").toEqual([]);
+    // One line per waiver, in full: an array in an assertion message is truncated.
+    if (stale.length > 0) {
+      throw new Error(`waivers that no longer fail (remove them):\n${stale.join("\n")}`);
+    }
   });
 }
