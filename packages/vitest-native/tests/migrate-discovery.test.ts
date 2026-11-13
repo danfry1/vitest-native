@@ -282,15 +282,16 @@ describe("transformIgnorePatterns allowlists with nested groups", () => {
       "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|await-lock)",
     );
     expect(unparseable).toEqual([]);
+    // A name the pattern only produces, never writes, is marked `expanded`.
     expect(entries).toEqual([
       { name: "react-native", kind: "prefix" },
-      { name: "jest-react-native", kind: "prefix" },
+      { name: "jest-react-native", kind: "prefix", expanded: true },
       { name: "@react-native", kind: "prefix" },
-      { name: "@react-native-community", kind: "prefix" },
+      { name: "@react-native-community", kind: "prefix", expanded: true },
       { name: "expo", kind: "prefix" },
-      { name: "exponent", kind: "prefix" },
+      { name: "exponent", kind: "prefix", expanded: true },
       { name: "@expo", kind: "scope" },
-      { name: "@exponent", kind: "scope" },
+      { name: "@exponent", kind: "scope", expanded: true },
       { name: "@expo-google-fonts", kind: "scope" },
       { name: "react-navigation", kind: "prefix" },
       { name: "@react-navigation", kind: "scope" },

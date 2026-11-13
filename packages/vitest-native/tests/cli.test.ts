@@ -334,7 +334,7 @@ describe("migrate", () => {
     expect(extractAllowlistPackages("node_modules/(?!(jest-)?react-native|expo)")).toEqual({
       entries: [
         { name: "react-native", kind: "prefix" },
-        { name: "jest-react-native", kind: "prefix" },
+        { name: "jest-react-native", kind: "prefix", expanded: true },
         { name: "expo", kind: "prefix" },
       ],
       unparseable: [],
@@ -435,6 +435,80 @@ describe("migrate", () => {
       "__mocks__/react-native-gesture-handler — the native engine runs react-native-gesture-handler with its own Jest setup",
     );
     expect(text).toContain("'someCustomKey' — unrecognized Jest key");
+  });
+
+  // The libraries a React Native app's Jest setup file usually mocks, installed.
+  const installed = (...names: string[]) =>
+    Object.fromEntries(
+      names.map((name) => [`node_modules/${name}/package.json`, { name, version: "4.0.0" }]),
+    );
+
+  it("does not report a name only an optional group in the allowlist produces (#795)", () => {
+    const root = fixture({
+      "package.json": { name: "x", dependencies: { "react-native": "0.88.0" } },
+      "jest.config.json": {
+        preset: "@react-native/jest-preset",
+        transformIgnorePatterns: [
+          "node_modules/(?!((jest-)?react-native|@react-native(-community)?|spelled-out-lib)/)",
+        ],
+      },
+    });
+    withBabelParser(root);
+    const text = renderMigrationReport(analyzeJestConfig(root)).join("\n");
+    // `(jest-)?react-native` gives jest-react-native, which the project never names.
+    expect(text).not.toContain("jest-react-native");
+    // A name the pattern spells out is still reported when it is not installed.
+    expect(text).toContain("allows spelled-out-lib — not installed; nothing to do.");
+  });
+
+  it("lists the library mocks in a project setup file the presets cover (#796)", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        preset: "@react-native/jest-preset",
+        setupFiles: ["./jest.setup.js"],
+      },
+      "jest.setup.js": [
+        "require('react-native-gesture-handler/jestSetup');",
+        "jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));",
+        "jest.mock('react-native-safe-area-context', () =>",
+        "  require('react-native-safe-area-context/jest/mock'),",
+        ");",
+        "jest.mock('./src/api', () => ({ get: jest.fn() }));",
+        "",
+      ].join("\n"),
+      ...installed(
+        "react-native-reanimated",
+        "react-native-gesture-handler",
+        "react-native-safe-area-context",
+      ),
+    });
+    withBabelParser(root);
+    const report = analyzeJestConfig(root);
+    const covered = report.presetCovered.filter((line) => line.startsWith("./jest.setup.js: "));
+    expect(covered, covered.join("\n")).toEqual([
+      "./jest.setup.js: require('react-native-gesture-handler/jestSetup') — react-native-gesture-handler's own test setup, which the native engine runs before the setup files; delete the line.",
+      "./jest.setup.js: jest.mock('react-native-reanimated') — the auto-detected reanimated preset shadows react-native-reanimated; delete the line.",
+      "./jest.setup.js: jest.mock('react-native-safe-area-context') — the auto-detected safeAreaContext preset shadows react-native-safe-area-context; delete the line.",
+    ]);
+    // The file itself still runs: the rest of it is the project's.
+    expect(report.suggestedConfig).toContain(`"./jest.setup.js"`);
+  });
+
+  it("lists a preset-shadowed allowlist entry with the others that need nothing (#797)", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        transformIgnorePatterns: ["node_modules/(?!(react-native|react-native-reanimated)/)"],
+      },
+      ...installed("react-native-reanimated"),
+    });
+    withBabelParser(root);
+    const report = analyzeJestConfig(root);
+    const line =
+      "transformIgnorePatterns allows react-native-reanimated — shadowed by the auto-detected reanimated preset; nothing to do.";
+    expect(report.automatic).toContain(line);
+    expect(report.presetCovered.join("\n")).not.toContain("transformIgnorePatterns");
   });
 
   it("keeps Jest's mapper order in resolve.alias, where the first match wins", () => {

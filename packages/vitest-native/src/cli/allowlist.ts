@@ -13,6 +13,11 @@ export interface AllowlistEntry {
   name: string;
   /** exact (`moti/`), prefix (`expo`), or scope (`@expo/.*`, `@react-native/`). */
   kind: "exact" | "prefix" | "scope";
+  /**
+   * A name the pattern never writes out, only produces: `jest-react-native` from
+   * `(jest-)?react-native`.
+   */
+  expanded?: boolean;
 }
 
 /** The body of the first `(?!…)`, or null. */
@@ -84,6 +89,8 @@ export function extractAllowlistPackages(pattern: string): {
   if (body === null) return { entries: [], unparseable: [] };
   const entries: AllowlistEntry[] = [];
   const unparseable: string[] = [];
+  // The pattern as written, without escapes: a name in it is spelled out.
+  const written = body.replace(/\\(.)/g, "$1");
   for (const alternative of topLevelAlternatives(body)) {
     // pnpm's `.pnpm` store directory is not a package.
     const classified = tryExpand(alternative, true)
@@ -94,7 +101,8 @@ export function extractAllowlistPackages(pattern: string): {
       continue;
     }
     for (const entry of classified as AllowlistEntry[]) {
-      if (!entries.some((e) => e.name === entry.name && e.kind === entry.kind)) entries.push(entry);
+      if (entries.some((e) => e.name === entry.name && e.kind === entry.kind)) continue;
+      entries.push(written.includes(entry.name) ? entry : { ...entry, expanded: true });
     }
   }
   return { entries, unparseable };
