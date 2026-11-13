@@ -201,10 +201,11 @@ export interface ReactNativeMock {
 /** What a preset module's factory is given when it builds its mock. */
 export interface PresetFactoryContext {
   /**
-   * The React the test file renders with, required from the shadowed package's
-   * directory. A mock that creates components, contexts or hooks uses this one rather
-   * than a React it imported itself: under the hot runtime's `freshRuntime` each file
-   * has its own React, and a hook or context from another file's React fails there.
+   * The React the test file renders with: the copy `react-native` resolves (the
+   * project's, where `react-native` is not installed). A mock that creates components,
+   * contexts or hooks uses this one rather than a React it imported itself: under the
+   * hot runtime's `freshRuntime` each file has its own React, and a hook or context from
+   * another file's React fails there.
    */
   React: typeof import("react");
 }

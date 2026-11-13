@@ -699,19 +699,17 @@ function scrollHandlers(React: typeof import("react"), useSharedValue?: Fn) {
 /**
  * Resolve the *active* React Native module — the mock under `engine: 'mock'`
  * (intercepted by the CJS bridge) or real RN under `engine: 'native'` (served by
- * the Node loader hooks). Cached. Lets the reanimated mock's `Animated.View`
- * &co. wrap whichever RN component set is live, so the preset is engine-agnostic.
+ * the Node loader hooks). Lets the reanimated mock's `Animated.View` &co. wrap whichever
+ * RN component set is live, so the preset is engine-agnostic. Required on each call, a
+ * module-cache hit: a copy kept for the worker would be the first file's components,
+ * built with its React (freshRuntime, #719).
  */
-let _rnCache: Record<string, any> | null = null;
 function getRN(): Record<string, any> {
-  if (_rnCache) return _rnCache;
   try {
-    const base = path.join(workerRoot(), "package.json");
-    _rnCache = createRequire(base)("react-native");
+    return createRequire(path.join(workerRoot(), "package.json"))("react-native");
   } catch {
-    _rnCache = {};
+    return {};
   }
-  return _rnCache!;
 }
 
 export function reanimated(): Preset {
@@ -979,10 +977,18 @@ export function reanimated(): Preset {
           // lazily wraps the *active* RN component at render time so it renders
           // through the real RN host under the native engine, or the mock under
           // the mock engine. Resolving lazily (not at factory time) avoids
-          // touching RN before the engine's hooks are installed.
+          // touching RN before the engine's hooks are installed. Kept for this file's
+          // mock once found, as this file's React Native.
+          let activeRN: Record<string, any> | undefined;
+          const rn = () => {
+            if (activeRN) return activeRN;
+            const found = getRN();
+            if (Object.keys(found).length > 0) activeRN = found;
+            return found;
+          };
           function makeAnimatedHost(name: string) {
             const Comp = React.forwardRef((props: any, ref: any) => {
-              const Base = getRN()[name];
+              const Base = rn()[name];
               if (!Base) {
                 throw new VitestNativeError(
                   "PRESET_UNAVAILABLE",

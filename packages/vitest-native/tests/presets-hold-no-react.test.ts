@@ -7,41 +7,106 @@ import { RUNTIME_RESIDENT_PACKAGES } from "../src/native/ownership.mjs";
 
 // vitest-native's presets load once per worker and stay resident under the hot runtime,
 // while hotRuntime.freshRuntime evaluates React (RUNTIME_RESIDENT_PACKAGES) again for each
-// file. A preset module that imports React as a value at module scope, directly or through
-// vitest-native's own modules it imports (mocks/host.ts, say), keeps the first file's copy
+// file. A preset module that takes React once per worker, directly or through
+// vitest-native's own modules it loads (mocks/host.ts, say), keeps the first file's copy
 // (#719): a factory takes the file's React from its context instead. The lint rule
-// preset-react-per-file reports a direct import; this follows the indirect ones, from the
-// presets index and from every preset module it names.
+// preset-react-per-file reports a preset's own; this follows the indirect ones, from the
+// presets index and from every preset module it names, through static imports,
+// `import()` and `require()`.
 const src = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src");
+const babel = createRequire(createRequire(import.meta.url).resolve("@babel/core"));
 const parse = (
-  createRequire(createRequire(import.meta.url).resolve("@babel/core"))("@babel/parser") as {
-    parse: (code: string, options: Record<string, unknown>) => { program: { body: any[] } };
+  babel("@babel/parser") as {
+    parse: (code: string, options: Record<string, unknown>) => any;
   }
 ).parse;
+const traverse = (babel("@babel/traverse") as { default: (ast: any, visitors: any) => void })
+  .default;
 
-/** The module specifiers a file imports or re-exports as values, at module scope. */
-function valueImports(file: string): string[] {
-  const { body } = parse(fs.readFileSync(file, "utf8"), {
+// `anchored`: loaded through a `createRequire` anchored elsewhere, whose relative
+// specifiers name another package's files, not vitest-native's.
+type Load = { specifier: string; oncePerWorker: boolean; anchored?: boolean };
+
+/** Whether a require at `path` runs once per worker: at module scope (or in a function
+ * called where it is defined), or with its result kept in a module-scope binding. */
+function oncePerWorker(callPath: any): boolean {
+  for (let fn = callPath.getFunctionParent(); fn; fn = fn.getFunctionParent()) {
+    if (fn.parentPath.isCallExpression() && fn.parentPath.node.callee === fn.node) continue;
+    for (let at = callPath.parentPath; at && at !== fn; at = at.parentPath) {
+      if (!at.isAssignmentExpression()) continue;
+      let left = at.node.left;
+      while (left.type === "MemberExpression") left = left.object;
+      if (left.type === "Identifier" && at.scope.getBinding(left.name)?.scope.path.isProgram()) {
+        return true;
+      }
+    }
+    return false;
+  }
+  return true;
+}
+
+/** The modules a file loads: static value imports and re-exports, `import()`, and
+ * `require()` (also `module.require` and a `createRequire` function), with whether each
+ * runs once per worker. A dynamic import is cached for the worker wherever it runs. */
+function loads(file: string): Load[] {
+  const ast = parse(fs.readFileSync(file, "utf8"), {
     sourceType: "module",
     plugins: ["typescript", "jsx"],
-  }).program;
-  const specifiers: string[] = [];
-  for (const node of body) {
-    if (node.type === "ImportDeclaration") {
-      if (node.importKind === "type") continue;
+  });
+  const found: Load[] = [];
+  const literal = (node: any): string | null =>
+    node?.type === "StringLiteral"
+      ? node.value
+      : node?.type === "TemplateLiteral" && node.expressions.length === 0
+        ? node.quasis[0].value.cooked
+        : null;
+  // A call of node:module's createRequire, under whatever local name it was imported.
+  const isCreateRequire = (node: any, scope: any) => {
+    if (node?.type !== "CallExpression" || node.callee.type !== "Identifier") return false;
+    const binding = scope.getBinding(node.callee.name);
+    if (!binding) return node.callee.name === "createRequire";
+    return (
+      binding.path.isImportSpecifier() &&
+      binding.path.node.imported.name === "createRequire" &&
+      /^(?:node:)?module$/.test(binding.path.parent.source.value)
+    );
+  };
+  traverse(ast, {
+    ImportDeclaration({ node }: any) {
+      if (node.importKind === "type") return;
       const values = node.specifiers.filter((s: any) => s.importKind !== "type");
       // A side-effect import has no specifiers, and evaluates the module.
-      if (node.specifiers.length > 0 && values.length === 0) continue;
-      specifiers.push(node.source.value);
-    } else if (
-      (node.type === "ExportNamedDeclaration" || node.type === "ExportAllDeclaration") &&
-      node.source &&
-      node.exportKind !== "type"
-    ) {
-      specifiers.push(node.source.value);
-    }
-  }
-  return specifiers;
+      if (node.specifiers.length > 0 && values.length === 0) return;
+      found.push({ specifier: node.source.value, oncePerWorker: true });
+    },
+    "ExportNamedDeclaration|ExportAllDeclaration"({ node }: any) {
+      if (node.source && node.exportKind !== "type") {
+        found.push({ specifier: node.source.value, oncePerWorker: true });
+      }
+    },
+    Import(importPath: any) {
+      const specifier = literal(importPath.parentPath.node.arguments[0]);
+      if (specifier !== null) found.push({ specifier, oncePerWorker: true });
+    },
+    CallExpression(callPath: any) {
+      const { callee, arguments: args } = callPath.node;
+      const plain =
+        (callee.type === "Identifier" && callee.name === "require") ||
+        (callee.type === "MemberExpression" &&
+          callee.object.type === "Identifier" &&
+          callee.object.name === "module" &&
+          callee.property.name === "require");
+      const bound = callee.type === "Identifier" ? callPath.scope.getBinding(callee.name) : null;
+      const anchored =
+        (bound != null && isCreateRequire(bound.path.node.init, bound.path.scope)) ||
+        isCreateRequire(callee, callPath.scope);
+      const specifier = plain || anchored ? literal(args[0]) : null;
+      if (specifier !== null) {
+        found.push({ specifier, oncePerWorker: oncePerWorker(callPath), anchored });
+      }
+    },
+  });
+  return found;
 }
 
 /** A relative specifier as the source file it names (`./x.js` is `./x.ts` in source). */
@@ -63,11 +128,16 @@ function capturesReact(file: string): boolean {
   const known = captures.get(file);
   if (known !== undefined) return known;
   captures.set(file, false); // An import cycle adds nothing the rest of the walk misses.
-  const result = valueImports(file).some((specifier) =>
-    specifier.startsWith(".")
-      ? capturesReact(sourceFile(file, specifier))
-      : isResidentPackage(specifier),
-  );
+  // A module of vitest-native's own is resident wherever it is loaded from, so its
+  // module scope counts even when a function loads it. A package counts only when it is
+  // loaded once per worker; a require in a function that returns it is per call.
+  const result = loads(file).some(({ specifier, oncePerWorker: once, anchored }) => {
+    if (specifier.startsWith(".")) return !anchored && capturesReact(sourceFile(file, specifier));
+    if (specifier.startsWith("#") || specifier.startsWith("vitest-native")) {
+      throw new Error(`${path.relative(src, file)}: follow ${specifier} to its source file`);
+    }
+    return once && isResidentPackage(specifier);
+  });
   captures.set(file, result);
   return result;
 }

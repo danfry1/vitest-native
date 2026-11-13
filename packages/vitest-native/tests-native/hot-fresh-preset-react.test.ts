@@ -12,6 +12,11 @@
  *   Expo SDK 57 pins), whose Jest mock is source only, so the preset serves its built-in
  *   module (fixtures/fresh-preset-safe-area/vendor);
  * - navigation: useFocusEffect, and useTheme inside ThemeProvider;
+ * - reanimated: useDerivedValue's subscription, made in an effect and stopped on unmount,
+ *   and a shared value kept per component;
+ * - unistyles: useUnistyles(), which subscribes with useSyncExternalStore;
+ * - gesture-handler: the library itself, which the native engine runs with its own Jest
+ *   setup rather than the preset, with its Pressable;
  * - own-mock: safe-area serving the installed library's own mock.
  */
 import path from "node:path";
@@ -23,6 +28,9 @@ const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtur
 const FILES = {
   "safe-area": ["frame-1.test.tsx", "frame-2.test.tsx"],
   navigation: ["navigation-1.test.tsx", "navigation-2.test.tsx"],
+  reanimated: ["derived-1.test.tsx", "derived-2.test.tsx"],
+  unistyles: ["theme-1.test.tsx", "theme-2.test.tsx"],
+  "gesture-handler": ["pressable-1.test.tsx", "pressable-2.test.tsx"],
 };
 const run = (id: string, edits: { file: string; find: string; replace: string }[] = []) =>
   runApp(id, { from: path.join(FIXTURES, id), edits });
@@ -31,7 +39,7 @@ const resident = (files: string[]) => [
   ...files.map((file) => ({ file, find: "const fresh = true;", replace: "const fresh = false;" })),
 ];
 
-it.each(["safe-area", "navigation"] as const)(
+it.each(["safe-area", "navigation", "reanimated", "unistyles", "gesture-handler"] as const)(
   "%s under freshRuntime: every file renders, each with its own React",
   (preset) => {
     const { status, output } = run(`fresh-preset-${preset}`);
@@ -42,7 +50,7 @@ it.each(["safe-area", "navigation"] as const)(
   150_000,
 );
 
-it.each(["safe-area", "navigation"] as const)(
+it.each(["safe-area", "navigation", "reanimated", "unistyles", "gesture-handler"] as const)(
   "%s with React resident: every file renders, with the first file's React",
   (preset) => {
     const { status, output } = run(`fresh-preset-${preset}`, resident(FILES[preset]));
