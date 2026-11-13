@@ -398,7 +398,10 @@ for (const { pkg, mod, presetName } of presetDefs) {
     enumerable: true,
     get() {
       if (!builtPresetMocks.has(pkg)) {
-        builtPresetMocks.set(pkg, mod.factory(presetFactoryContext(pkg, projectRoot)));
+        builtPresetMocks.set(
+          pkg,
+          mod.factory(presetFactoryContext(pkg, projectRoot, { check: true })),
+        );
         if (diagnostics) {
           console.log(`[vitest-native] (native) built preset mock: ${pkg} (${presetName})`);
         }
