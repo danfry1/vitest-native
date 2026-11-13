@@ -63,7 +63,8 @@ export default defineConfig({
     sidebar: sidebar(),
     outline: { level: [2, 3] },
     footer: {
-      message: 'Released under the MIT License.',
+      // llms.txt is a file, not a page: linked with the base, outside VitePress's router.
+      message: `Released under the MIT License. · <a href="${BASE}llms.txt">llms.txt</a>`,
       copyright: 'Copyright © 2026 Daniel Fry',
     },
   },

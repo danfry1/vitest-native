@@ -6,8 +6,6 @@
 export interface SectionPage {
   text: string
   link: string
-  /** A file served as it is, such as llms.txt, opens outside the site's router. */
-  target?: '_blank'
 }
 
 export interface Section {
@@ -15,11 +13,7 @@ export interface Section {
   /** Where the section's nav item goes. */
   link: string
   pages: SectionPage[]
-  /** Links listed after the pages that are not pages of the site. */
-  external?: SectionPage[]
 }
-
-const CHANGELOG = 'https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/CHANGELOG.md'
 
 export const SECTIONS: Section[] = [
   {
@@ -30,16 +24,7 @@ export const SECTIONS: Section[] = [
       { text: 'Installation', link: '/guide/install' },
       { text: 'Quick start', link: '/guide/quick-start' },
       { text: 'Choosing an engine', link: '/guide/engines' },
-    ],
-  },
-  {
-    text: 'Migrate',
-    link: '/migration/from-jest',
-    pages: [
-      { text: 'From Jest', link: '/migration/from-jest' },
-      { text: 'jest-compat layer', link: '/guide/jest-compat' },
-      { text: 'From vitest-react-native', link: '/migration/from-vitest-react-native' },
-      { text: 'Upgrading to 0.15', link: '/migration/upgrading-to-0-15' },
+      { text: 'Comparison with Jest', link: '/guide/comparison' },
     ],
   },
   {
@@ -57,6 +42,16 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
+    text: 'Migrate',
+    link: '/migration/from-jest',
+    pages: [
+      { text: 'From Jest', link: '/migration/from-jest' },
+      { text: 'jest-compat layer', link: '/guide/jest-compat' },
+      { text: 'From vitest-react-native', link: '/migration/from-vitest-react-native' },
+      { text: 'Upgrading to 0.15', link: '/migration/upgrading-to-0-15' },
+    ],
+  },
+  {
     text: 'Reference',
     link: '/guide/plugin-options',
     pages: [
@@ -66,7 +61,6 @@ export const SECTIONS: Section[] = [
       { text: 'Troubleshooting', link: '/guide/troubleshooting' },
       { text: 'Mock engine API coverage', link: '/api/coverage' },
     ],
-    external: [{ text: 'llms.txt', link: '/llms.txt', target: '_blank' }],
   },
   {
     text: 'Proof',
@@ -75,7 +69,6 @@ export const SECTIONS: Section[] = [
       { text: 'How it is verified', link: '/guide/validation-model' },
       { text: 'Fidelity report', link: '/guide/fidelity' },
       { text: 'Fidelity matrix', link: '/guide/fidelity-matrix' },
-      { text: 'Comparison with Jest', link: '/guide/comparison' },
     ],
   },
   {
@@ -85,7 +78,6 @@ export const SECTIONS: Section[] = [
       { text: 'All releases', link: '/releases/' },
       { text: '0.14', link: '/releases/0.14' },
     ],
-    external: [{ text: 'Changelog', link: CHANGELOG }],
   },
 ]
 
@@ -105,13 +97,14 @@ export function nav() {
 }
 
 /**
- * One sidebar on every page. Each section folds; VitePress opens the one holding the page
- * being read.
+ * One sidebar on every page. Each section folds, and once the page's script runs VitePress
+ * opens the one holding the page being read. Only pages of the site are listed: the footer's
+ * previous and next links follow the sidebar, so a link out would become a page's "Next".
  */
 export function sidebar() {
   return SECTIONS.map((section) => ({
     text: section.text,
     collapsed: true,
-    items: [...section.pages, ...(section.external ?? [])],
+    items: section.pages,
   }))
 }

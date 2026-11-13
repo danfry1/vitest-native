@@ -3,7 +3,7 @@
 Each minor release has a page on what changes for a project on the release before it, with the
 steps to upgrade.
 
-- [Upgrading to 0.15](/migration/upgrading-to-0-15): from 0.14, and from 0.9 or older.
+- [Upgrading to 0.15](/migration/upgrading-to-0-15): from 0.14, or from any earlier release.
 - [0.14](/releases/0.14): from 0.13.
 
 Every change in every release, with the pull request behind it, is in the

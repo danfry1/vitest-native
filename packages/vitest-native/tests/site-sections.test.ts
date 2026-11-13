@@ -20,8 +20,8 @@ function pages(): string[] {
     .map((file) => `/${file.replace(/(^|\/)index\.md$/, "$1").replace(/\.md$/, "")}`);
 }
 
-// The landing page is the logo's link, and the not-found page is no page to go to.
-const OUTSIDE_SECTIONS = new Set(["/", "/404"]);
+// The landing page is the logo's link.
+const OUTSIDE_SECTIONS = new Set(["/"]);
 
 describe("the site's sections", () => {
   const listed = SECTIONS.flatMap((section) => section.pages.map((page) => page.link));
@@ -47,6 +47,23 @@ describe("the site's sections", () => {
         );
       }
     }
+  });
+
+  it("match a page's path exactly, dots included", () => {
+    const releases = SECTIONS.find((section) =>
+      section.pages.some((page) => page.link === "/releases/0.14"),
+    );
+    expect(releases).toBeDefined();
+    const match = new RegExp(activeMatch(releases!));
+    expect(match.test("/releases/0.14")).toBe(true);
+    expect(match.test("/releases/0x14")).toBe(false);
+    expect(match.test("/releases/0.14/more")).toBe(false);
+  });
+
+  // The footer's previous and next links follow the sidebar: a link out would be a "Next".
+  it("list only the site's own pages in the sidebar", () => {
+    const links = sidebar().flatMap((group) => group.items.map((item) => item.link));
+    for (const link of links) expect(link, link).toMatch(/^\/(?!\/)/);
   });
 
   it("are the site's nav and sidebar", () => {
