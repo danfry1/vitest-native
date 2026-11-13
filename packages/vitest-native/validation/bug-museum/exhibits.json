@@ -558,6 +558,19 @@
       }
     },
     {
+      "id": "own-bridge-stress",
+      "class": "ownership",
+      "title": "The require bridge under load: many files, several workers, the hot runtime",
+      "source": "ownership track A3 (the require bridge), under load",
+      "fixedBy": "open (ownership track A3, under experimental.ownershipModel: 'resolution')",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/validator": "packages/validator"
+      },
+      "timeoutMs": 120000,
+      "bugSignature": "^s\\d\\d\\.test\\.ts: AssertionError: one slice root: "
+    },
+    {
       "id": "own-hot-rule7-esm-residency",
       "class": "ownership",
       "title": "Under the hot runtime, a Node-owned workspace library keeps the first file's ES module instance",
