@@ -1,5 +1,5 @@
-// One of two identical files: Gesture Handler's Pressable from the preset, which keeps
-// its pressed state with the rendering React.
+// One of two identical files: Gesture Handler's Pressable. The native engine runs the
+// library itself with its own Jest setup, so this checks it under freshRuntime too.
 import React from "react";
 import { Text } from "react-native";
 import { Pressable } from "react-native-gesture-handler";

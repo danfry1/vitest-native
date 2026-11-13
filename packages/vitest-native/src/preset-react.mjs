@@ -16,16 +16,24 @@ import { VitestNativeError } from "./errors.mjs";
  * runtime's freshRuntime each file has its own React (#719). Elsewhere this is the one
  * React the worker keeps.
  *
- * With `check`, it also fails when the project or React Native Testing Library resolves
- * another copy of React: a mock built with one copy fails in a tree another renders, and
+ * With `check`, once per project root in a worker, it also fails when the project or React
+ * Native Testing Library resolves another copy of React: a mock built with one copy fails in a tree another renders, and
  * a copy that never renders cannot tell a hook call inside a render from one outside it.
  */
 export function presetFactoryContext(pkg, root, { check = false } = {}) {
   const fromRoot = createRequire(path.join(root, "package.json"));
   const fromRenderer = requireFrom(fromRoot, "react-native/package.json");
-  if (check) checkOneReact(pkg, fromRoot, fromRenderer);
+  if (check && !checkedRoots.has(root)) {
+    checkOneReact(pkg, fromRoot, fromRenderer);
+    checkedRoots.add(root);
+  }
   return { React: fromRenderer("react") };
 }
+
+// Roots whose React copies agree. The check compares installed files, which do not change
+// during a run, so it holds for every later file in the worker; a root that fails is not
+// added, and each preset built there fails again.
+const checkedRoots = new Set();
 
 /** A require from the file `fromRoot` resolves `request` to, or `fromRoot` where there is none. */
 function requireFrom(fromRoot, request) {

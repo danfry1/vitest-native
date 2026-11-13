@@ -1,5 +1,5 @@
-// Two files on one hot worker with freshRuntime: each renders through the gesture-handler
-// preset's built-in module (tests-native/hot-fresh-preset-react.test.ts edits freshRuntime
+// Two files on one hot worker with freshRuntime: each renders through gesture-handler
+// (run as itself, with its own Jest setup; tests-native/hot-fresh-preset-react.test.ts edits freshRuntime
 // off for the control). One worker runs both files, so the second follows the first.
 import { defineConfig } from "vitest/config";
 import { reactNative } from "vitest-native";

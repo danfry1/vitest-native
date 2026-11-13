@@ -936,10 +936,18 @@ export function reanimated(): Preset {
           // lazily wraps the *active* RN component at render time so it renders
           // through the real RN host under the native engine, or the mock under
           // the mock engine. Resolving lazily (not at factory time) avoids
-          // touching RN before the engine's hooks are installed.
+          // touching RN before the engine's hooks are installed. Kept for this file's
+          // mock once found, as this file's React Native.
+          let activeRN: Record<string, any> | undefined;
+          const rn = () => {
+            if (activeRN) return activeRN;
+            const found = getRN();
+            if (Object.keys(found).length > 0) activeRN = found;
+            return found;
+          };
           function makeAnimatedHost(name: string) {
             const Comp = React.forwardRef((props: any, ref: any) => {
-              const Base = getRN()[name];
+              const Base = rn()[name];
               if (!Base) {
                 throw new VitestNativeError(
                   "PRESET_UNAVAILABLE",
