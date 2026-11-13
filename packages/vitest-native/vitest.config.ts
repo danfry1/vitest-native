@@ -28,7 +28,7 @@ export default defineConfig({
     // project and runs from the packed tarball on a schedule; those packages are
     // not installed here, so globbing it into this suite fails to resolve them.
     // `tests/**/*.e2e.test.ts` run Vitest itself per test; they have their own config
-    // (vitest.e2e.config.ts, `test:cli-compare-e2e`).
+    // (vitest.e2e.config.ts, `test:e2e`).
     exclude: [
       ...configDefaults.exclude,
       "tests-native/**",

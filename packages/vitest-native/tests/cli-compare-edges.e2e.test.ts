@@ -3,7 +3,7 @@
  * that run Vitest for real on a scratch project, with a Jest report written for it
  * (tests/support/compare-helpers.ts); the Jest side of each is the plain result Jest 30
  * gives those files (all passing unless noted). Each spawns Vitest, so they run under
- * vitest.e2e.config.ts (`test:cli-compare-e2e`), not in the unit suite.
+ * vitest.e2e.config.ts (`test:e2e`), not in the unit suite.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
