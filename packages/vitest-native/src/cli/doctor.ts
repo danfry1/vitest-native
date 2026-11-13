@@ -360,6 +360,58 @@ export const NODE_24_13_0_CRASH =
   "V8 garbage-collection crash on worker threads). Use another Node 24 release, such as 24.14 or later. " +
   `See ${docsUrl("/guide/troubleshooting#node-24-13-0-segmentation-fault-at-startup")}`;
 
+/**
+ * The version spec a project manifest declares for a package, read from the first of
+ * `roots` whose package.json names it. A top-level override (npm and bun `overrides`,
+ * Yarn `resolutions`, `pnpm.overrides`) decides what is installed, so it is read first;
+ * then dependencies, devDependencies and optionalDependencies.
+ */
+export function declaredSpec(roots: readonly string[], pkg: string): string | null {
+  for (const dir of new Set(roots)) {
+    const manifest = readManifest(path.join(dir, "package.json"));
+    if (!manifest) continue;
+    const field = (obj: unknown, key: string): unknown =>
+      obj !== null && typeof obj === "object" ? (obj as Record<string, unknown>)[key] : undefined;
+    const sources = [
+      field(manifest, "overrides"),
+      field(manifest, "resolutions"),
+      field(field(manifest, "pnpm"), "overrides"),
+      field(manifest, "dependencies"),
+      field(manifest, "devDependencies"),
+      field(manifest, "optionalDependencies"),
+    ];
+    for (const source of sources) {
+      const spec = field(source, pkg);
+      // npm's `"$name"` override points back at the dependency's own spec.
+      if (typeof spec === "string" && !spec.startsWith("$")) return spec;
+    }
+  }
+  return null;
+}
+
+/**
+ * Where a declared spec installs a package from when that is not the registry
+ * release of the package itself, or null for a registry version or range. Follows
+ * npm-package-arg's spec kinds: git (URLs and host shorthands), local paths,
+ * tarball URLs, and npm aliases to another package name.
+ */
+export function nonRegistrySource(pkg: string, spec: string | null): string | null {
+  if (!spec) return null;
+  const s = spec.trim();
+  if (/^(git\+|git:|git@|github:|gitlab:|bitbucket:|gist:)/.test(s)) return `git (${s})`;
+  if (/^https?:\/\//.test(s)) {
+    return /\.git(#|$)|^https?:\/\/(www\.)?(github|gitlab|bitbucket)\.(com|org)\//.test(s)
+      ? `git (${s})`
+      : `a URL (${s})`;
+  }
+  if (/^(file:|link:|portal:|workspace:|\.{1,2}\/|\/|~\/)/.test(s)) return `a local path (${s})`;
+  const alias = /^npm:((?:@[^/@]+\/)?[^@]+)/.exec(s);
+  if (alias) return alias[1] === pkg ? null : `the npm package ${alias[1]} (${s})`;
+  // GitHub shorthand: owner/repo, optionally #ref. No semver range contains a slash.
+  if (/^[^@\s/.][^\s/]*\/[^\s/]+$/.test(s)) return `git (${s})`;
+  return null;
+}
+
 export function runDoctor(root: string, nodeVersion: string = process.versions.node): DoctorResult {
   const lines: string[] = [];
   let ok = true;
@@ -554,6 +606,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   // The engine is the one `auto` resolves to here: doctor reads the config as text and
   // does not evaluate it, so an `engine` or `presets` set there is named, not applied.
   const detected: string[] = [];
+  const forks: string[] = [];
   let installedAny = false;
   for (const [pkg, preset] of Object.entries(AUTO_DETECT_PRESETS)) {
     if (!installedManifest(root, pkg)) continue;
@@ -573,10 +626,21 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       );
     } else {
       detected.push(`${pkg} → ${preset}`);
+      // A preset shadows by name, so a fork installed under that name never loads
+      // (#761): what the fork adds or changes is undefined in tests.
+      const source = nonRegistrySource(pkg, declaredSpec([root, configRoot], pkg));
+      if (source) {
+        forks.push(
+          `${pkg} is installed from ${source}, but the ${preset} preset replaces it by name, ` +
+            `so exports the installed package adds or changes are undefined in tests. ` +
+            `To load the installed package, set \`presets: { ${preset}: false }\`.`,
+        );
+      }
     }
   }
   if (detected.length) for (const d of detected) pass(d);
   else if (!installedAny) lines.push("  (none — no preset-covered packages installed)");
+  for (const f of forks) warn(f);
 
   // --- Expo ---
   // Found as the plugin finds it (peer-requirements.ts), from where doctor runs and then
