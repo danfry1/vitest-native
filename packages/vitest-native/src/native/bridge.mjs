@@ -32,6 +32,7 @@
 // require of a mocked file before the bridge is asked (experimental.nodeMocks, implied by
 // 'resolution'), and each import of a module the bridge evaluates asks it (mockFor), so a
 // mocked dependency is the test's own instance, or fails there by name.
+import { residentGlobal } from "./resident-globals.mjs";
 import Module, { createRequire } from "node:module";
 import path from "node:path";
 import { inspect } from "node:util";
@@ -51,14 +52,14 @@ const moduleRunner = () => globalThis.__vitest_mocker__?.moduleRunner;
 const environmentName = () => worker()?.environment?.viteEnvironment ?? "ssr";
 
 /** Counts for tests and the count gate. */
-export const bridgedStats = (globalThis[Symbol.for("vitest-native.bridged")] ??= {
+export const bridgedStats = residentGlobal("bridged", () => ({
   evaluations: 0,
   servedFromVite: 0,
   externals: 0,
   failedEvaluations: 0,
   evaluatorRejections: 0,
   cycles: 0,
-});
+}));
 
 // Vite's SSR transform writes every static import as a statement of its own:
 // `const __vite_ssr_import_0__ = await __vite_ssr_import__(` or, for a side-effect import,

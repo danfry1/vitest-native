@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { VitestNativeError } from "../errors.mjs";
 import { isRuntimeResidentFile, isTestRuntimeResidentFile } from "./ownership.mjs";
 import { createStateManifest } from "./state-manifest.mjs";
+import { isResidentGlobal } from "./resident-globals.mjs";
 
 // Keys owned by Vitest, Vite, coverage or this plugin: never deleted or put back by the
 // globals diff. Vitest names its own in both cases, and replaces some per task:
@@ -342,6 +343,7 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
       const deleted = [];
       const skip = (key) =>
         globallyPreserved.has(key) ||
+        isResidentGlobal(key) ||
         (typeof key === "string" && HARNESS_GLOBALS.test(key)) ||
         (typeof key === "symbol" &&
           !baseline.has(key) &&
@@ -362,6 +364,7 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
         baseline,
         (key) =>
           globallyPreserved.has(key) ||
+          isResidentGlobal(key) ||
           (typeof key === "string" && HARNESS_GLOBALS.test(key)) ||
           (typeof key === "symbol" &&
             !baseline.has(key) &&
