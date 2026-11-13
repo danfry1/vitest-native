@@ -16,6 +16,7 @@ import {
   needsTransform,
 } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
+import { anchoredFile } from "./react-dedupe.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
 import {
   extensionsFor,
@@ -338,6 +339,11 @@ function resolveBefore(specifier, context, presets = true) {
     return {
       done: { url: `${PRESET_CJS_SCHEME}?${query}`, format: "commonjs", shortCircuit: true },
     };
+  }
+  // React and its renderers: one copy, the one `require` gets too (react-dedupe.mjs).
+  if (parent) {
+    const deduped = anchoredFile(specifier, projectContext()?.projectRoot ?? PROJECT_ROOT);
+    if (deduped) return { done: { url: pathToFileURL(deduped).href, shortCircuit: true } };
   }
   let resolved;
   if (
