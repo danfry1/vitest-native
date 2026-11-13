@@ -1112,6 +1112,28 @@
       }
     },
     {
+      "id": "pfs-hot-preset-esm-generation",
+      "class": "per-file-state",
+      "title": "Under hot, an ES dependency keeps the first file's preset mock for the worker's life",
+      "source": "hot runtime probe of the synthetic preset module (2026-11-11), #670 class",
+      "fixedBy": "the preset module an ES import links carries the hot generation, one per test file",
+      "bugSignature": "^[bc]\\.test\\.ts: AssertionError: this file's preset mock: ",
+      "control": {
+        "why": "The stock runtime (hotRuntime: false) starts every file in a fresh module world, so Node evaluates the preset module again for each file.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "hotRuntime: { allowUnboundedMemory: true }",
+            "replace": "hotRuntime: false"
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS"
+      }
+    },
+    {
       "id": "pfs-hot-warning-dedupe",
       "class": "per-file-state",
       "title": "Under hot, React's warning dedupe hides a warning the file asserts",
@@ -1221,6 +1243,15 @@
       "source": "#351 (rc.1 report)",
       "fixedBy": "#684",
       "bugSignature": "^app\\.test\\.tsx: TypeError: timestamp\\.get is not a function"
+    },
+    {
+      "id": "pre-351-reanimated-derived-stale",
+      "class": "presets",
+      "title": "A derived value stays at its first result between renders",
+      "source": "#351 (rc.4 report)",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/reanimated-derived-value-follows",
+      "bugSignature": "^app\\.test\\.tsx: AssertionError: expected 10 to be 60"
     },
     {
       "id": "pre-banner-names-presets",
