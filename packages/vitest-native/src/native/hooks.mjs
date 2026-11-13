@@ -566,10 +566,10 @@ export function installRequireHooks(
   // plus the conditions Node's module hooks pass: within one process every other input
   // to these resolutions is a function of those (and of the source extensions, which
   // clear it when they change). Successful resolutions only, so a failure, and the
-  // fallbacks after it, run again. A relative request with an extension, an absolute
-  // one, a built-in, `require.resolve` with `paths` and the main module are left to
-  // Node. The memo sits inside this hook, under the hot reset's tracking resolver,
-  // which still sees every call.
+  // fallbacks after it, run again. A relative request with an extension, a built-in,
+  // `require.resolve` with `paths` and the main module are left to Node. The memo sits
+  // inside this hook, under the hot reset's tracking resolver, which still sees every
+  // call.
   //
   // Not done instead: keeping the libraries resident (no reset exists for their mock
   // state, so it would leak between files), compiling their graphs into the precompiled
@@ -579,16 +579,19 @@ export function installRequireHooks(
   // Counters, a stable contract for diagnostics and measurement (the tests assert the
   // work itself instead, Node's resolver calls and source reads, which a memo that
   // counted a hit and resolved anyway would not fake): `globalThis[Symbol.for("vitest-native.resolutionMemo")]`
-  // is `{ hits, misses, stale }`, one object per worker thread. `misses` counts the
-  // keyed requests this hook resolved itself (platform resolution, Node and the
-  // fallbacks), `hits` those the memo answered, and `stale` the held resolutions whose
-  // file was gone (each also a miss). Requests the memo does not key are in none of
-  // them. All only grow.
+  // is `{ hits, misses, stale, absoluteHits }`, one object per worker thread. `misses`
+  // counts the keyed relative and bare requests this hook resolved itself (platform
+  // resolution, Node and the fallbacks), `hits` those the memo answered, and `stale` the
+  // held resolutions whose file was gone (each also a miss). Absolute requests, which
+  // name their file, are in `absoluteHits` when the memo answered them and in none of
+  // the others, so those three still count the requests that need resolving. Requests
+  // the memo does not key are in none of them. All only grow.
   const resolutions = new Map();
   const resolutionStats = (globalThis[Symbol.for("vitest-native.resolutionMemo")] ??= {
     hits: 0,
     misses: 0,
     stale: 0,
+    absoluteHits: 0,
   });
   // Node's in-thread module hooks resolve a require with `{ conditions }` (Node 26 adds
   // `paths: undefined` to it); any other option that is set (`require.resolve`'s
@@ -598,11 +601,12 @@ export function installRequireHooks(
     !Object.keys(options).some((name) => name !== "conditions" && options[name] !== undefined);
   const resolutionKey = (request, parent, [isMain, options]) => {
     if (typeof request !== "string" || typeof parent?.path !== "string" || isMain) return null;
-    // A relative request with an extension, and an absolute one, Node answers from
-    // Module._pathCache; a built-in it answers at once.
-    if (request.startsWith(".") ? path.extname(request) !== "" : path.isAbsolute(request)) {
-      return null;
-    }
+    // A relative request with an extension Node answers from Module._pathCache; a
+    // built-in it answers at once. An absolute one is held: the precompiled registry
+    // requires every package outside it by absolute path, once per module that needs it,
+    // and with React re-run per file (hotRuntime.freshRuntime) that was some hundred
+    // calls into Node's resolver per test file, each answered from its cache.
+    if (request.startsWith(".") && path.extname(request) !== "") return null;
     if (Module.isBuiltin(request)) return null;
     if (!onlyConditions(options)) return null;
     const conditions = options?.conditions != null ? [...options.conditions].join(",") : "";
@@ -662,14 +666,18 @@ export function installRequireHooks(
           // A bare request's hit costs one stat: a file removed since (a nested copy
           // uninstalled, a fixture a test deleted) is resolved again, as Node would, instead
           // of failing to load. A relative one is answered as the platform resolution's own
-          // cache would answer it (resolve.mjs), which does not look at the disk again.
+          // cache would answer it (resolve.mjs), which does not look at the disk again, and
+          // an absolute one as Node's Module._pathCache would, which does not either.
           if (
             held !== undefined &&
-            (request.startsWith(".") || fs.statSync(held, { throwIfNoEntry: false })?.isFile())
+            (request.startsWith(".") ||
+              path.isAbsolute(request) ||
+              fs.statSync(held, { throwIfNoEntry: false })?.isFile())
           ) {
-            resolutionStats.hits++;
+            if (path.isAbsolute(request)) resolutionStats.absoluteHits++;
+            else resolutionStats.hits++;
             resolved = held;
-          } else {
+          } else if (!path.isAbsolute(request)) {
             if (held !== undefined) {
               resolutionStats.stale++;
               resolutions.delete(key);
