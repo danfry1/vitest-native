@@ -221,6 +221,14 @@ ts.run("preset-react-per-file", rule("preset-react-per-file"), {
       code: `let cache; function f() { cache = require("react-native-svg"); }`,
     },
     { filename: preset(), code: `const lib = require("react-native-gesture-handler");` },
+    {
+      filename: preset(),
+      code: `function load() { return require("react"); } export const f = () => load();`,
+    },
+    {
+      filename: preset(),
+      code: `const cache = new Map(); function f(k) { return cache.get(k) ?? require("react"); }`,
+    },
   ],
   invalid: [
     {
@@ -309,6 +317,26 @@ ts.run("preset-react-per-file", rule("preset-react-per-file"), {
     {
       filename: preset(),
       code: `const held = {}; function react() { held.React = require("react"); }`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `function load() { return require("react"); } const React = load();`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const load = () => require("react"); function boot() { return load(); } boot();`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const cache = new Map(); function f(k) { cache.set(k, require("react")); }`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const held = { list: [] }; function f() { held.list.push(require("react-native")); }`,
       errors: [{ messageId: "require" }],
     },
   ],
