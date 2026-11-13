@@ -211,6 +211,16 @@ ts.run("preset-react-per-file", rule("preset-react-per-file"), {
     { filename: preset(), code: `import x from "react-native-svg";` },
     { filename: preset(), code: `const f = ({ React }) => React.createElement("View");` },
     { filename: preset(), code: `function rn() { return require("react-native"); }` },
+    { filename: preset(), code: `const load = () => require("react");` },
+    {
+      filename: preset(),
+      code: `const r = createRequire(import.meta.url); function f() { return r("react"); }`,
+    },
+    {
+      filename: preset(),
+      code: `let cache; function f() { cache = require("react-native-svg"); }`,
+    },
+    { filename: preset(), code: `const lib = require("react-native-gesture-handler");` },
   ],
   invalid: [
     {
@@ -241,7 +251,65 @@ ts.run("preset-react-per-file", rule("preset-react-per-file"), {
     {
       filename: preset(),
       code: `const React = require("react");`,
+      errors: [{ messageId: "require" }],
+    },
+    // Every package freshRuntime evaluates per file, not only react (RUNTIME_RESIDENT_PACKAGES).
+    ...[
+      "react-is",
+      "react-dom",
+      "scheduler",
+      "react-test-renderer",
+      "@testing-library/react-native",
+      "@react-native/virtualized-lists",
+    ].map((source) => ({
+      filename: preset(),
+      code: `import x from "${source}";`,
       errors: [{ messageId: "import" }],
+    })),
+    {
+      filename: preset(),
+      code: `const load = () => import("react");`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: "const React = require(`react`);",
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const React = module.require("react");`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const React = createRequire(import.meta.url)("react");`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const r = createRequire(import.meta.url); const React = r("react");`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `import { createRequire as cr } from "node:module"; const React = cr(import.meta.url)("react");`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const React = (() => require("react"))();`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `let R; const react = () => (R ??= require("react"));`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const held = {}; function react() { held.React = require("react"); }`,
+      errors: [{ messageId: "require" }],
     },
   ],
 });

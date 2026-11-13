@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { RUNTIME_RESIDENT_PACKAGES } from "../src/native/ownership.mjs";
 
 const BASELINE = JSON.parse(
   fs.readFileSync(fileURLToPath(new URL("./baseline.json", import.meta.url)), "utf8"),
@@ -370,15 +371,40 @@ const noDocUrlsInSrc = {
 
 // --------------------------------------------------------------------------------------
 
-const PER_FILE_PACKAGE = /^(?:react|react-native)(?:\/|$)/;
+// The packages freshRuntime evaluates again for each file (RUNTIME_RESIDENT_PACKAGES,
+// resident only without it), plus React Native: the registry re-evaluates its modules
+// for each file, so a module-scope copy is the first file's components, built with the
+// first file's React.
+const PER_FILE_PACKAGES = [...RUNTIME_RESIDENT_PACKAGES, "react-native", "@react-native/*"];
+const PER_FILE_PACKAGE = new RegExp(
+  `^(?:${PER_FILE_PACKAGES.map((name) =>
+    name.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace("/*", "/[^/]+"),
+  ).join("|")})(?:/|$)`,
+);
+
+/** A string literal, or a template literal without expressions: the module requested. */
+function staticSource(node) {
+  if (node?.type === "Literal" && typeof node.value === "string") return node.value;
+  if (node?.type === "TemplateLiteral" && node.expressions.length === 0) {
+    return node.quasis[0].value.cooked;
+  }
+  return null;
+}
 
 /**
- * A preset's module imports no React or React Native as a value. vitest-native's presets
- * load once per worker and stay resident under the hot runtime, while freshRuntime
- * evaluates React again for each file: a module-scope import keeps the first file's copy,
- * and a later file fails with "Invalid hook call" (#719). A factory takes the file's React
- * from its context (`factory: ({ React }) => …`). A type-only import is fine. Imports
- * through vitest-native's own modules are followed by tests/presets-hold-no-react.test.ts.
+ * A preset's module loads no per-file package (PER_FILE_PACKAGE) once per worker.
+ * vitest-native's presets load once per worker and stay resident under the hot runtime,
+ * while freshRuntime evaluates React again for each file: a copy taken once keeps the
+ * first file's, and a later file fails with "Invalid hook call" (#719). A factory takes
+ * the file's React from its context (`factory: ({ React }) => …`). Reported:
+ * - a value import or re-export (a type-only one is fine);
+ * - `import("…")`, which Node caches for the worker;
+ * - `require`, `module.require`, `createRequire(…)(…)` or a function `createRequire`
+ *   returned, at module scope or in a function called there, or inside a function whose
+ *   result is kept in a module-scope binding (a lazy cache, `R ??= require("react")`).
+ * A require in a function that returns it (`() => require("react-native")`) is per call
+ * and fine. Imports through vitest-native's own modules are followed by
+ * tests/presets-hold-no-react.test.ts.
  */
 const presetReactPerFile = {
   meta: {
@@ -386,14 +412,85 @@ const presetReactPerFile = {
     messages: {
       import:
         "A preset module imports '{{source}}' at module scope, so it keeps the first file's copy under freshRuntime: take React from the factory's context (`factory: ({ React }) => …`).",
+      require:
+        "A preset module loads '{{source}}' once per worker (at module scope, or into a module-scope cache), so it keeps the first file's copy under freshRuntime: take React from the factory's context (`factory: ({ React }) => …`).",
     },
   },
   create(context) {
+    const moduleBindings = new Set();
+    const requireFunctions = new Set(["require"]);
+    const report = (node, messageId, source) => {
+      if (typeof source === "string" && PER_FILE_PACKAGE.test(source)) {
+        context.report({ node, messageId, data: { source } });
+      }
+    };
     const check = (node, source, typeOnly) => {
-      if (typeOnly || typeof source !== "string" || !PER_FILE_PACKAGE.test(source)) return;
-      context.report({ node, messageId: "import", data: { source } });
+      if (!typeOnly) report(node, "import", source);
+    };
+    // node:module's createRequire, under whatever local name it was imported.
+    const createRequireNames = new Set(["createRequire"]);
+    const isCreateRequire = (node) =>
+      node?.type === "CallExpression" &&
+      node.callee.type === "Identifier" &&
+      createRequireNames.has(node.callee.name);
+    const isRequire = (callee) =>
+      (callee.type === "Identifier" && requireFunctions.has(callee.name)) ||
+      (callee.type === "MemberExpression" &&
+        !callee.computed &&
+        callee.object.type === "Identifier" &&
+        callee.object.name === "module" &&
+        callee.property.name === "require") ||
+      isCreateRequire(callee);
+    const keptInModuleBinding = (chain) =>
+      chain.some(
+        (node) =>
+          node.type === "AssignmentExpression" &&
+          ((node.left.type === "Identifier" && moduleBindings.has(node.left.name)) ||
+            (node.left.type === "MemberExpression" &&
+              node.left.object.type === "Identifier" &&
+              moduleBindings.has(node.left.object.name))),
+      );
+    // Whether the call runs once per worker: no enclosing function but ones called where
+    // they are defined, or its result kept in a module-scope binding.
+    const oncePerWorker = (node) => {
+      const ancestors = context.sourceCode.getAncestors(node);
+      for (let i = ancestors.length - 1; i >= 0; i--) {
+        const fn = ancestors[i];
+        if (!fn.type.includes("Function")) continue;
+        const parent = ancestors[i - 1];
+        if (parent?.type === "CallExpression" && parent.callee === fn) continue;
+        return keptInModuleBinding(ancestors.slice(i));
+      }
+      return true;
     };
     return {
+      Program(node) {
+        for (const statement of node.body) {
+          if (
+            statement.type === "ImportDeclaration" &&
+            /^(?:node:)?module$/.test(statement.source.value)
+          ) {
+            for (const specifier of statement.specifiers) {
+              if (
+                specifier.type === "ImportSpecifier" &&
+                specifier.imported.name === "createRequire"
+              ) {
+                createRequireNames.add(specifier.local.name);
+              }
+            }
+          }
+        }
+        for (const statement of node.body) {
+          const declaration =
+            statement.type === "ExportNamedDeclaration" ? statement.declaration : statement;
+          if (declaration?.type !== "VariableDeclaration") continue;
+          for (const { id, init } of declaration.declarations) {
+            if (id.type !== "Identifier") continue;
+            moduleBindings.add(id.name);
+            if (isCreateRequire(init)) requireFunctions.add(id.name);
+          }
+        }
+      },
       ImportDeclaration(node) {
         const values = node.specifiers.filter((s) => s.importKind !== "type");
         const typeOnly =
@@ -406,10 +503,12 @@ const presetReactPerFile = {
       ExportAllDeclaration(node) {
         check(node, node.source.value, node.exportKind === "type");
       },
+      ImportExpression(node) {
+        report(node, "require", staticSource(node.source));
+      },
       CallExpression(node) {
-        if (node.callee.type !== "Identifier" || node.callee.name !== "require") return;
-        if (context.sourceCode.getAncestors(node).some((a) => a.type.includes("Function"))) return;
-        check(node, node.arguments[0]?.value, false);
+        if (!isRequire(node.callee) || !oncePerWorker(node)) return;
+        report(node, "require", staticSource(node.arguments[0]));
       },
     };
   },

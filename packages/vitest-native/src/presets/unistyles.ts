@@ -46,17 +46,18 @@ import { projectContext } from "../context.mjs";
 // selection belongs to the stylesheet, so a style read after another instance
 // selected different variants (a Pressable style function, on press) sees theirs.
 
-let rnCache: Record<string, any> | null = null;
-/** The active React Native: the mock engine's, or real RN under the native engine. */
+/**
+ * The active React Native: the mock engine's, or real RN under the native engine.
+ * Required on each call, a module-cache hit: a copy kept for the worker would be the
+ * first file's components, built with its React (freshRuntime, #719).
+ */
 function getRN(): Record<string, any> {
-  if (rnCache) return rnCache;
   try {
     const base = path.join(projectContext()?.projectRoot ?? process.cwd(), "package.json");
-    rnCache = createRequire(base)("react-native");
+    return createRequire(base)("react-native");
   } catch {
-    rnCache = {};
+    return {};
   }
-  return rnCache!;
 }
 
 type Styles = Record<string, any>;

@@ -658,19 +658,17 @@ function scrollHandlers(React: typeof import("react"), useSharedValue?: Fn) {
 /**
  * Resolve the *active* React Native module — the mock under `engine: 'mock'`
  * (intercepted by the CJS bridge) or real RN under `engine: 'native'` (served by
- * the Node loader hooks). Cached. Lets the reanimated mock's `Animated.View`
- * &co. wrap whichever RN component set is live, so the preset is engine-agnostic.
+ * the Node loader hooks). Lets the reanimated mock's `Animated.View` &co. wrap whichever
+ * RN component set is live, so the preset is engine-agnostic. Required on each call, a
+ * module-cache hit: a copy kept for the worker would be the first file's components,
+ * built with its React (freshRuntime, #719).
  */
-let _rnCache: Record<string, any> | null = null;
 function getRN(): Record<string, any> {
-  if (_rnCache) return _rnCache;
   try {
-    const base = path.join(workerRoot(), "package.json");
-    _rnCache = createRequire(base)("react-native");
+    return createRequire(path.join(workerRoot(), "package.json"))("react-native");
   } catch {
-    _rnCache = {};
+    return {};
   }
-  return _rnCache!;
 }
 
 export function reanimated(): Preset {
