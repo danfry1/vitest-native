@@ -4,6 +4,11 @@ import { babelParser, isPlainJavaScript } from "./plain-javascript.js";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
 import { containsPath, dependencyDirOf, type PackageDirOf } from "./match.mjs";
 import { mainFieldFile } from "./shared-resolver.mjs";
+import {
+  openRuntimeImportsCache,
+  patchedPackages,
+  type RuntimeImportsCache,
+} from "./runtime-imports-cache.js";
 
 /** A path inside a node_modules directory: an installed package's, not a workspace member's. */
 const NODE_MODULES_DIR = /[\\/]node_modules[\\/]/;
@@ -103,6 +108,8 @@ const MAX_RUNTIME_FILES = 5000;
 // A bare package specifier (not a path, a URL, a builtin or a template's `${…}`).
 const PACKAGE_SPECIFIER = /^(?:@[\w.-]+\/)?[\w][\w.-]*(?:\/|$)/;
 const runtimeMemo = new Map<string, Set<string>>();
+// The on-disk answers for this detection (runtime-imports-cache.ts), or null.
+let runtimeCache: RuntimeImportsCache | null = null;
 
 /** The file a relative specifier names from `fromDir`, as Metro and Node find it, or null. */
 function runtimeFile(base: string): string | null {
@@ -142,8 +149,11 @@ function exportTargets(exportsField: unknown): string[] {
  * walk).
  */
 function runtimeImports(dir: string, manifest: Record<string, unknown>): Set<string> {
-  let names = runtimeMemo.get(dir);
-  if (names) return names;
+  let names = runtimeMemo.get(dir) ?? runtimeCache?.get(dir);
+  if (names) {
+    runtimeMemo.set(dir, names);
+    return names;
+  }
   names = new Set<string>();
   const entries = [
     typeof manifest["react-native"] === "string" ? manifest["react-native"] : null,
@@ -178,6 +188,7 @@ function runtimeImports(dir: string, manifest: Record<string, unknown>): Set<str
     }
   }
   runtimeMemo.set(dir, names);
+  runtimeCache?.set(dir, names);
   return names;
 }
 
@@ -381,6 +392,12 @@ export interface ReachedPackages {
   reachedPaths?: readonly string[];
   /** Called once per workspace member reached through `reachedPaths` but not declared. */
   onReachedUndeclared?: (name: string, dir: string) => void;
+  /**
+   * #763, off unless passed: also detect a declared, installed package that declares no
+   * `react-native` but whose runtime graph imports it (runtimeImports). Each package's
+   * walk is cached in `cacheFile` (runtime-imports-cache.ts); null keeps it in memory.
+   */
+  undeclaredReactNative?: { cacheFile: string | null };
 }
 
 /**
@@ -419,7 +436,42 @@ export function detectEcosystemPackages(
   neverTransform: string[] = [],
   activePresets?: readonly string[],
   dirOf: PackageDirOf = dependencyDirOf,
-  { reachedPaths = [], onReachedUndeclared, compileReactNativeFieldSource }: ReachedPackages = {},
+  reached: ReachedPackages = {},
+): string[] {
+  const cacheOption = reached.undeclaredReactNative;
+  const roots = (Array.isArray(projectRoot) ? projectRoot : [projectRoot]).filter(Boolean);
+  runtimeCache = cacheOption
+    ? openRuntimeImportsCache(cacheOption.cacheFile, patchedPackages(roots))
+    : null;
+  try {
+    return detectWith(
+      projectRoot,
+      explicit,
+      testRoots,
+      neverTransform,
+      activePresets,
+      dirOf,
+      reached,
+    );
+  } finally {
+    runtimeCache?.flush();
+    runtimeCache = null;
+  }
+}
+
+function detectWith(
+  projectRoot: string | string[],
+  explicit: string[],
+  testRoots: string[],
+  neverTransform: string[],
+  activePresets: readonly string[] | undefined,
+  dirOf: PackageDirOf,
+  {
+    reachedPaths = [],
+    onReachedUndeclared,
+    compileReactNativeFieldSource,
+    undeclaredReactNative,
+  }: ReachedPackages,
 ): string[] {
   // Per detection, so a reinstall in a watch session is read afresh.
   runtimeMemo.clear();
@@ -554,7 +606,21 @@ export function detectEcosystemPackages(
   for (const name of candidates) {
     if (skip.has(name) || name.startsWith("@react-native/")) continue;
     const pkg = manifestOf(name);
-    if (pkg && dependsOnReactNative(pkg) && !ownsTheRun(name)) detected.push(name);
+    if (!pkg || ownsTheRun(name)) continue;
+    if (dependsOnReactNative(pkg)) {
+      detected.push(name);
+      continue;
+    }
+    // #763: a library that imports react-native without declaring it. Installed
+    // packages only: a workspace member's source stays Vite's (#427).
+    const installed = undeclaredReactNative ? installedOf(name) : null;
+    if (
+      installed &&
+      NODE_MODULES_DIR.test(installed.dir + path.sep) &&
+      runtimeImports(installed.dir, installed.manifest).has("react-native")
+    ) {
+      detected.push(name);
+    }
   }
 
   // A detected package's own runtime dependencies are React Native code too, and the
