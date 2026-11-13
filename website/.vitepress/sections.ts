@@ -1,0 +1,117 @@
+// The site's sections, in reading order: what the top nav names and the sidebar lists. A page
+// keeps its URL whichever section lists it, because vitest-native's messages and earlier
+// releases link to those URLs; the sections are drawn over the pages, not their folders.
+// tests/site-sections.test.ts checks that every page is in exactly one section.
+
+export interface SectionPage {
+  text: string
+  link: string
+  /** A file served as it is, such as llms.txt, opens outside the site's router. */
+  target?: '_blank'
+}
+
+export interface Section {
+  text: string
+  /** Where the section's nav item goes. */
+  link: string
+  pages: SectionPage[]
+  /** Links listed after the pages that are not pages of the site. */
+  external?: SectionPage[]
+}
+
+const CHANGELOG = 'https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/CHANGELOG.md'
+
+export const SECTIONS: Section[] = [
+  {
+    text: 'Get started',
+    link: '/guide/',
+    pages: [
+      { text: 'What is vitest-native', link: '/guide/' },
+      { text: 'Installation', link: '/guide/install' },
+      { text: 'Quick start', link: '/guide/quick-start' },
+      { text: 'Choosing an engine', link: '/guide/engines' },
+    ],
+  },
+  {
+    text: 'Migrate',
+    link: '/migration/from-jest',
+    pages: [
+      { text: 'From Jest', link: '/migration/from-jest' },
+      { text: 'jest-compat layer', link: '/guide/jest-compat' },
+      { text: 'From vitest-react-native', link: '/migration/from-vitest-react-native' },
+      { text: 'Upgrading to 0.15', link: '/migration/upgrading-to-0-15' },
+    ],
+  },
+  {
+    text: 'Guide',
+    link: '/guide/mocking',
+    pages: [
+      { text: 'Mocking', link: '/guide/mocking' },
+      { text: 'Third-party presets', link: '/guide/presets' },
+      { text: 'Test helpers', link: '/guide/helpers' },
+      { text: 'Matchers & snapshots', link: '/guide/matchers' },
+      { text: 'Expo', link: '/guide/expo' },
+      { text: 'Coverage', link: '/guide/coverage' },
+      { text: 'Hot runtime (experimental)', link: '/guide/hot-runtime' },
+      { text: 'How it works', link: '/guide/how-it-works' },
+    ],
+  },
+  {
+    text: 'Reference',
+    link: '/guide/plugin-options',
+    pages: [
+      { text: 'Plugin options', link: '/guide/plugin-options' },
+      { text: 'CLI', link: '/guide/cli' },
+      { text: 'Error codes', link: '/guide/errors' },
+      { text: 'Troubleshooting', link: '/guide/troubleshooting' },
+      { text: 'Mock engine API coverage', link: '/api/coverage' },
+    ],
+    external: [{ text: 'llms.txt', link: '/llms.txt', target: '_blank' }],
+  },
+  {
+    text: 'Proof',
+    link: '/guide/validation-model',
+    pages: [
+      { text: 'How it is verified', link: '/guide/validation-model' },
+      { text: 'Fidelity report', link: '/guide/fidelity' },
+      { text: 'Fidelity matrix', link: '/guide/fidelity-matrix' },
+      { text: 'Comparison with Jest', link: '/guide/comparison' },
+    ],
+  },
+  {
+    text: 'Releases',
+    link: '/releases/',
+    pages: [
+      { text: 'All releases', link: '/releases/' },
+      { text: '0.14', link: '/releases/0.14' },
+    ],
+    external: [{ text: 'Changelog', link: CHANGELOG }],
+  },
+]
+
+const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** A regular expression matching the section's pages, for the nav item's `activeMatch`. */
+export function activeMatch(section: Section): string {
+  return `^(${section.pages.map((page) => escape(page.link)).join('|')})$`
+}
+
+export function nav() {
+  return SECTIONS.map((section) => ({
+    text: section.text,
+    link: section.link,
+    activeMatch: activeMatch(section),
+  }))
+}
+
+/**
+ * One sidebar on every page. Each section folds; VitePress opens the one holding the page
+ * being read.
+ */
+export function sidebar() {
+  return SECTIONS.map((section) => ({
+    text: section.text,
+    collapsed: true,
+    items: [...section.pages, ...(section.external ?? [])],
+  }))
+}
