@@ -44,6 +44,7 @@ import type { PoolRunnerInitializer } from "vitest/node";
 import type { ProjectContextFields } from "../context.mjs";
 import type { NativeOwnershipPolicy } from "./ownership.mjs";
 import { createNativeOwnershipPolicy, formatNativeOwnershipManifest } from "./ownership.mjs";
+import { REACT_DEDUPE } from "./react-dedupe.mjs";
 
 /** React's automatic JSX runtime, through Vite 8's Oxc transform. */
 export type JsxTransformConfig = { oxc: { jsx: { runtime: "automatic" } } };
@@ -153,7 +154,8 @@ export function nativeEngineConfig(
       // Ensure a single React instance across the test, RN, and the renderer —
       // a fresh consumer project can otherwise resolve duplicates and hit a null
       // hooks dispatcher ("Cannot read properties of null (reading 'use...')").
-      dedupe: ["react", "react-test-renderer", "test-renderer", "react-is"],
+      // Node serves the same list as one copy too (react-dedupe.mjs).
+      dedupe: [...REACT_DEDUPE],
     },
     test: {
       setupFiles: [setupFilePath],
