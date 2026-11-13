@@ -8,7 +8,12 @@
 // Node now serves the names in REACT_DEDUPE from one anchor, the one the presets build
 // their mocks with (preset-react.mjs, rendererRequire: where `react-native` resolves),
 // through both of its resolvers: `require` (the `dedupe` resolve step) and `import`
-// (loader.mjs, resolveBefore). The first deduped request of a project root holds the
+// (loader.mjs, resolveBefore). Each resolves from the anchor with its own conditions, so
+// a dual package gets the build that resolver would pick (`import` → test-renderer's
+// dist/index.js, the file Vitest's externals load; `require` → dist/index.cjs). Files
+// are served in Vite's spelling (realpathSync.native), the one its externals reach Node
+// in: on a case-insensitive disk or a Windows 8.3 root, Node's own spelling of the same
+// file is a different module. The first deduped request of a project root holds the
 // project and React Native Testing Library to that copy (assertOneReact,
 // PRESET_REACT_MISMATCH), whether or not that request is redirected: Vite's dedupe
 // resolves from the project, so a project whose React is not react-native's would
@@ -19,9 +24,13 @@
 // install (pnpm, bun) react-test-renderer and test-renderer are usually React Native
 // Testing Library's and not visible from react-native's directory, so those two are
 // deduped only where the anchor sees them.
+import fs from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { nodeDispatch } from "../node-dispatch.mjs";
 import { projectContext } from "../context.mjs";
-import { assertOneReact, rendererRequire } from "../preset-react.mjs";
+import { assertOneReact } from "../preset-react.mjs";
 
 /** The packages served as one copy, by Vite and by Node. */
 export const REACT_DEDUPE = Object.freeze([
@@ -42,8 +51,8 @@ export function isDeduped(request) {
 // The anchor's own resolutions, and assertOneReact's, go back through Node's resolvers,
 // and so through this module: they are answered by Node while this is set.
 let anchoring = false;
-// Per project root (a worker can serve more than one), then per request: a file, or null
-// where the anchor cannot resolve it.
+// Per project root (a worker can serve more than one): the file the anchor resolves
+// from, and the `require` answers it gave (a file, or null where it has none).
 const anchors = new Map();
 
 /** Run `fn` with this module's resolution switched off. */
@@ -57,34 +66,80 @@ function asNode(fn) {
   }
 }
 
+/** A file in Vite's spelling (realpathSync.native), or as given when it is not on disk. */
+export function inViteSpelling(file) {
+  try {
+    return fs.realpathSync.native(file);
+  } catch {
+    return file;
+  }
+}
+
 /**
- * The file the anchor resolves a deduped `request` to, for the project `root`, or null
- * when this module leaves the request to Node: not a deduped name, a resolution made on
- * this module's behalf, or one the anchor cannot answer. Every call holds the project to
- * the anchor's copy first (assertOneReact, which passes from its cache once a root has
- * passed, and fails again on every call for a root that does not).
+ * The anchor for `root`: react-native's package.json where it resolves from the project,
+ * else the project's own (preset-react.mjs, rendererRequire), in Vite's spelling.
  */
-export function anchoredFile(request, root) {
+function anchorOf(root) {
+  let anchor = anchors.get(root);
+  if (anchor === undefined) {
+    const own = path.join(root, "package.json");
+    const base = asNode(() => {
+      try {
+        return createRequire(own).resolve("react-native/package.json");
+      } catch {
+        return own;
+      }
+    });
+    // A resolver hook can answer with a virtual id (the mock engine's react-native).
+    anchor = { base: inViteSpelling(path.isAbsolute(base) ? base : own), files: new Map() };
+    anchors.set(root, anchor);
+  }
+  return anchor;
+}
+
+/**
+ * The anchor `request` resolves from for the project `root`, or null when this module
+ * leaves the request to Node: not a deduped name, or a resolution made on this module's
+ * behalf. Holds the project to the anchor's copy first (assertOneReact: once per root,
+ * a failed root failing again on every call).
+ */
+function anchorFor(request, root) {
   if (anchoring || !isDeduped(request)) return null;
   asNode(() => assertOneReact(root, "Node's dedupe serves"));
-  let files = anchors.get(root);
-  if (files === undefined) {
-    files = new Map();
-    anchors.set(root, files);
-  }
-  let file = files.get(request);
+  return anchorOf(root);
+}
+
+/**
+ * The file `require` gets for a deduped `request` in the project `root`: the anchor's
+ * answer, in Vite's spelling. Null when anchorFor leaves it to Node, or the anchor cannot
+ * resolve it.
+ */
+export function anchoredFile(request, root) {
+  const anchor = anchorFor(request, root);
+  if (anchor === null) return null;
+  let file = anchor.files.get(request);
   if (file === undefined) {
     file = asNode(() => {
       try {
-        return rendererRequire(root).resolve(request);
+        return inViteSpelling(createRequire(anchor.base).resolve(request));
       } catch {
         // Not resolvable where the renderer resolves: Node's own answer stands.
         return null;
       }
     });
-    files.set(request, file);
+    anchor.files.set(request, file);
   }
   return file;
+}
+
+/**
+ * The parent URL an `import` of a deduped `request` resolves from in the project `root`
+ * (loader.mjs resolves it there with the import's own conditions), or null when anchorFor
+ * leaves it to Node.
+ */
+export function anchoredImportParent(request, root) {
+  const anchor = anchorFor(request, root);
+  return anchor === null ? null : pathToFileURL(anchor.base).href;
 }
 
 /** The project root a resolution belongs to: the running file's project, else `fallback`. */

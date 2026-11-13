@@ -11,6 +11,7 @@ import path from "node:path";
 import React from "react";
 import { Text } from "react-native";
 import { render, screen } from "@testing-library/react-native";
+import { createRoot } from "test-renderer";
 import { afterAll, describe, expect, it } from "vitest";
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-react-dedupe-"));
@@ -29,6 +30,8 @@ write(
 exports.React = React;
 // Node's ESM resolver, not require's: a module this library imports.
 exports.importReact = () => import("./esm.mjs").then((m) => m.React);
+// A dual package (test-renderer: import → dist/index.js, require → dist/index.cjs).
+exports.importTestRenderer = () => import("test-renderer");
 exports.Counter = function Counter(props) {
   const [n] = React.useState(1);
   return React.createElement(props.as, null, "count " + n);
@@ -48,6 +51,10 @@ describe("a Node-owned library with its own nested React", () => {
 
   it("gets the same React through import", async () => {
     expect(await loaded.importReact()).toBe(React);
+  });
+
+  it("gets a dual package's import build through import, the one the test imports", async () => {
+    expect((await loaded.importTestRenderer()).createRoot).toBe(createRoot);
   });
 
   it("runs its hooks inside the renderer's render", async () => {

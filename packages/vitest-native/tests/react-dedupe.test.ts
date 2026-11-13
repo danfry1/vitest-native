@@ -97,6 +97,15 @@ describe("Node's React dedupe", () => {
     expect(copyOf(resolve("react", fromLib, false, { paths: fromLib.paths }))).toBe("project");
   });
 
+  it("serves files in Vite's spelling whatever the root's letter case", (ctx) => {
+    const root = projects.project({ libReact: true });
+    const real = fs.realpathSync.native(root);
+    const recased = path.join(path.dirname(real), path.basename(real).toUpperCase());
+    // Only where the disk ignores case (macOS and Windows by default).
+    if (!fs.existsSync(recased)) return ctx.skip();
+    expect(anchoredFile("react", recased)).toBe(path.join(real, "node_modules/react/index.js"));
+  });
+
   it("anchors each project root on its own", () => {
     const one = projects.project({ libReact: true });
     const two = projects.project({ libReact: true });

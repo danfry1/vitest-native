@@ -16,7 +16,7 @@ import {
   needsTransform,
 } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
-import { anchoredFile } from "./react-dedupe.mjs";
+import { anchoredImportParent, inViteSpelling } from "./react-dedupe.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
 import {
   extensionsFor,
@@ -340,10 +340,11 @@ function resolveBefore(specifier, context, presets = true) {
       done: { url: `${PRESET_CJS_SCHEME}?${query}`, format: "commonjs", shortCircuit: true },
     };
   }
-  // React and its renderers: one copy, the one `require` gets too (react-dedupe.mjs).
+  // React and its renderers: one copy, resolved from the anchor (react-dedupe.mjs) by
+  // resolvePlain, with this import's own conditions.
   if (parent) {
-    const deduped = anchoredFile(specifier, projectContext()?.projectRoot ?? PROJECT_ROOT);
-    if (deduped) return { done: { url: pathToFileURL(deduped).href, shortCircuit: true } };
+    const from = anchoredImportParent(specifier, projectContext()?.projectRoot ?? PROJECT_ROOT);
+    if (from) return { parent, dedupeFrom: from };
   }
   let resolved;
   if (
@@ -529,10 +530,39 @@ function resolveMocked(specifier, context, nextResolve) {
   return { ...resolved, url: `${resolved.url}${join}${MOCK_PARAM}=${mark}`, shortCircuit: true };
 }
 
+// Deduped imports, per anchor, request and conditions: Node's answer from the anchor.
+const dedupedResolutions = new Map();
+
+/**
+ * A deduped import resolved as Node's ESM resolver would from the anchor `from`, with the
+ * import's own conditions: a dual package's `import` build, not its `require` one. In
+ * Vite's spelling (react-dedupe.mjs). Undefined when the anchor cannot resolve it: the
+ * import's own resolution stands, as `require`'s does.
+ */
+function resolveDeduped(specifier, context, nextResolve, from) {
+  const key = `${from}\0${specifier}\0${(context.conditions ?? []).join(",")}`;
+  let found = dedupedResolutions.get(key);
+  if (found === undefined) {
+    try {
+      const resolved = nextResolve(specifier, { ...context, parentURL: from });
+      found =
+        typeof resolved?.url === "string" && resolved.url.startsWith("file:")
+          ? { ...resolved, url: pathToFileURL(inViteSpelling(fileURLToPath(resolved.url))).href }
+          : resolved;
+    } catch {
+      found = null;
+    }
+    dedupedResolutions.set(key, found);
+  }
+  return found ? { ...found, shortCircuit: true } : undefined;
+}
+
 function resolvePlain(specifier, context, nextResolve, presets) {
   const before = resolveBefore(specifier, context, presets);
   if (before.done) return before.done;
-  let resolved = before.resolved;
+  let resolved = before.dedupeFrom
+    ? resolveDeduped(specifier, context, nextResolve, before.dedupeFrom)
+    : before.resolved;
   if (!resolved) {
     const key = stampedResolutionKey(specifier, context);
     // A hit skips nextResolve, which Node accepts only from a short-circuited result.
