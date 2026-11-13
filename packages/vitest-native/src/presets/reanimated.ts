@@ -559,8 +559,13 @@ const INVALID_HOOK_CALL = /^(?:Invalid hook call\.|Minified React error #321[;:]
  *   log "Invalid hook call" and then fail reading null; the dispatcher is read instead
  *   (React 19's client internals, as resident-health.mjs reads its act queue);
  * - afterwards, `useRef` throws React's invalid-hook-call error (INVALID_HOOK_CALL).
- * `React` is the test file's (the factory's context), so a render with another React is
- * not mistaken for "outside a render" unless the project has two copies of React.
+ * The trade-off: React throws that same error for a genuine rules-of-hooks bug (a hook in
+ * a class component's render, inside an effect or event handler, or after another copy
+ * of React rendered), so such a call also gets a fresh value here where real Reanimated
+ * would throw. That matches the library's own mock, which answers any call outside a
+ * render. A second copy of React that never renders keeps its dispatcher null, which
+ * reads as "before any render"; the factory's context check (preset-react.mjs) rules
+ * that copy out, as it fails when the file's React is not the renderer's.
  */
 function useRefOrNull<T>(React: typeof import("react")): { current: T | null } | null {
   // Only an explicit null dispatcher means "before any render". Where React has no such
