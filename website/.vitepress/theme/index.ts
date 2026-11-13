@@ -3,7 +3,6 @@ import DefaultTheme from 'vitepress/theme'
 import { h } from 'vue'
 import 'virtual:group-icons.css'
 import BoundaryDiagram from './components/BoundaryDiagram.vue'
-import ErrorFinder from './components/ErrorFinder.vue'
 import FrontDoors from './components/FrontDoors.vue'
 import HeroDemo from './components/HeroDemo.vue'
 import HeroInstall from './components/HeroInstall.vue'
@@ -22,6 +21,5 @@ export default {
   enhanceApp({ app }) {
     app.component('FrontDoors', FrontDoors)
     app.component('BoundaryDiagram', BoundaryDiagram)
-    app.component('ErrorFinder', ErrorFinder)
   },
 } satisfies Theme

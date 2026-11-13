@@ -2,13 +2,17 @@
 
 Errors vitest-native raises start with `[vitest-native]`, and most carry a `code`. The message says what went wrong and how to fix it; this page adds the common causes. Paste the message below to find its entry, or, in your own `try`/`catch`, read `error.code`. (Vitest's reporter shows the message but not the code.)
 
+<script setup>
+import ErrorFinder from '../.vitepress/theme/components/ErrorFinder.vue'
+</script>
+
 <ErrorFinder />
 
 ## Configuration
 
 ### `INVALID_OPTION` {#INVALID_OPTION}
 
-An option has the wrong type or value: for example a preset factory passed without calling it (`presets.reanimated` instead of `presets.reanimated()`), a hand-built or copied preset object, a function inside [`mocks`](/guide/plugin-options#mocks), or a `hotRuntime.mode` other than `'auto'` (or `mode: 'auto'` combined with `allowUnboundedMemory: true`). A preset module listed by path raises it too when it does not exist, does not resolve, fails to import, default-exports an async function or something that is not a preset, or reuses a built-in or duplicate preset name. Unknown keys in `transform` raise it as well. So does a `jestMockTransform({ modulePathIgnorePatterns })` entry that is not a valid regular expression. The message names the option and the accepted values. See [Plugin Options](/guide/plugin-options).
+An option has the wrong type or value, and the message reads `"<option>" must be …`: a boolean, a string, an array of non-empty strings, a non-negative integer, or one of the values it lists. It also covers a preset factory passed without calling it (`presets.reanimated` instead of `presets.reanimated()`), a hand-built or copied preset object, a function inside [`mocks`](/guide/plugin-options#mocks), or a `hotRuntime.mode` other than `'auto'` (or `mode: 'auto'` combined with `allowUnboundedMemory: true`). A preset module listed by path raises it too when it does not exist, does not resolve, fails to import, default-exports an async function or something that is not a preset, or reuses a built-in or duplicate preset name. Unknown keys in `transform` raise it as well. So does a `jestMockTransform({ modulePathIgnorePatterns })` entry that is not a valid regular expression. The message names the option and the accepted values. See [Plugin Options](/guide/plugin-options).
 
 ### `UNKNOWN_OPTION` {#UNKNOWN_OPTION}
 
@@ -60,7 +64,7 @@ With `metroConfig` on, the loaded Metro config has no usable `resolver.sourceExt
 
 ### `CONTEXT_INVALID` {#CONTEXT_INVALID}
 
-A test worker could not read the configuration the plugin writes for it. The plugin writes one description of each Vitest project, its _project context_, to `node_modules/.cache/vitest-native/contexts/` (or the system temp directory when that cannot be written), and every worker reads its configuration from that file. The worker found it missing, from another vitest-native version, changed after it was written, or with a field of the wrong shape; the message names the reason, the field and the directory. A worker started without the plugin's configuration reports it too. It also fires when one Vitest project is handed another project's settings: give each Vitest project its own `root`. Otherwise re-run Vitest, and if it persists, delete the directory the message names.
+A test worker could not read the configuration the plugin writes for it. The plugin writes one description of each Vitest project, its _project context_, to `.cache/vitest-native/contexts/` in the project's `node_modules` (or the system temp directory when that cannot be written), and every worker reads its configuration from that file. The worker found it missing, unreadable, from another vitest-native version, changed after it was written, or with a field missing, unknown or of the wrong shape; the message names the reason and, where it applies, the field and the directory. A worker started without the plugin's configuration reports it too. It also fires when one Vitest project is handed another project's settings: give each Vitest project its own `root`. Otherwise re-run Vitest, and if it persists, delete the directory the message names.
 
 ## Loading your code
 
@@ -116,7 +120,7 @@ A project file compiled with your Babel config ([`projectBabel`](/guide/plugin-o
 
 ### `HELPERS_BEFORE_SETUP` {#HELPERS_BEFORE_SETUP}
 
-A helper from `vitest-native/helpers` ran before the plugin's setup, usually because `reactNative()` is not in the Vitest config's `plugins`, or the helper runs outside a test run.
+A helper from `vitest-native/helpers` ran before the plugin's setup, and the message says the helpers were called before setup ran. Usually `reactNative()` is not in the Vitest config's `plugins` array, or the helper runs outside a test run.
 
 ### `WRONG_ENGINE_FOR_HELPER` {#WRONG_ENGINE_FOR_HELPER}
 

@@ -2,11 +2,15 @@
 
 An error that starts with `[vitest-native]` has a code; the [error-code reference](/guide/errors) lists each one with its common causes. Paste a message below to search this page and the error codes together.
 
+<script setup>
+import ErrorFinder from '../.vitepress/theme/components/ErrorFinder.vue'
+</script>
+
 <ErrorFinder />
 
 ## "helpers were called before setup ran" {#helpers-were-called-before-setup-ran}
 
-This means the plugin isn't configured. Ensure `reactNative()` is in your `vitest.config.ts` `plugins` array.
+See [`HELPERS_BEFORE_SETUP`](/guide/errors#HELPERS_BEFORE_SETUP) in the error codes.
 
 ## RNTL queries not finding components {#rntl-queries-not-finding-components}
 
@@ -35,7 +39,7 @@ Under `engine: 'native'`, React Native and third-party React Native packages loa
 
 ## A third-party library ships untranspiled source and fails to parse {#a-third-party-library-ships-untranspiled-source-and-fails-to-parse}
 
-Packages that declare `react-native` are compiled automatically. For one that doesn't, add it to [`transform`](/guide/plugin-options#transform) (the native-engine equivalent of Jest's `transformIgnorePatterns`); if compiling a package is what fails, exclude it with `transform: { exclude: [...] }`. See [untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-source).
+The test fails with `SyntaxError: Unexpected token`, `Cannot use import statement outside a module`, or a Flow or JSX parse error in a file under `node_modules`. Packages that declare `react-native` are compiled automatically. For one that doesn't, add it to [`transform`](/guide/plugin-options#transform) (the native-engine equivalent of Jest's `transformIgnorePatterns`); if compiling a package is what fails, exclude it with `transform: { exclude: [...] }`. See [untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-source).
 
 ```ts
 reactNative({ transform: ["some-untranspiled-lib"] });

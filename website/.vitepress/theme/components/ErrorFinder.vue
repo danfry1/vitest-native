@@ -2,13 +2,16 @@
 // "Find your error": paste a message, or a few words of it, and get the error-code and
 // troubleshooting entries it matches. The index is read from both pages at build time
 // (website/.vitepress/error-index.ts); the search runs in the browser (error-search.ts).
+// Only the errors and troubleshooting pages import it, so no other page loads the index.
 import { withBase } from 'vitepress'
 import { computed, ref } from 'vue'
 import { data as index } from '../../errors.data'
-import { findErrors } from '../../error-search'
+import { findErrors, searchable } from '../../error-search'
 
 const query = ref('')
-const results = computed(() => (query.value.trim() ? findErrors(index, query.value) : []))
+// Nothing is said until the query has a word or a code to search by.
+const ready = computed(() => searchable(query.value))
+const results = computed(() => (ready.value ? findErrors(index, query.value) : []))
 
 function snippet(text: string): string {
   return text.length > 180 ? `${text.slice(0, 180).replace(/\s+\S*$/, '')}…` : text
@@ -18,21 +21,22 @@ function snippet(text: string): string {
 <template>
   <section class="finder" aria-labelledby="finder-title">
     <!-- Not a heading: the page outline lists only the page's own sections. -->
-    <p id="finder-title" class="label">Find your error</p>
-    <label class="hint" for="finder-input">
+    <label id="finder-title" class="label" for="finder-input">Find your error</label>
+    <p id="finder-hint" class="hint">
       Paste the message, or a few words of it. A code such as <code>UNSUPPORTED_PEER</code> finds
       its entry directly.
-    </label>
+    </p>
     <textarea
       id="finder-input"
       v-model="query"
+      aria-describedby="finder-hint"
       rows="2"
       spellcheck="false"
       autocomplete="off"
       placeholder="[vitest-native] …"
     />
     <p class="count" aria-live="polite">
-      <template v-if="query.trim()">
+      <template v-if="ready">
         <template v-if="results.length">{{ results.length }} {{ results.length === 1 ? 'match' : 'matches' }}</template>
         <template v-else>
           Nothing matched. Try a shorter part of the message, or see
@@ -61,15 +65,15 @@ function snippet(text: string): string {
   background: var(--vp-c-bg-soft);
 }
 .finder .label {
+  display: block;
   margin: 0 0 6px;
   font-weight: 600;
   font-size: 17px;
   line-height: 1.4;
   letter-spacing: -0.01em;
 }
-.hint {
-  display: block;
-  margin-bottom: 10px;
+.finder .hint {
+  margin: 0 0 10px;
   font-size: 14px;
   line-height: 1.55;
   color: var(--vp-c-text-2);

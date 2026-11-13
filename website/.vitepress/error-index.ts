@@ -18,21 +18,35 @@ export interface ErrorEntry {
   text: string
 }
 
-/** Markdown to the words a reader sees: code kept, links' text kept, markup dropped. */
+/**
+ * Markdown to the words a reader sees. Inline code is kept as written (`__mocks__`,
+ * `Array<string>`, `findBy*`), links keep their text, and fenced code blocks, markup and
+ * the page's closing "Next:" line are dropped.
+ */
 export function plain(markdown: string): string {
-  return markdown
-    .replace(/^(```|~~~)[\s\S]*?^\1/gm, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    // Backticks and bold go; `_` and `*` stay inside words and codes (`UNSUPPORTED_PEER`,
-    // `findBy*`), and an `_emphasis_` keeps its words.
-    .replace(/`|\*\*|__/g, '')
-    .replace(/(^|[\s(])_([^_\s][^_]*)_(?=[\s.,;:)]|$)/g, '$1$2')
-    .replace(/^\s*>\s?/gm, '')
-    .replace(/^\s*\|?[\s|:-]+\|?\s*$/gm, '')
-    .replace(/^#+\s*/gm, '')
-    .replace(/\s+/g, ' ')
-    .trim()
+  const spans: string[] = []
+  return (
+    markdown
+      .replace(/^\s*(```|~~~)[\s\S]*?^\s*\1/gm, ' ')
+      // Inline code is set aside (as a private-use character and its number) before any
+      // markup is removed, then put back.
+      .replace(/`([^`\n]+)`/g, (_, code: string) => `${spans.push(code) - 1}`)
+      .replace(/^Next: .*$/gm, '')
+      .replace(/^\s*:::.*$/gm, '')
+      .replace(/<\/?[A-Za-z][^<>]*>/g, ' ')
+      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\s*\{#[^}]+\}/g, '')
+      .replace(/\*\*|(^|\W)__(?=\w)|(?<=\w)__(?=\W|$)/g, '$1')
+      .replace(/(^|[\s(])[_*]([^_*\s][^_*]*)[_*](?=[\s.,;:)]|$)/g, '$1$2')
+      .replace(/^\s*>\s?/gm, '')
+      .replace(/^\s*(?:[-*+]|\d+\.)\s+/gm, '')
+      .replace(/^\s*\|?[\s|:-]+\|?\s*$/gm, '')
+      .replace(/\s\|\s|^\||\|$/gm, ' ')
+      .replace(/^#+\s*/gm, '')
+      .replace(/(\d+)/g, (_, at: string) => spans[Number(at)])
+      .replace(/\s+/g, ' ')
+      .trim()
+  )
 }
 
 /**
