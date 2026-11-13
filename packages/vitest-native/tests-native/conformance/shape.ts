@@ -52,8 +52,8 @@ export function differences(value: unknown, shape: Shape, path: string): string[
         const here = `${path}.${name}`;
         // Present if `in` finds it or a read gives a value: a Proxy that answers any read
         // (bottom-sheet's internal hooks) has no `has` trap, so `in` alone says missing.
-        const read = (value as Record<string, unknown>)[name];
-        if (!(name in (value as object)) && read === undefined) {
+        const read = readMember(value as Record<string, unknown>, name);
+        if (read === THREW || (!(name in (value as object)) && read === undefined)) {
           // A member declared `never` (a type-level brand) cannot exist at runtime.
           if (!member.optional && member.kind !== "never")
             found.push(`${here}: missing, declared ${describeShape(member)}`);
@@ -65,6 +65,18 @@ export function differences(value: unknown, shape: Shape, path: string): string[
     }
     default:
       return [];
+  }
+}
+
+/** What readMember gives when the read throws: such a member counts as missing. */
+const THREW = Symbol("threw");
+
+/** A member's value, or THREW when reading it throws (a getter that throws). */
+function readMember(value: Record<string, unknown>, name: string): unknown {
+  try {
+    return value[name];
+  } catch {
+    return THREW;
   }
 }
 

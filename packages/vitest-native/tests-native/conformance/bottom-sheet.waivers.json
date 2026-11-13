@@ -472,5 +472,11 @@
     "path": "SCROLLABLE_DECELERATION_RATE_MAPPER",
     "reason": "missing from bottom-sheet's own Jest mock",
     "issue": "#714"
+  },
+  {
+    "export": "createBottomSheetScrollableComponent",
+    "path": "createBottomSheetScrollableComponent().$$typeof",
+    "reason": "bottom-sheet's own Jest mock returns the component it is given, not the memo(forwardRef) component the package declares",
+    "issue": "#714"
   }
 ]
