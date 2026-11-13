@@ -35,14 +35,18 @@ async function render(options: typeof config.markdown): Promise<Rendered[]> {
   // VitePress keeps one renderer per process: without this, a second call returns the first.
   disposeMdItInstance();
   const md = await createMarkdownRenderer(SITE, options, "/");
-  return pages().map((page) => ({
-    page,
-    html: md.render(fs.readFileSync(path.join(SITE, page), "utf8"), {
-      path: path.join(SITE, page),
-      relativePath: page,
-      cleanUrls: config.cleanUrls,
-    }),
-  }));
+  // renderAsync, as the build does: it expands `<!-- @include -->` and waits for highlighting,
+  // which would otherwise still be running when the renderer is disposed.
+  return Promise.all(
+    pages().map(async (page) => ({
+      page,
+      html: await md.renderAsync(fs.readFileSync(path.join(SITE, page), "utf8"), {
+        path: path.join(SITE, page),
+        relativePath: page,
+        cleanUrls: config.cleanUrls,
+      }),
+    })),
+  );
 }
 
 const ids = (html: string) => new Set([...html.matchAll(/\sid="([^"]+)"/g)].map(([, id]) => id));
@@ -59,21 +63,30 @@ describe("the site as VitePress renders it", () => {
   it("links every fragment to an id on its page", () => {
     const byRoute = new Map(site.map(({ page, html }) => [route(page), ids(html)]));
     const links = site.flatMap(({ page, html }) =>
-      [...html.matchAll(/\shref="(\/[^"#]*)?#([^"]+)"/g)].map(([, target, hash]) => ({
+      // A heading's own `#` link is left out: it links the id it sits next to.
+      [
+        ...html.matchAll(/<a\b(?![^>]*class="header-anchor")[^>]*\shref="(\/[^"#]*)?#([^"]+)"/g),
+      ].map(([, target, hash]) => ({
         from: page,
         target: (target ?? route(page)).replace(/\.html$/, ""),
         hash: decodeURIComponent(hash),
       })),
     );
+    // Links between and within pages, not counting headings' own (129 when written).
     expect(links.length).toBeGreaterThan(100);
-    // Links to an error code's entry, which this check exists for.
-    expect(links.filter(({ hash }) => /^[A-Z]+_[A-Z_]+$/.test(hash)).length).toBeGreaterThan(5);
+    // Links from other pages to an error code's entry, which this check exists for.
+    expect(
+      links.filter(({ from, target }) => target === "/guide/errors" && from !== "guide/errors.md")
+        .length,
+    ).toBeGreaterThan(5);
     const broken = links.filter(({ target, hash }) => !byRoute.get(target)?.has(hash));
     expect(broken.map(({ from, target, hash }) => `${from} → ${target}#${hash}`)).toEqual([]);
   });
 
   it("gives every heading the id VitePress's own slugifier does", async () => {
-    // website/.vitepress/anchors.ts copies that slugifier; it may differ only for an error code.
+    // website/.vitepress/anchors.ts copies that slugifier and keeps an error code as written.
+    // Every error-code heading has an explicit `{#CODE}` id, so no heading id may differ:
+    // a new heading that is only a code needs one too.
     const stock = await render({ ...config.markdown, anchor: undefined });
     const differ = site.flatMap(({ page, html }, at) => {
       const own = headingIds(html);

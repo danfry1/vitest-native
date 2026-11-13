@@ -9,7 +9,7 @@
 const CODE = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/
 
 // VitePress's default (`slugify` in @mdit-vue/shared, which VitePress does not export).
-// tests/site-anchors.test.ts checks it against the ids VitePress gives the site's headings.
+// tests/site-rendered-anchors.test.ts checks it against the ids VitePress gives the headings.
 const CONTROL = /[\u0000-\u001f]/g // eslint-disable-line no-control-regex
 const SPECIAL = /[\s~`!@#$%^&*()\-_+=[\]{}|\\;:"'“”‘’<>,.?/]+/g
 const COMBINING = /[̀-ͯ]/g
