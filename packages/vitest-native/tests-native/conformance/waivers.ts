@@ -6,7 +6,8 @@
 
 /** The reasons a gap can never close; the probe still checks everything else. */
 export const PERMANENT_REASONS = [
-  // A library's internal export, which its documentation says not to use.
+  // A library's internal export: a native binding for its own components, or one its
+  // documentation says not to use.
   "n/a (internal)",
   // Exported only as a type, so there is nothing at runtime to check.
   "n/a (type-only)",
