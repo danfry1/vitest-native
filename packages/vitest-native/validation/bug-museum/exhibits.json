@@ -1245,6 +1245,15 @@
       "bugSignature": "^app\\.test\\.tsx: TypeError: timestamp\\.get is not a function"
     },
     {
+      "id": "pre-351-reanimated-derived-stale",
+      "class": "presets",
+      "title": "A derived value stays at its first result between renders",
+      "source": "#351 (rc.4 report)",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/reanimated-derived-value-follows",
+      "bugSignature": "^app\\.test\\.tsx: AssertionError: expected 10 to be 60"
+    },
+    {
       "id": "pre-banner-names-presets",
       "class": "presets",
       "title": "The engine banner does not name the presets it applies",

@@ -142,24 +142,30 @@ function probeHook(call: () => unknown): unknown {
  * A shared value with Reanimated 4's API: `.value` and `get()`, `set(value | updater)`,
  * `modify(modifier?, forceUpdate = true)` (the value becomes the modifier's result),
  * `addListener(id, listener)` / `removeListener(id)`, each listener called with the new
- * value on every write, and the `_isReanimatedSharedValue` mark.
+ * value on every write, and the `_isReanimatedSharedValue` mark. A read (`.value` or
+ * `get()`) is recorded while a derived value's updater runs (derivedValue).
  */
 export function sharedValue<T>(init: T) {
   let current = init;
   const listeners = new Map<unknown, (value: T) => void>();
   const notify = () => {
-    for (const listener of listeners.values()) listener(current);
+    // A snapshot: a listener that re-subscribes (derivedValue) is not called again.
+    for (const listener of Array.from(listeners.values())) listener(current);
   };
-  return {
+  const shared = {
     _isReanimatedSharedValue: true as const,
     get value(): T {
+      derivedReads?.add(shared);
       return current;
     },
     set value(next: T) {
       current = next;
       notify();
     },
-    get: (): T => current,
+    get: (): T => {
+      derivedReads?.add(shared);
+      return current;
+    },
     set(next: T | ((value: T) => T)) {
       current = typeof next === "function" ? (next as (value: T) => T)(current) : next;
       notify();
@@ -175,6 +181,78 @@ export function sharedValue<T>(init: T) {
       listeners.delete(id);
     },
   };
+  return shared;
+}
+
+type SharedValue = ReturnType<typeof sharedValue<unknown>>;
+
+/** The shared values read while a derived value's updater runs, or null outside one. */
+let derivedReads: Set<SharedValue> | null = null;
+
+/**
+ * Reanimated's useDerivedValue: a shared value holding what `updater` returns, recomputed
+ * whenever a shared value the updater read changes, without a render. Reanimated starts a
+ * mapper over the updater's inputs and runs it on every change of one (at once under
+ * Jest, src/mappers.ts maybeRequestUpdates); here the inputs are the shared values the
+ * last run read, so it needs no Babel plugin. It also recomputes on every render, as the
+ * mock's does, so a value the updater takes from props is current, and once more on
+ * mount, as Reanimated's mapper runs when it starts. Listeners hear a changed result, and
+ * the subscriptions end when the component unmounts.
+ */
+export function derivedValue(React: typeof import("react"), updater: () => unknown): SharedValue {
+  // Outside a render, which the mock allows, a new one each call, with no component to
+  // unmount; in one, kept per component (perComponent).
+  const rendering = useRefOrNull<DerivedState>(React);
+  const state = rendering?.current ?? derivedState(updater);
+  if (rendering && rendering.current === null) rendering.current = state;
+  state.updater = updater;
+  state.run();
+  if (rendering) {
+    // Subscribed again on mount, as Reanimated starts its mapper in an effect (a
+    // StrictMode remount stops it first).
+    React.useEffect(() => {
+      state.run();
+      return () => state.stop();
+    }, [state]);
+  }
+  return state.derived;
+}
+
+type DerivedState = ReturnType<typeof derivedState>;
+
+function derivedState(updater: () => unknown) {
+  const held = {
+    derived: sharedValue<unknown>(undefined),
+    updater,
+    inputs: new Set<SharedValue>(),
+    ran: false,
+    last: undefined as unknown,
+    run() {
+      const outer = derivedReads;
+      const read = new Set<SharedValue>();
+      derivedReads = read;
+      let next: unknown;
+      try {
+        next = held.updater();
+      } finally {
+        derivedReads = outer;
+      }
+      read.delete(held.derived);
+      for (const input of held.inputs) if (!read.has(input)) input.removeListener(held);
+      for (const input of read) if (!held.inputs.has(input)) input.addListener(held, held.run);
+      held.inputs = read;
+      if (!held.ran || !Object.is(held.last, next)) {
+        held.ran = true;
+        held.last = next;
+        held.derived.value = next;
+      }
+    },
+    stop() {
+      for (const input of held.inputs) input.removeListener(held);
+      held.inputs.clear();
+    },
+  };
+  return held;
 }
 
 /**
@@ -250,13 +328,7 @@ export function mockCorrections(
     fixed.makeMutable = (init: unknown) => sharedValue(init);
   }
   if (wrong("useDerivedValue", (hook) => hook(() => 0))) {
-    // Recomputed on every render, as the mock's is; listeners hear a changed result.
-    fixed.useDerivedValue = (updater: () => unknown) => {
-      const next = updater();
-      const derived = perComponent(React, () => sharedValue(next));
-      if (!Object.is(derived.value, next)) derived.value = next;
-      return derived;
-    };
+    fixed.useDerivedValue = (updater: () => unknown) => derivedValue(React, updater);
   }
   for (const name of ["useScrollOffset", "useScrollViewOffset", "useTimestamp"]) {
     if (wrong(name, (hook) => hook())) {
@@ -727,9 +799,7 @@ export function reanimated(): Preset {
             return updater();
           }
 
-          function useDerivedValue(updater: () => any) {
-            return createSharedValue(updater());
-          }
+          const useDerivedValue = (updater: () => any) => derivedValue(React, updater);
 
           const { useAnimatedScrollHandler, useComposedEventHandler, useScrollOffset } =
             scrollHandlers(React, createSharedValue);
