@@ -1,0 +1,48 @@
+Analyzed jest.config.js
+
+Mapped automatically:
+  • preset: '@react-native/jest-preset' → replaced by the reactNative() plugin.
+  • setupFiles: './jest.setup.js' → test.setupFiles (its jest.* calls run under the jest-compat shim).
+  • moduleNameMapper '^@/(.*)$' → resolve.alias (absolute path).
+  • transformIgnorePatterns (raw): ["node_modules/(?!((jest-)?react-native|@react-native(-community)?|react-native-reanimated|react-native-gesture-handler)/)"]
+  • transformIgnorePatterns allows react-native — the native engine transforms React Native itself; nothing to do.
+  • transformIgnorePatterns allows react-native-gesture-handler — detected by the engine (React Native ecosystem), which compiles what Node cannot run; nothing to do.
+  • transformIgnorePatterns allows jest-react-native — not installed; nothing to do.
+  • testMatch (Jest 30's default; Jest is not installed, so Jest 30's) → test.include ["**/__tests__/**/*.?([mc])[jt]s?(x)","**/?(*.)+(spec|test).?([mc])[jt]s?(x)"], so Jest's patterns, not Vitest's default include, decide which files are tests.
+  • Jest keeps mock calls between tests unless clearMocks is set → test.clearMocks: false (Vitest 5 clears them before each test by default).
+
+Covered by presets — delete:
+  • transformIgnorePatterns allows react-native-reanimated — shadowed by the auto-detected reanimated preset; nothing to do.
+
+Needs your attention:
+  • preset: '@react-native/jest-preset' could not be loaded (cannot resolve '@react-native/jest-preset/jest-preset' from .), so its testMatch/testPathIgnorePatterns could not be read; test.include falls back to Jest's defaults — compare with the preset.
+  • scripts.test runs Jest — point it at `vitest run` once the suite passes.
+
+Suggested vitest.config:
+
+  import { defineConfig } from 'vitest/config'
+  import { reactNative } from 'vitest-native'
+  import { jestCompatAliases, jestCompatSetup, jestMockTransform } from 'vitest-native/jest-compat'
+  import { fileURLToPath } from 'node:url'
+  
+  export default defineConfig({
+    plugins: [reactNative(), jestMockTransform()],
+    resolve: {
+      dedupe: ['react', 'react-test-renderer', 'react-is'],
+      alias: { ...jestCompatAliases(), "@": fileURLToPath(new URL("./src", import.meta.url)) },
+    },
+    test: {
+      globals: true,
+      environment: 'node',
+      include: ["**/__tests__/**/*.?([mc])[jt]s?(x)", "**/?(*.)+(spec|test).?([mc])[jt]s?(x)"],
+      clearMocks: false,
+      setupFiles: [jestCompatSetup, "./jest.setup.js"],
+    },
+  })
+  
+Re-run with --write to save this config, then: npx vitest-native doctor && npx vitest
+
+Hot runtime: off by default. `hotRuntime: 'auto'` reuses workers across test files instead of
+starting a fresh one per file. Whether that is faster depends on the suite, so measure it on yours.
+It has known differences from per-file isolation:
+  https://vitest-native.danfry.dev/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files

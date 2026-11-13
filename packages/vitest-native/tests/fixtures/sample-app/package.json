@@ -1,0 +1,19 @@
+{
+  "name": "sample-app",
+  "private": true,
+  "description": "A sample React Native app with a typical Jest setup, for the site's migrate replay (tests/site-replay.e2e.test.ts).",
+  "scripts": {
+    "test": "jest"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-native": "0.88.0",
+    "react-native-gesture-handler": "3.4.0",
+    "react-native-reanimated": "4.7.1",
+    "react-native-safe-area-context": "5.11.0"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "14.1.0",
+    "jest": "30.5.2"
+  }
+}

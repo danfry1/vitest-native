@@ -15,6 +15,10 @@ hero:
       link: /migration/from-jest
 ---
 
+<script setup>
+import TerminalReplay from './.vitepress/theme/components/TerminalReplay.vue'
+</script>
+
 <FrontDoors />
 
 ## What runs in your tests
@@ -24,6 +28,26 @@ Jest's React Native preset also runs React Native's JavaScript, but it swaps the
 <BoundaryDiagram />
 
 A second engine, `engine: 'mock'`, runs without React Native at all, for pure-logic suites. [Choosing an engine →](/guide/engines)
+
+## See it work
+
+On Jest today? `vitest-native migrate` reads your Jest config and setup, says what each part becomes, and writes the Vitest config.
+
+<TerminalReplay />
+
+The sample app's Jest config, and the Vitest config `migrate --write` wrote for it:
+
+::: code-group
+
+<<< @/../packages/vitest-native/tests/fixtures/sample-app/jest.config.js [Before: jest.config.js]
+
+<<< @/../packages/vitest-native/tests/fixtures/sample-app/jest.setup.js [Before: jest.setup.js]
+
+<<< @/.vitepress/replay/vitest.config.mjs.txt{js} [After: vitest.config.mjs]
+
+:::
+
+[Migrating from Jest →](/migration/from-jest)
 
 ## A first test
 

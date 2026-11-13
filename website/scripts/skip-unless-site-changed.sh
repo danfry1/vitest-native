@@ -15,6 +15,8 @@ SITE_INPUTS=(
   packages/vitest-native/src/errors.mjs
   packages/vitest-native/src/node-range.ts
   packages/vitest-native/src/peer-requirements.ts
+  packages/vitest-native/tests/fixtures/sample-app/jest.config.js
+  packages/vitest-native/tests/fixtures/sample-app/jest.setup.js
 )
 
 head="${VERCEL_GIT_COMMIT_SHA:-HEAD}"

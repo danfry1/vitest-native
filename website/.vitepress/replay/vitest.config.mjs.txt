@@ -1,0 +1,19 @@
+import { defineConfig } from 'vitest/config'
+import { reactNative } from 'vitest-native'
+import { jestCompatAliases, jestCompatSetup, jestMockTransform } from 'vitest-native/jest-compat'
+import { fileURLToPath } from 'node:url'
+
+export default defineConfig({
+  plugins: [reactNative(), jestMockTransform()],
+  resolve: {
+    dedupe: ['react', 'react-test-renderer', 'react-is'],
+    alias: { ...jestCompatAliases(), "@": fileURLToPath(new URL("./src", import.meta.url)) },
+  },
+  test: {
+    globals: true,
+    environment: 'node',
+    include: ["**/__tests__/**/*.?([mc])[jt]s?(x)", "**/?(*.)+(spec|test).?([mc])[jt]s?(x)"],
+    clearMocks: false,
+    setupFiles: [jestCompatSetup, "./jest.setup.js"],
+  },
+})

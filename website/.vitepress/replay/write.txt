@@ -1,0 +1,1 @@
+✓ wrote vitest.config.mjs from the analysis above. Next: npx vitest-native doctor && npx vitest
