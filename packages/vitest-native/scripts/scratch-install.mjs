@@ -258,12 +258,19 @@ export async function scratchInstall(dir, options = {}) {
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
   fs.writeFileSync(path.join(dir, "bunfig.toml"), bunfigWithReleaseAge());
-  // A rerun starts from the approval alone, not from an earlier run's overrides or lock.
+  // Every resolution starts from the manifest alone. With a lock in place, bun keeps a
+  // package's locked version even when a new override names another: it kept vite 8.3.6,
+  // reached only as a peer, under an override of 8.3.5, so the same override came back
+  // every round.
+  const resolve = () => {
+    fs.rmSync(path.join(dir, "bun.lock"), { force: true });
+    bun("--lockfile-only");
+  };
+  // A rerun starts from the approval alone, not from an earlier run's overrides.
   delete manifest.overrides;
   writeManifest();
-  fs.rmSync(path.join(dir, "bun.lock"), { force: true });
 
-  bun("--lockfile-only");
+  resolve();
   const overrides = {};
   for (let round = 1; ; round++) {
     const more = chooseOverrides({ repoLock, scratchLock: readLock(), topLevel, satisfies });
@@ -281,7 +288,7 @@ export async function scratchInstall(dir, options = {}) {
     Object.assign(overrides, more);
     manifest.overrides = overrides;
     writeManifest();
-    bun("--lockfile-only");
+    resolve();
   }
   const scratchLock = readLock();
   const unvetted = nonRegistryPackages(scratchLock, { manifest, dir, tarballs });

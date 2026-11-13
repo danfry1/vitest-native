@@ -163,6 +163,27 @@ describe("scratch-install", () => {
     expect(calls.some((call) => call.includes("--frozen-lockfile"))).toBe(false);
   });
 
+  it("resolves each round afresh, as bun keeps a locked version over a new override", async () => {
+    const dir = scratch({ "react-native": "0.86.3", react: "19.2.8" });
+    // bun with a lock in place keeps the vite it locked (8.3.7), whatever the override now
+    // says; only a resolution without a lock applies the override.
+    const { exec, calls } = fakeBun((overrides) => {
+      const kept = fs.existsSync(path.join(dir, "bun.lock"));
+      return scratchResolution(kept ? {} : overrides);
+    });
+    const result = await scratchInstall(dir, {
+      exec,
+      satisfies,
+      publishTime: () => NOW - 30 * DAY,
+      now: NOW,
+      repoLockText: REPO_LOCK,
+      log() {},
+    });
+    expect(result.overrides).toEqual({ vite: "8.3.5" });
+    expect(fs.readFileSync(path.join(dir, "bun.lock"), "utf8")).toContain('"vite@8.3.5"');
+    expect(calls.at(-1)).toContain("--frozen-lockfile");
+  });
+
   it("runs every bun call with the cooldown and without install scripts", async () => {
     const dir = scratch({ "react-native": "0.86.3", react: "19.2.8" });
     const { exec, calls } = fakeBun(scratchResolution);
