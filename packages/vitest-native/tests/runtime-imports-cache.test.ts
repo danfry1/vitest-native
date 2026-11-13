@@ -217,3 +217,113 @@ describe("detection of a library that imports react-native without declaring it 
     expect(detect(root, cacheFile)).not.toContain("quiet-rn");
   });
 });
+
+describe("a package with only subpath exports (#763)", () => {
+  // @legendapp/list@3.3.3's exports map, trimmed to three of its seven subpaths: no
+  // root entry, a web/native split under ./react-native, and ./react for the web.
+  const conditional = (base: string) => ({
+    types: `./${base}.d.ts`,
+    import: `./${base}.mjs`,
+    require: `./${base}.js`,
+    default: `./${base}.js`,
+  });
+  const legendList = {
+    "./react-native": {
+      types: "./react-native.d.ts",
+      browser: conditional("react-native.web"),
+      "react-native": conditional("react-native"),
+      import: "./react-native.web.mjs",
+      require: "./react-native.web.js",
+      default: "./react-native.web.js",
+    },
+    "./react": conditional("react"),
+    "./keyboard": conditional("keyboard"),
+  };
+
+  /** An app declaring `name` (installed with `exports`), whose src/app.tsx is `source`. */
+  function app(name: string, exports: Record<string, unknown>, source: string): string {
+    const root = tmp();
+    write(
+      path.join(root, "package.json"),
+      JSON.stringify({ name: "app", dependencies: { [name]: "1.0.0" } }),
+    );
+    const dir = path.join(root, "node_modules", ...name.split("/"));
+    write(path.join(dir, "package.json"), JSON.stringify({ name, version: "1.0.0", exports }));
+    write(path.join(dir, "react-native.js"), 'require("react");');
+    write(path.join(root, "src", "app.tsx"), source);
+    install(root, "react-native", "", "0.86.3");
+    return root;
+  }
+  const detect = (root: string) =>
+    detectEcosystemPackages(root, [], [], [], [], undefined, {
+      undeclaredReactNative: { cacheFile: null },
+    });
+
+  it("counts when the project imports its ./react-native subpath", () => {
+    const root = app(
+      "@legendapp/list",
+      legendList,
+      'import { LegendList } from "@legendapp/list/react-native";',
+    );
+    expect(detect(root)).toContain("@legendapp/list");
+  });
+
+  it("does not count when the project imports only its other subpaths", () => {
+    const root = app(
+      "@legendapp/list",
+      legendList,
+      'import { LegendList } from "@legendapp/list/react";\nimport "@legendapp/list/keyboard";',
+    );
+    expect(detect(root)).not.toContain("@legendapp/list");
+  });
+
+  it("does not count a package whose only entry is ./react", () => {
+    const root = app("web-list", { "./react": conditional("react") }, 'import "web-list/react";');
+    expect(detect(root)).not.toContain("web-list");
+  });
+
+  it("counts a literal ./react-native subpath with no conditions", () => {
+    const root = app(
+      "plain-split",
+      { "./react-native": "./react-native.js", "./react": "./react.js" },
+      'import "plain-split/react-native";',
+    );
+    expect(detect(root)).toContain("plain-split");
+  });
+
+  it("counts a subpath of any name that carries a react-native condition", () => {
+    const root = app(
+      "split-lib",
+      { "./native": { "react-native": "./react-native.js", default: "./web.js" } },
+      'const lib = require("split-lib/native");',
+    );
+    expect(detect(root)).toContain("split-lib");
+  });
+
+  it("ignores the subpath named only in a comment or a type-only import", () => {
+    const root = app(
+      "@legendapp/list",
+      legendList,
+      '// from "@legendapp/list/react-native"\nimport type { X } from "@legendapp/list/react-native";',
+    );
+    expect(detect(root)).not.toContain("@legendapp/list");
+  });
+
+  it("leaves the rule to packages with no root export", () => {
+    const root = app(
+      "rooted",
+      { ".": "./react-native.js", "./react-native": "./react-native.js" },
+      'import "rooted/react-native";',
+    );
+    expect(detect(root)).not.toContain("rooted");
+  });
+
+  it("does not read node_modules for the project's imports", () => {
+    const root = app("@legendapp/list", legendList, "export {};");
+    write(
+      path.join(root, "node_modules", "other", "index.js"),
+      'require("@legendapp/list/react-native");',
+    );
+    expect(detect(root)).not.toContain("@legendapp/list");
+  });
+});
