@@ -19,9 +19,7 @@ describe("the README lockup", () => {
     expect(top).toContain(
       `<source media="(prefers-color-scheme: dark)" srcset="${RAW}website/public/lockup-dark.svg">`,
     );
-    expect(top).toMatch(
-      new RegExp(`<img src="${RAW}website/public/lockup\\.svg" alt="vitest-native" `),
-    );
+    expect(top).toContain(`<img src="${RAW}website/public/lockup.svg" alt="vitest-native" `);
     // The badges stay below the heading.
     expect(text.indexOf("img.shields.io")).toBeGreaterThan(text.indexOf("</h1>"));
   });
