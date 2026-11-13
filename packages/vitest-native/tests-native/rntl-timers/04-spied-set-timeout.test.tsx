@@ -25,7 +25,9 @@ test("userEvent presses with a spied setTimeout", async () => {
 
 test("findBy* counts its timeout in fake time with a spied setTimeout, as under Jest", async () => {
   vi.spyOn(globalThis, "setTimeout");
-  await render(<Delayed ms={100} />);
+  // Far beyond the 1000 ms timeout in real time, so "ready" cannot appear first on a slow
+  // runner: a 100 ms delay raced findBy on macOS CI and once won.
+  await render(<Delayed ms={5000} />);
   const start = vi.getRealSystemTime();
   // Settles, and well before the default 1000 ms timeout passes in real time.
   await expect(screen.findByText("ready")).rejects.toThrow("Unable to find");
