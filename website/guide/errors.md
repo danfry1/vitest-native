@@ -1,6 +1,8 @@
 # Error Codes
 
-Errors vitest-native raises start with `[vitest-native]`, and most carry a `code`. The message says what went wrong and how to fix it; this page adds the common causes. Search for the start of the message, or, in your own `try`/`catch`, read `error.code`. (Vitest's reporter shows the message but not the code.)
+Errors vitest-native raises start with `[vitest-native]`, and most carry a `code`. The message says what went wrong and how to fix it; this page adds the common causes. Paste the message below to find its entry, or, in your own `try`/`catch`, read `error.code`. (Vitest's reporter shows the message but not the code.)
+
+<ErrorFinder />
 
 ## Configuration
 
@@ -58,7 +60,7 @@ With `metroConfig` on, the loaded Metro config has no usable `resolver.sourceExt
 
 ### `CONTEXT_INVALID` {#CONTEXT_INVALID}
 
-A test worker could not read the configuration the plugin writes for it: missing, from another vitest-native version, changed after it was written, or malformed. It also fires when one Vitest project is handed another project's settings: give each Vitest project its own `root`. Otherwise re-run Vitest, and if it persists, delete the directory the message names. See [troubleshooting](/guide/troubleshooting#context-invalid-at-startup).
+A test worker could not read the configuration the plugin writes for it. The plugin writes one description of each Vitest project, its _project context_, to `node_modules/.cache/vitest-native/contexts/` (or the system temp directory when that cannot be written), and every worker reads its configuration from that file. The worker found it missing, from another vitest-native version, changed after it was written, or with a field of the wrong shape; the message names the reason, the field and the directory. A worker started without the plugin's configuration reports it too. It also fires when one Vitest project is handed another project's settings: give each Vitest project its own `root`. Otherwise re-run Vitest, and if it persists, delete the directory the message names.
 
 ## Loading your code
 
