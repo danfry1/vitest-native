@@ -53,6 +53,10 @@ import {
 } from "./manifest.js";
 import { STAR, tryExpand } from "./regex-subset.js";
 import { untranspiledFile } from "./untranspiled.js";
+import { REACT_DEDUPE } from "../native/react-dedupe.mjs";
+
+/** The engine's own dedupe list, as config source. */
+const DEDUPE_SOURCE = REACT_DEDUPE.map((name) => `'${name}'`).join(", ");
 
 export { extractAllowlistPackages } from "./allowlist.js";
 
@@ -1167,7 +1171,7 @@ ${needsUrlImport ? "import { fileURLToPath } from 'node:url'\n" : ""}${extraImpo
 export default defineConfig({
   plugins: [${[transformLine, ...extraPlugins, transformCall].join(", ")}],
   resolve: {
-    dedupe: ['react', 'react-test-renderer', 'react-is'],
+    dedupe: [${DEDUPE_SOURCE}],
     alias: ${aliasSource},
   },
   test: {

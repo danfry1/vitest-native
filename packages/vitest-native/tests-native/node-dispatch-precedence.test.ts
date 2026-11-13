@@ -47,9 +47,12 @@ describe("Node dispatch precedence, from an installed package", () => {
         "registry",
       ]);
       // The hot runtime's tracker, when installed, records what every other step settled on.
+      // The React dedupe sits above the hooks, so it sees the answer they settle on.
       const resolveNames: string[] = nodeDispatch().resolve.names;
       expect(resolveNames).toEqual(
-        resolveNames.includes("tracker") ? ["tracker", "hooks", "recovery"] : ["hooks", "recovery"],
+        resolveNames.includes("tracker")
+          ? ["tracker", "dedupe", "hooks", "recovery"]
+          : ["dedupe", "hooks", "recovery"],
       );
     },
   );

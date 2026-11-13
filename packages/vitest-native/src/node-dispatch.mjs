@@ -37,6 +37,8 @@ export const LOAD_STEPS = Object.freeze({
 export const RESOLVE_STEPS = Object.freeze({
   /** The hot runtime's record of each resolution, for its per-file reset (module-reset.mjs). */
   tracker: 10,
+  /** One React for both module systems: Vite's dedupe list, from the renderer's anchor (native/react-dedupe.mjs). */
+  dedupe: 15,
   /** Metro platform resolution, aliases and the resolution memo (native/hooks.mjs). */
   hooks: 20,
   /** A missing `react-native` export target, resolved without it (export-condition-recovery.mjs). */

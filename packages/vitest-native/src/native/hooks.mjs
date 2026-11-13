@@ -44,6 +44,7 @@ import {
 } from "./shared-resolver.mjs";
 import { libraryExtensionsFor } from "./jest-resolvers.mjs";
 import { rootSpellings, under } from "./root-spelling.mjs";
+import { installReactDedupe } from "./react-dedupe.mjs";
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -651,6 +652,7 @@ export function installRequireHooks(
           options.paths.length === parent.paths.length &&
           options.paths.every((entry, i) => entry === parent.paths[i])),
     );
+  installReactDedupe(projectRoot);
   nodeDispatch().resolve.add(
     "hooks",
     (next) =>

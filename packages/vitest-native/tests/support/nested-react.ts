@@ -11,6 +11,11 @@ export interface NestedReactLayout {
   rnReact?: boolean;
   /** React Native Testing Library nests its own React (`copy: "rntl"`). */
   rntlReact?: boolean;
+  /**
+   * `react-shim-lib`, a library that is not shadowed and exports the React it requires,
+   * with its own nested copy (`copy: "lib"`), as a React shim with React as a dependency.
+   */
+  libReact?: boolean;
 }
 
 function pkg(dir: string, name: string, copy?: string) {
@@ -46,6 +51,12 @@ export function nestedReactProjects() {
         const rntl = path.join(modules, "@testing-library/react-native");
         pkg(rntl, "@testing-library/react-native");
         pkg(path.join(rntl, "node_modules/react"), "react", "rntl");
+      }
+      if (layout.libReact) {
+        const lib = path.join(modules, "react-shim-lib");
+        pkg(lib, "react-shim-lib");
+        fs.writeFileSync(path.join(lib, "index.js"), 'module.exports = require("react");');
+        pkg(path.join(lib, "node_modules/react"), "react", "lib");
       }
       return root;
     },
