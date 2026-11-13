@@ -4,10 +4,20 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const PACKAGE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../packages/vitest-native')
-const FIDELITY = path.resolve(PACKAGE, '../../website/guide/fidelity.md')
-const EXHIBITS = path.join(PACKAGE, 'validation/bug-museum/exhibits.json')
-const RN_TESTS = path.join(PACKAGE, 'tests/rn-conformance')
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+
+/**
+ * The files the cards read, from the repository's root. They are data, not imports, so the
+ * site's deploy triggers (tests/site-inputs.test.ts) and the dev server's reloads
+ * (proof.data.ts) both take them from here.
+ */
+export const PROOF_INPUTS = {
+  fidelity: 'website/guide/fidelity.md',
+  exhibits: 'packages/vitest-native/validation/bug-museum/exhibits.json',
+  portedTests: 'packages/vitest-native/tests/rn-conformance',
+} as const
+
+const at = (input: string) => path.join(REPO, input)
 
 export interface CrossCheck {
   probesMatching: number
@@ -20,7 +30,7 @@ export interface CrossCheck {
 }
 
 /** The summary of the generated fidelity report (`bun run fidelity:report`). */
-export function crossCheck(report: string = fs.readFileSync(FIDELITY, 'utf8')): CrossCheck {
+export function crossCheck(report: string = fs.readFileSync(at(PROOF_INPUTS.fidelity), 'utf8')): CrossCheck {
   const probes = /\*\*(\d+) \/ (\d+) probes\*\* match between the mock engine and real React Native/.exec(report)
   const range = /across \*\*React Native (\d+\.\d+–\d+\.\d+)\*\*/.exec(report)
   const reach = /reaches (\d+) of (\d+) mocked APIs and (\d+) of (\d+) mocked components/.exec(report)
@@ -37,22 +47,26 @@ export function crossCheck(report: string = fs.readFileSync(FIDELITY, 'utf8')): 
 }
 
 export interface Museum {
-  exhibits: number
+  /** Exhibits with a measured verdict, as STATUS.md counts them. */
+  measured: number
   /** Fails on a build that has the bug and passes on one without it (fix, guard or landed). */
   proven: number
-  /** Open bugs: fail on main as their bug, and pass with its precondition removed. */
+  /** Open bugs: fail on main as their bug, and pass with the bug's precondition removed. */
   open: number
 }
 
-const PROVEN = new Set(['landed proven', 'guard proven', 'fix proven'])
+// status.mjs writes `fix proven (bug on buggyRef)` too, and counts by this prefix.
+const PROVEN = /^(fix proven|guard proven|landed proven)/
 
 export function museum(
-  file: { exhibits: { status?: { proof?: string } }[] } = JSON.parse(fs.readFileSync(EXHIBITS, 'utf8')),
+  file: { exhibits: { status?: { proof?: string } }[] } = JSON.parse(
+    fs.readFileSync(at(PROOF_INPUTS.exhibits), 'utf8'),
+  ),
 ): Museum {
-  const proofs = file.exhibits.map((exhibit) => exhibit.status?.proof)
+  const proofs = file.exhibits.flatMap((exhibit) => exhibit.status?.proof ?? [])
   return {
-    exhibits: proofs.length,
-    proven: proofs.filter((proof) => proof !== undefined && PROVEN.has(proof)).length,
+    measured: proofs.length,
+    proven: proofs.filter((proof) => PROVEN.test(proof)).length,
     open: proofs.filter((proof) => proof === 'open (control passes)').length,
   }
 }
@@ -63,21 +77,19 @@ export interface PortedTests {
   areas: string[]
 }
 
-/** Tests are `it(...)` / `it.skip(...)` calls, one per line, in tests/rn-conformance. */
-export function portedTests(dir: string = RN_TESTS): PortedTests {
-  const files = fs.readdirSync(dir).filter((file) => /^rn-.+\.test\.tsx?$/.test(file))
+/**
+ * The ported tests: Vitest's own count, recorded in counts.json beside them (a loop can
+ * declare several tests, so the files cannot be counted by reading them), and their areas
+ * from the file names.
+ */
+export function portedTests(dir: string = at(PROOF_INPUTS.portedTests)): PortedTests {
+  const { tests, skipped } = JSON.parse(fs.readFileSync(path.join(dir, 'counts.json'), 'utf8'))
+  const areas = fs
+    .readdirSync(dir)
+    .filter((file) => /^rn-.+\.test\.tsx?$/.test(file))
+    .map((file) => file.replace(/^rn-|\.test\.tsx?$/g, ''))
     .sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
-  let tests = 0
-  let skipped = 0
-  for (const file of files) {
-    for (const line of fs.readFileSync(path.join(dir, file), 'utf8').split('\n')) {
-      const call = /^\s*(?:it|test)(\.skip)?\(/.exec(line)
-      if (!call) continue
-      tests++
-      if (call[1]) skipped++
-    }
-  }
-  return { tests, skipped, areas: files.map((file) => file.replace(/^rn-|\.test\.tsx?$/g, '')) }
+  return { tests, skipped, areas }
 }
 
 export function proof() {

@@ -16,15 +16,17 @@ function list(items: string[]): string {
 
 <template>
   <div class="proof">
+    <!-- Each card's heading comes first in reading order; the number is shown above it. -->
     <article class="card">
+      <h3 class="title">The mock engine against real React Native</h3>
       <p class="figure">
         <span class="number">{{ crossCheck.probesMatching }}&thinsp;/&thinsp;{{ crossCheck.probes }}</span>
         <span class="unit">probes agree</span>
       </p>
-      <h3 class="title">The mock engine against real React Native</h3>
       <p class="text">
-        Each probe runs the same assertions under the mock engine and under React Native
-        {{ crossCheck.reactNative }}, and a difference fails CI. They reach
+        The default engine runs React Native itself. The opt-in mock engine reimplements it, so
+        each probe runs the same assertions under both, on React Native
+        {{ crossCheck.reactNative }} in CI, and a difference fails the build. The probes reach
         {{ crossCheck.apisReached }} of {{ crossCheck.apis }} mocked APIs and
         {{ crossCheck.componentsReached }} of {{ crossCheck.components }} mocked components;
         the rest are not measured.
@@ -33,38 +35,39 @@ function list(items: string[]): string {
     </article>
 
     <article class="card">
-      <p class="figure">
-        <span class="number">{{ museum.exhibits }}</span>
-        <span class="unit">bugs, each a runnable test</span>
-      </p>
       <h3 class="title">The bug museum</h3>
+      <p class="figure">
+        <span class="number">{{ museum.proven }}</span>
+        <span class="unit">bugs, each proven by its test</span>
+      </p>
       <p class="text">
-        Each exhibit is a small project that reproduces a real bug. {{ museum.proven }} are
-        proven: they fail on a build that has the bug and pass on one without it.
-        {{ museum.open }} are open bugs, shown failing; the rest are not yet proven.
+        Each exhibit is a small project that reproduces a real bug. Of {{ museum.measured }}
+        measured, {{ museum.proven }} fail on a build that has the bug and pass on one without
+        it. {{ museum.open }} are open bugs: they fail on main today and pass once the bug's
+        precondition is removed.
       </p>
       <a class="check" :href="`${BLOB}/validation/bug-museum/STATUS.md`">Status of every exhibit</a>
     </article>
 
     <article class="card">
+      <h3 class="title">React Native's tests, ported</h3>
       <p class="figure">
         <span class="number">{{ ported.tests }}</span>
-        <span class="unit">tests from React Native's own suite</span>
+        <span class="unit">tests, on the mock engine</span>
       </p>
-      <h3 class="title">React Native's tests, ported</h3>
       <p class="text">
-        Ported from React Native's {{ list(ported.areas) }} tests and run against the mock
-        engine; {{ ported.skipped }} are skipped.
+        Ported from React Native's own {{ list(ported.areas) }} tests and run against the
+        mock engine; {{ ported.skipped }} are skipped.
       </p>
       <a class="check" :href="`${TREE}/tests/rn-conformance`">The ported tests</a>
     </article>
 
     <article class="card yours">
+      <h3 class="title">Your suite, not ours</h3>
       <p class="figure">
         <code class="number command">compare</code>
         <span class="unit">on your own suite</span>
       </p>
-      <h3 class="title">Your suite, not ours</h3>
       <p class="text">
         <code>npx vitest-native compare</code> runs your Jest and your Vitest and lists every test
         that passes under Jest and not under Vitest.
@@ -99,6 +102,7 @@ function list(items: string[]): string {
   border-color: var(--vp-c-brand-1);
 }
 .figure {
+  order: -1;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
