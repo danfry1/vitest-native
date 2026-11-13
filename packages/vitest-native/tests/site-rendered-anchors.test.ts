@@ -49,6 +49,22 @@ async function render(options: typeof config.markdown): Promise<Rendered[]> {
   );
 }
 
+/** The theme's components, whose links VitePress neither rewrites nor checks. */
+function components(dir = path.join(SITE, ".vitepress/theme")): string[] {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) return components(file);
+    return /\.(vue|ts)$/.test(entry.name) ? [file] : [];
+  });
+}
+
+/**
+ * The site links a component writes as a literal: `withBase('/guide/engines#x')` or
+ * `href="/guide/engines"`. A link built at run time (`withBase(entry.link)`) is checked
+ * where its data comes from.
+ */
+const COMPONENT_LINK = /withBase\(\s*['"`](\/[^'"`$]*)['"`]\s*\)|\shref="(\/[^"]*)"/g;
+
 const ids = (html: string) => new Set([...html.matchAll(/\sid="([^"]+)"/g)].map(([, id]) => id));
 const headingIds = (html: string) =>
   [...html.matchAll(/<h[1-6][^>]*\sid="([^"]+)"/g)].map(([, id]) => id);
@@ -81,6 +97,26 @@ describe("the site as VitePress renders it", () => {
     ).toBeGreaterThan(5);
     const broken = links.filter(({ target, hash }) => !byRoute.get(target)?.has(hash));
     expect(broken.map(({ from, target, hash }) => `${from} → ${target}#${hash}`)).toEqual([]);
+  });
+
+  it("links every page and fragment a component names", () => {
+    const byRoute = new Map(site.map(({ page, html }) => [route(page), ids(html)]));
+    const links = components().flatMap((file) =>
+      [...fs.readFileSync(file, "utf8").matchAll(COMPONENT_LINK)].map(([, base, href]) => {
+        const [target, hash] = (base ?? href).split("#");
+        return { from: path.relative(SITE, file), target, hash };
+      }),
+    );
+    // The landing page's calls to action and the boundary diagram's link (4 when written).
+    expect(links.length).toBeGreaterThanOrEqual(4);
+    // The link is used as written: no slugifier sits between it and the id.
+    const broken = links.filter(
+      ({ target, hash }) =>
+        !byRoute.has(target) || (hash !== undefined && !byRoute.get(target)!.has(hash)),
+    );
+    expect(
+      broken.map(({ from, target, hash }) => `${from} → ${target}${hash ? `#${hash}` : ""}`),
+    ).toEqual([]);
   });
 
   it("gives every heading the id VitePress's own slugifier does", async () => {
