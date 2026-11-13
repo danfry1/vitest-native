@@ -16,6 +16,15 @@ export interface ErrorEntry {
   group: string
   /** The entry's text, without Markdown. */
   text: string
+  /** The message shapes the entry quotes, with `<placeholders>`: `"<option>" must be …`. */
+  patterns: string[]
+}
+
+/** Inline code that quotes a message: words, and a `<placeholder>` for what varies. */
+function patterns(markdown: string): string[] {
+  return [...markdown.matchAll(/`([^`\n]*<[a-z][a-z-]*>[^`\n]*)`/g)]
+    .map(([, span]) => span)
+    .filter((span) => /\s/.test(span))
 }
 
 /**
@@ -33,8 +42,9 @@ export function plain(markdown: string): string {
       .replace(/`([^`\n]+)`/g, (_, code: string) => `${spans.push(code) - 1}`)
       .replace(/^Next: .*$/gm, '')
       .replace(/^\s*:::.*$/gm, '')
+      .replace(/<(https?:\/\/[^\s<>]+)>/g, '$1')
       .replace(/<\/?[A-Za-z][^<>]*>/g, ' ')
-      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/!?\[([^\]]*)\]\((?:[^()]|\([^()]*\))*\)/g, '$1')
       .replace(/\s*\{#[^}]+\}/g, '')
       .replace(/\*\*|(^|\W)__(?=\w)|(?<=\w)__(?=\W|$)/g, '$1')
       .replace(/(^|[\s(])[_*]([^_*\s][^_*]*)[_*](?=[\s.,;:)]|$)/g, '$1$2')
@@ -77,6 +87,9 @@ function entries(markdown: string, level: '##' | '###') {
   return found
 }
 
+/** A troubleshooting entry that only sends the reader to an error code's entry. */
+export const POINTER = /^See \[`([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)`\]\(\/guide\/errors#\1\)[^\n]*$/
+
 export function errorIndex(
   errorsPage: string = fs.readFileSync(path.join(GUIDE, 'errors.md'), 'utf8'),
   troubleshootingPage: string = fs.readFileSync(path.join(GUIDE, 'troubleshooting.md'), 'utf8'),
@@ -87,17 +100,19 @@ export function errorIndex(
     kind: 'Error code' as const,
     group,
     text: plain(body.join('\n')),
+    patterns: patterns(body.join('\n')),
   }))
   const symptoms = entries(troubleshootingPage, '##')
-    // The page's closing entry points elsewhere, and one that only links an error code is
-    // found through that code.
-    .filter(({ id, body }) => id !== 'still-stuck' && !/^\s*See \[`[A-Z_]+`\]\(\/guide\/errors#/.test(body.join('\n')))
+    // The page's closing entry points elsewhere, and one that only links an error code (one
+    // paragraph that starts with the link) is found through that code.
+    .filter(({ id, body }) => id !== 'still-stuck' && !POINTER.test(body.join('\n').trim()))
     .map(({ heading, id, body }) => ({
       title: plain(heading),
       link: `/guide/troubleshooting#${id}`,
       kind: 'Troubleshooting' as const,
       group: '',
       text: plain(body.join('\n')),
+      patterns: patterns(body.join('\n')),
     }))
   return [...codes, ...symptoms]
 }

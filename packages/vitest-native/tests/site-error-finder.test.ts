@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseSync } from "vite";
 import { describe, expect, it } from "vitest";
-import { errorIndex, plain } from "../../../website/.vitepress/error-index.ts";
+import { POINTER, errorIndex, plain } from "../../../website/.vitepress/error-index.ts";
 import { findErrors, queryWords, searchable } from "../../../website/.vitepress/error-search.ts";
 
 // The "find your error" box on the errors and troubleshooting pages searches an index read
@@ -14,8 +15,6 @@ const ERRORS = path.join(repoRoot, "website/guide/errors.md");
 const TROUBLESHOOTING = path.join(repoRoot, "website/guide/troubleshooting.md");
 const FINDER = path.join(repoRoot, "website/.vitepress/theme/components/ErrorFinder.vue");
 const CODE = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;
-// An entry that only sends the reader to an error code's entry.
-const POINTER = /^See \[`([A-Z][A-Z0-9_]+)`\]\(\/guide\/errors#\1\)/;
 
 /** A page's headings at one level, with the paragraph after each. */
 function sections(file: string, level: string) {
@@ -70,6 +69,18 @@ describe("the error finder's index", () => {
     expect(sections(TROUBLESHOOTING, "##").map(({ id }) => id)).toContain("still-stuck");
   });
 
+  it("keeps an entry that goes on after pointing to an error code", () => {
+    const page = (body: string) =>
+      errorIndex(
+        "# Errors\n\n## Setup\n\n### `SOME_CODE` {#SOME_CODE}\n\nText.",
+        `## Symptom {#symptom}\n\n${body}`,
+      );
+    expect(page("See [`SOME_CODE`](/guide/errors#SOME_CODE) in the error codes.")).toHaveLength(1);
+    expect(
+      page("See [`SOME_CODE`](/guide/errors#SOME_CODE).\n\nAlso, when it runs twice, do this."),
+    ).toHaveLength(2);
+  });
+
   it("stops the build on an entry without an id", () => {
     expect(() => errorIndex("# Errors\n\n## Setup\n\n### `SOME_CODE`\n\nText.", "")).toThrow(
       /has no \{#id\}/,
@@ -83,6 +94,9 @@ describe("the error finder's index", () => {
           "- a <b>list</b> item\n\n```ts\n# not a heading\n```\n\nNext: [Troubleshooting](/t).",
       ),
     ).toBe("See findBy* and this B_CODE, __mocks__ and Array<string>. a list item");
+    expect(plain("At <https://example.com/a> and [docs](/a(b)c) here.")).toBe(
+      "At https://example.com/a and docs here.",
+    );
   });
 });
 
@@ -98,9 +112,22 @@ describe("the error finder's search", () => {
 
   it("puts an entry whose heading the message quotes first, and keeps the others", () => {
     const quoted = entry('"Cannot find module" after a rebuild', "the cache keeps a missing file");
-    const other = entry("A missing module", "cannot find module packages that are not installed");
-    const results = findErrors([other, quoted], "Error: Cannot find module 'react-native-foo'");
-    expect(results).toEqual([quoted, other]);
+    // Shares more of the message's words, so it would rank first on words alone.
+    const other = entry("Bundling through the resolver", "the worker bundling cache resolver");
+    const message =
+      "Error: Cannot find module 'x' while bundling the worker cache through the resolver";
+    expect(findErrors([other, quoted], message)).toEqual([quoted, other]);
+  });
+
+  it("puts an entry that quotes the message's shape first", () => {
+    const shaped = {
+      ...entry("INVALID_OPTION", 'The message reads "<option>" must be ….'),
+      patterns: ['"<option>" must be …'],
+    };
+    const other = entry("Background registry builds", "the registry build waits in the background");
+    const message = '[vitest-native] "registryBuild" must be "background" or "wait".';
+    expect(findErrors([other, shaped], message)[0]).toBe(shaped);
+    expect(findErrors([shaped], "registryBuild is set")).toEqual([]);
   });
 
   it("matches a plural to its singular, both ways", () => {
@@ -136,6 +163,8 @@ describe("the error finder's search", () => {
         "[vitest-native] the test in /Users/me/app/src/a.test.ts: vitest 4.1.0 500ms already",
       ),
     ).toEqual(["already"]);
+    // A plural of a common word is as common.
+    expect(queryWords("warnings uses runs")).toEqual([]);
     expect(searchable("Th")).toBe(false);
     expect(searchable("UNSUPP_")).toBe(true);
   });
@@ -154,29 +183,73 @@ describe("the error finder's search", () => {
 });
 
 describe("the error finder on the messages vitest-native throws", () => {
-  // Every `new VitestNativeError("CODE", "message")` in the source whose message is a string,
-  // with each `${…}` as a word the pages cannot contain. A message rarely carries its code,
-  // so this is what a reader pastes.
+  // Every `new VitestNativeError("CODE", message)` in the source, read from its syntax tree:
+  // the message's strings, templates and `+` joins as written, and anything computed (a
+  // `${…}`, a variable) as a word the pages cannot contain. A message rarely carries its
+  // code, so this is what a reader pastes.
+  type Node = { type: string; [key: string]: unknown };
+  function textOf(node: Node | undefined): string {
+    if (!node) return "Placeholder";
+    if (node.type === "Literal" && typeof node.value === "string") return node.value;
+    if (node.type === "TemplateLiteral") {
+      const quasis = node.quasis as { value: { cooked: string } }[];
+      return quasis.map((quasi) => quasi.value.cooked).join("Placeholder");
+    }
+    if (node.type === "BinaryExpression" && node.operator === "+") {
+      return textOf(node.left as Node) + textOf(node.right as Node);
+    }
+    if (node.type === "ParenthesizedExpression") return textOf(node.expression as Node);
+    return "Placeholder";
+  }
   function thrown(): { code: string; message: string }[] {
+    const found: { code: string; message: string }[] = [];
+    const visit = (value: unknown): void => {
+      if (Array.isArray(value)) return value.forEach(visit);
+      if (!value || typeof value !== "object") return;
+      const node = value as Node;
+      const callee = node.callee as Node | undefined;
+      const [code, text] = (node.arguments ?? []) as Node[];
+      if (
+        (node.type === "NewExpression" || node.type === "CallExpression") &&
+        callee?.type === "Identifier" &&
+        /^VitestNative(?:Type)?Error$/.test(callee.name as string) &&
+        code?.type === "Literal" &&
+        typeof code.value === "string"
+      ) {
+        found.push({ code: code.value, message: `[vitest-native] ${textOf(text)}` });
+      }
+      for (const child of Object.values(node)) visit(child);
+    };
     const files = fs
       .readdirSync(SRC, { recursive: true, encoding: "utf8" })
       .filter((file) => /\.(m?ts|mjs)$/.test(file) && !/\.d\.m?ts$/.test(file));
-    return files.flatMap((file) =>
-      [
-        ...fs
-          .readFileSync(path.join(SRC, file), "utf8")
-          .matchAll(
-            /VitestNative(?:Type)?Error\(\s*"([A-Z][A-Z0-9_]+)",\s*(`[^`]*`|"(?:[^"\\]|\\.)*")/g,
-          ),
-      ].map(([, code, literal]) => ({
-        code,
-        message: `[vitest-native] ${literal
-          .slice(1, -1)
-          .replace(/\$\{[^}]*\}/g, "Placeholder")
-          .replace(/\\n/g, " ")}`,
-      })),
-    );
+    for (const file of files) {
+      const { program, errors } = parseSync(file, fs.readFileSync(path.join(SRC, file), "utf8"));
+      expect(errors, file).toEqual([]);
+      visit(program);
+    }
+    return found;
   }
+
+  it("reads each message whole", () => {
+    const messages = thrown();
+    // The helper that builds every CONTEXT_INVALID message, a template with a nested template.
+    expect(messages).toContainEqual({
+      code: "CONTEXT_INVALID",
+      message: expect.stringMatching(
+        /the project context is invalid \((?:Placeholder)+\)\. Placeholder The plugin writes it/,
+      ),
+    });
+    // No message keeps source syntax: a template is read whole, nested templates included.
+    expect(messages.filter(({ message: text }) => /\$\{|`\s*\+|\+\s*`/.test(text))).toEqual([]);
+    // Strings joined with `+` are read to the end.
+    expect(messages).toContainEqual({
+      code: "INVALID_OPTION",
+      message: expect.stringMatching(
+        /default-exports an async function\. The plugin reads the preset synchronously; put async work in the preset's prepare\(\)/,
+      ),
+    });
+  });
 
   it("ranks the message's own code first for most of them", () => {
     const index = errorIndex();
@@ -186,6 +259,6 @@ describe("the error finder on the messages vitest-native throws", () => {
       ({ code, message }) => findErrors(index, message)[0]?.link === `/guide/errors#${code}`,
     );
     // A floor, not a target: raise it when the pages or the search find more.
-    expect(first.length / messages.length).toBeGreaterThan(0.65);
+    expect(first.length / messages.length).toBeGreaterThan(0.75);
   });
 });

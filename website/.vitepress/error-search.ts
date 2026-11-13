@@ -2,13 +2,16 @@
 // reporter drops it), so entries are found by the words they share with the message:
 //
 //   1. a code in the text, or the start of one, finds its entry first;
-//   2. an entry whose heading the message quotes comes next;
+//   2. an entry whose heading the message quotes, or that quotes the message's shape
+//      (`"<option>" must be …`), comes next;
 //   3. the rest rank by the words they share, a rare word counting for more than a common one,
 //      and a word in the heading twice.
 
 export interface Searchable {
   title: string
   text: string
+  /** Message shapes the entry quotes, with `<placeholders>`: `"<option>" must be …`. */
+  patterns?: string[]
 }
 
 const CODE = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g
@@ -44,8 +47,10 @@ function tokens(text: string): string[] {
 export function queryWords(query: string): string[] {
   // A path names the reader's project, not the error.
   const words = tokens(query.replace(/(?:[A-Za-z]:)?(?:[\\/][\w.@-]+){2,}/g, ' '))
-    .filter((word) => word.length >= 3 && !/\d/.test(word) && !COMMON.has(word))
+    .filter((word) => word.length >= 3 && !/\d/.test(word))
     .map(singular)
+    // After the plural is dropped, so `warnings` is as common as `warning`.
+    .filter((word) => !COMMON.has(word))
   return [...new Set(words)]
 }
 
@@ -67,11 +72,18 @@ function phrases(title: string): string[] {
     .filter((part) => part.split(/\s+/).length >= 2)
 }
 
+/** A message shape as a pattern: a `<placeholder>` is any text, `…` the rest of it. */
+function shape(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(escaped.replace(/<[a-z][a-z-]*>/g, '.+?').replace(/\s*…\s*/g, '.*'), 'i')
+}
+
 interface Prepared<T> {
   entry: T
   words: Set<string>
   titleWords: Set<string>
   phrases: string[]
+  shapes: RegExp[]
 }
 
 // Each index is read into words once, not on every keystroke.
@@ -85,6 +97,7 @@ function prepare<T extends Searchable>(index: T[]): Prepared<T>[] {
       words: new Set(tokens(`${entry.title} ${entry.text}`).map(singular)),
       titleWords: new Set(tokens(entry.title).map(singular)),
       phrases: phrases(entry.title),
+      shapes: (entry.patterns ?? []).map(shape),
     }))
     prepared.set(index, entries)
   }
@@ -115,14 +128,16 @@ export function findErrors<T extends Searchable>(index: T[], query: string, limi
 
   const scored = entries
     .filter(({ entry }) => !byCode.includes(entry))
-    .map(({ entry, words: own, titleWords, phrases: quotable }) => {
+    .map(({ entry, words: own, titleWords, phrases: quotable, shapes }) => {
       const found = known.filter((word) => own.has(word))
       const score = found.reduce(
         (sum, word) => sum + weight.get(word)! * (titleWords.has(word) ? 2 : 1),
         0,
       )
       const share = found.reduce((sum, word) => sum + weight.get(word)!, 0) / total
-      const quoted = quotable.some((phrase) => lowered.includes(phrase))
+      // The message quotes the heading, or has a shape the entry quotes.
+      const quoted =
+        quotable.some((phrase) => lowered.includes(phrase)) || shapes.some((re) => re.test(query))
       return { entry, found: found.length, share, quoted, score }
     })
     // A word or two must all be found. A longer text needs a quoted heading, or two of its

@@ -12,7 +12,16 @@ import ErrorFinder from '../.vitepress/theme/components/ErrorFinder.vue'
 
 ### `INVALID_OPTION` {#INVALID_OPTION}
 
-An option has the wrong type or value, and the message reads `"<option>" must be …`: a boolean, a string, an array of non-empty strings, a non-negative integer, or one of the values it lists. It also covers a preset factory passed without calling it (`presets.reanimated` instead of `presets.reanimated()`), a hand-built or copied preset object, a function inside [`mocks`](/guide/plugin-options#mocks), or a `hotRuntime.mode` other than `'auto'` (or `mode: 'auto'` combined with `allowUnboundedMemory: true`). A preset module listed by path raises it too when it does not exist, does not resolve, fails to import, default-exports an async function or something that is not a preset, or reuses a built-in or duplicate preset name. Unknown keys in `transform` raise it as well. So does a `jestMockTransform({ modulePathIgnorePatterns })` entry that is not a valid regular expression. The message names the option and the accepted values. See [Plugin Options](/guide/plugin-options).
+An option has the wrong type or value. Most messages read `"<option>" must be …` and name what the option accepts, or `"<option>" accepts only …` and list the keys it takes. One option can also rule out another: `hotRuntime.freshRuntime` needs `hotRuntime.esmGeneration`, `hotRuntime.allowUnboundedMemory` cannot be combined with `mode: 'auto'`, and `experimental.ownershipModel: 'resolution'` cannot run with `experimental.nodeMocks: false`. It is also raised for:
+
+- a preset factory passed without calling it (`presets.reanimated` instead of `presets.reanimated()`), or a preset object that is not the one its factory returned, such as a copy;
+- a preset module listed by path that does not exist, could not be imported, default-exports an async function or something that is not a preset, declares a module without a factory and exports, lists an export that is not a valid name, or names its preset after a built-in preset or another preset module's;
+- function values in [`mocks`](/guide/plugin-options#mocks), which cannot be transferred to Vitest's worker processes;
+- an `ownership.allow` entry that covers the whole project, or an alias `experimental.ownershipModel` cannot apply in Node's loaders;
+- a hot runtime state manifest entry without `capture()`, `restore()` and `verify()`;
+- a `jestMockTransform({ modulePathIgnorePatterns })` entry that is not a valid regular expression.
+
+See [Plugin Options](/guide/plugin-options).
 
 ### `UNKNOWN_OPTION` {#UNKNOWN_OPTION}
 
@@ -64,7 +73,7 @@ With `metroConfig` on, the loaded Metro config has no usable `resolver.sourceExt
 
 ### `CONTEXT_INVALID` {#CONTEXT_INVALID}
 
-A test worker could not read the configuration the plugin writes for it. The plugin writes one description of each Vitest project, its _project context_, to `.cache/vitest-native/contexts/` in the project's `node_modules` (or the system temp directory when that cannot be written), and every worker reads its configuration from that file. The worker found it missing, unreadable, from another vitest-native version, changed after it was written, or with a field missing, unknown or of the wrong shape; the message names the reason and, where it applies, the field and the directory. A worker started without the plugin's configuration reports it too. It also fires when one Vitest project is handed another project's settings: give each Vitest project its own `root`. Otherwise re-run Vitest, and if it persists, delete the directory the message names.
+The plugin's description of a Vitest project, its _project context_, is missing or cannot be used. The plugin writes one for each Vitest project to `node_modules/.cache/vitest-native/contexts/`, in the project's own `node_modules` or else the nearest one above it that holds React Native, as in a workspace with hoisted dependencies, and to `vitest-native-cache/contexts/` in the system temp directory when that cannot be written. Every test worker reads its configuration from that file. The message reads `the project context is invalid (<reason>)` when the file is missing, unreadable, from another vitest-native version, changed after it was written, or has a field missing, unknown or of the wrong shape, and names the field and the directory where they apply. A worker started without the plugin's configuration reports it too, and so does the plugin when it cannot find a context it wrote earlier in the run. It also fires when one Vitest project is handed another project's settings: give each Vitest project its own `root`. Otherwise re-run Vitest, and if it persists, delete the directory the message names.
 
 ## Loading your code
 
