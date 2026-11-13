@@ -39,18 +39,33 @@ export function rendererRequire(root) {
 /**
  * Fails with PRESET_REACT_MISMATCH when the project or React Native Testing Library
  * resolves another copy of React than rendererRequire's. `user` names who uses the
- * anchor's copy, for the message. Once per root in a worker: the check compares
- * installed files, which do not change during a run; a root that fails is not recorded,
- * so each later call fails again.
+ * anchor's copy, for the message. The check runs once per root in a worker, since it
+ * compares installed files, which do not change during a run; its finding is kept, so
+ * each later call on a failed root fails again, naming its own `user`.
+ *
+ * Safe to call from a resolver: the check's own resolutions go back through Node's
+ * resolver, and a call for the same root made during them returns at once, leaving the
+ * outer call to decide.
  */
 export function assertOneReact(root, user = "vitest-native uses") {
-  if (checkedRoots.has(root)) return;
-  const fromRoot = createRequire(path.join(root, "package.json"));
-  checkOneReact(user, fromRoot, rendererRequire(root));
-  checkedRoots.add(root);
+  let finding = findings.get(root);
+  if (finding === CHECKING) return;
+  if (finding === undefined) {
+    findings.set(root, CHECKING);
+    try {
+      const fromRoot = createRequire(path.join(root, "package.json"));
+      finding = findMismatch(fromRoot, rendererRequire(root));
+    } finally {
+      findings.delete(root);
+    }
+    findings.set(root, finding);
+  }
+  if (finding) throw mismatchError(user, finding);
 }
 
-const checkedRoots = new Set();
+/** Per root: CHECKING while the check runs, then null (one React) or the mismatch found. */
+const findings = new Map();
+const CHECKING = Symbol("checking");
 
 /** A require from the file `fromRoot` resolves `request` to, or `fromRoot` where there is none. */
 function requireFrom(fromRoot, request) {
@@ -65,22 +80,25 @@ function requireFrom(fromRoot, request) {
   return path.isAbsolute(file) ? createRequire(file) : fromRoot;
 }
 
-function checkOneReact(user, fromRoot, fromRenderer) {
+function findMismatch(fromRoot, fromRenderer) {
   const react = fromRenderer.resolve("react");
   const others = [["the project", fromRoot]];
   const rntl = requireFrom(fromRoot, "@testing-library/react-native/package.json");
   if (rntl !== fromRoot) others.push(["@testing-library/react-native", rntl]);
   for (const [who, from] of others) {
     const theirs = from.resolve("react");
-    if (theirs !== react) {
-      throw new VitestNativeError(
-        "PRESET_REACT_MISMATCH",
-        `${user} the React react-native uses (${react}), ` +
-          `but ${who} resolves another copy (${theirs}). Hooks and contexts from one copy ` +
-          `fail in a tree the other renders. Install one copy of react: dedupe it in the ` +
-          `workspace, or align the versions the packages ask for.`,
-        { docs: docsUrl("/guide/errors#PRESET_REACT_MISMATCH") },
-      );
-    }
+    if (theirs !== react) return { react, who, theirs };
   }
+  return null;
+}
+
+function mismatchError(user, { react, who, theirs }) {
+  return new VitestNativeError(
+    "PRESET_REACT_MISMATCH",
+    `${user} the React react-native uses (${react}), ` +
+      `but ${who} resolves another copy (${theirs}). Hooks and contexts from one copy ` +
+      `fail in a tree the other renders. Install one copy of react: dedupe it in the ` +
+      `workspace, or align the versions the packages ask for.`,
+    { docs: docsUrl("/guide/errors#PRESET_REACT_MISMATCH") },
+  );
 }
