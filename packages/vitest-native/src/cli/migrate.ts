@@ -388,32 +388,60 @@ export function analyzeJestConfig(root: string): MigrationReport {
   };
   // The lines of a project setup file that mock or set up a library a preset covers:
   // `jest.mock('react-native-reanimated', …)`, a `require()` or `import` of a library's own
-  // Jest setup. Only statements at the start of a line, so a `require()` inside a mock's
-  // factory is part of that mock's line, not one of its own.
+  // Jest setup. Only statements at the start of a line and outside comments and strings, so
+  // a `require()` inside a mock's factory is part of that mock, not a line of its own. A
+  // file named in both setupFiles and setupFilesAfterEnv is read once.
+  const scannedSetupFiles = new Set<string>();
   const coveredSetupLines = (file: string): string[] => {
+    const resolved = path.resolve(root, file.replace(/^<rootDir>\/?/, ""));
+    if (scannedSetupFiles.has(resolved)) return [];
+    scannedSetupFiles.add(resolved);
     const code = projectSource(file);
     if (code === null) return [];
     const lines: string[] = [];
     const statement =
-      /^[ \t]*(?:jest\.mock\(\s*(['"])([^'"]+)\1|require\(\s*(['"])([^'"]+)\3\s*\)|import\s+(['"])([^'"]+)\5)/gm;
-    const depth = parenDepths(code);
+      /^[ \t]*(?:jest\.mock(\()\s*(['"])([^'"]+)\2|require\(\s*(['"])([^'"]+)\4\s*\)|import\s+(['"])([^'"]+)\6)/dgm;
+    const depth = codeDepths(code);
     for (const match of code.matchAll(statement)) {
-      // Inside another call (a mock's factory written over several lines): part of it.
-      if (depth[match.index] !== 0) continue;
-      const mocked = match[2];
-      const request = match[4] ?? match[6];
+      const at = match.index + match[0].length - match[0].trimStart().length;
+      // Inside another call (a mock's factory written over several lines), a comment or a
+      // string: not a statement of its own.
+      if (depth[at] !== 0) continue;
+      const mocked = match[3];
+      const request = match[5] ?? match[7];
       const pkg = /^(@[^/]+\/[^/]+|[^@./][^/]*)/.exec(mocked ?? request ?? "")?.[1];
-      const preset = pkg ? presetShadowing(pkg) : undefined;
+      // A mock replaces the module it names, and a preset only the ids it provides: a deep
+      // `jest.mock('react-native-reanimated/lib/…')` is not covered. A setup module is
+      // matched by its package.
+      const preset = mocked !== undefined ? presetShadowing(mocked) : pkg && presetShadowing(pkg);
       if (!pkg || !preset) continue;
-      const shown = mocked ? `jest.mock('${mocked}')` : `require('${request}')`;
+      if (!active.includes(preset) && !runsWithOwnSetup(preset)) continue;
+      const shown = mocked
+        ? `jest.mock('${mocked}')`
+        : match[7]
+          ? `import '${request}'`
+          : `require('${request}')`;
+      if (mocked && match.indices?.[1]) {
+        // A factory that keeps part of the library (`jest.requireActual`, a spread) and
+        // changes the rest is more than the preset gives: the reader decides what stays.
+        const open = match.indices[1][0];
+        let close = open + 1;
+        while (close < code.length && depth[close] !== 0) close++;
+        if (/requireActual|\.\.\./.test(code.slice(open, close))) {
+          attention.push(
+            `${file}: ${shown} — the ${preset} preset provides ${pkg}, but this mock changes ` +
+              `part of it (jest.requireActual or a spread); keep only the changes the tests ` +
+              `rely on.`,
+          );
+          continue;
+        }
+      }
       const ownSetup = LIBRARY_SETUP_FILES[preset];
       if (active.includes(preset)) {
         lines.push(
-          `${file}: ${shown} — the auto-detected ${preset} preset shadows ${pkg}` +
-            (mocked ? "" : `, and the jest.mock() calls in it would replace the preset`) +
-            `; delete the line.`,
+          `${file}: ${shown} — the auto-detected ${preset} preset shadows ${pkg}; delete the line.`,
         );
-      } else if (runsWithOwnSetup(preset)) {
+      } else {
         const isOwnSetup =
           request !== undefined && request.replace(/\.js$/, "") === ownSetup?.replace(/\.js$/, "");
         lines.push(
@@ -1229,27 +1257,49 @@ export default defineConfig({
 }
 
 /**
- * The parenthesis depth at each offset of a JavaScript source, with strings, template
- * literals and comments skipped: 0 outside every call.
+ * The parenthesis depth at each offset of a JavaScript source: 0 outside every call, and
+ * -1 inside a comment, a string, a template literal or a regular expression literal. A `/`
+ * starts a regular expression where a value is expected (after `(`, `,`, `=`, an operator,
+ * `return`, or at the start of a line), and divides anywhere else; close enough for a
+ * setup file.
  */
-function parenDepths(code: string): number[] {
+function codeDepths(code: string): number[] {
   const depths: number[] = Array.from({ length: code.length + 1 }, () => 0);
   let depth = 0;
+  const skip = (from: number, to: number) => {
+    for (let at = from; at <= to && at < code.length; at++) depths[at] = -1;
+    return to;
+  };
   for (let i = 0; i < code.length; i++) {
     depths[i] = depth;
     const c = code[i];
     if (c === "/" && code[i + 1] === "/") {
       const end = code.indexOf("\n", i);
-      for (const stop = end === -1 ? code.length : end; i < stop - 1; ) depths[++i] = depth;
+      i = skip(i, (end === -1 ? code.length : end) - 1);
     } else if (c === "/" && code[i + 1] === "*") {
       const end = code.indexOf("*/", i + 2);
-      for (const stop = end === -1 ? code.length : end + 1; i < stop; ) depths[++i] = depth;
+      i = skip(i, end === -1 ? code.length : end + 1);
     } else if (c === "'" || c === '"' || c === "`") {
-      for (i++; i < code.length && code[i] !== c; i++) {
-        depths[i] = depth;
-        if (code[i] === "\\") depths[++i] = depth;
+      let end = i + 1;
+      while (end < code.length && code[end] !== c) end += code[end] === "\\" ? 2 : 1;
+      i = skip(i, end);
+    } else if (
+      c === "/" &&
+      /(?:^|[(,=:[!&|?{};+\-*%<>~^]|\breturn|\btypeof)\s*$/.test(
+        code
+          .slice(Math.max(0, i - 12), i)
+          .split("\n")
+          .pop() ?? "",
+      )
+    ) {
+      let end = i + 1;
+      for (let inClass = false; end < code.length && code[end] !== "\n"; end++) {
+        if (code[end] === "\\") end++;
+        else if (code[end] === "[") inClass = true;
+        else if (code[end] === "]") inClass = false;
+        else if (code[end] === "/" && !inClass) break;
       }
-      depths[i] = depth;
+      i = skip(i, end);
     } else if (c === "(") {
       depth++;
     } else if (c === ")") {

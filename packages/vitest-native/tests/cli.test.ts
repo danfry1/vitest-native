@@ -438,7 +438,7 @@ describe("migrate", () => {
   });
 
   // The libraries a React Native app's Jest setup file usually mocks, installed.
-  const installed = (...names: string[]) =>
+  const installedLibraries = (...names: string[]) =>
     Object.fromEntries(
       names.map((name) => [`node_modules/${name}/package.json`, { name, version: "4.0.0" }]),
     );
@@ -461,6 +461,21 @@ describe("migrate", () => {
     expect(text).toContain("allows spelled-out-lib — not installed; nothing to do.");
   });
 
+  it("still reports a name a group produces when the project depends on it (#795)", () => {
+    const root = fixture({
+      "package.json": {
+        name: "x",
+        dependencies: { "react-native": "0.88.0", "jest-react-native": "18.0.0" },
+      },
+      "jest.config.json": {
+        transformIgnorePatterns: ["node_modules/(?!((jest-)?react-native)/)"],
+      },
+    });
+    withBabelParser(root);
+    const text = renderMigrationReport(analyzeJestConfig(root)).join("\n");
+    expect(text).toContain("allows jest-react-native — not installed; nothing to do.");
+  });
+
   it("lists the library mocks in a project setup file the presets cover (#796)", () => {
     const root = fixture({
       "package.json": { name: "x" },
@@ -477,7 +492,7 @@ describe("migrate", () => {
         "jest.mock('./src/api', () => ({ get: jest.fn() }));",
         "",
       ].join("\n"),
-      ...installed(
+      ...installedLibraries(
         "react-native-reanimated",
         "react-native-gesture-handler",
         "react-native-safe-area-context",
@@ -495,13 +510,64 @@ describe("migrate", () => {
     expect(report.suggestedConfig).toContain(`"./jest.setup.js"`);
   });
 
+  it("lists only the setup-file statements a preset replaces, once per file (#796)", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        setupFiles: ["./jest.setup.js"],
+        setupFilesAfterEnv: ["<rootDir>/jest.setup.js"],
+      },
+      "jest.setup.js": [
+        "import 'react-native-gesture-handler/jestSetup';",
+        "require('react-native-reanimated/mock');",
+        "jest.mock('react-native-gesture-handler');",
+        // Not statements: a block comment, a template literal, a regex literal's quote.
+        "/*",
+        "jest.mock('react-native-reanimated');",
+        "*/",
+        "const doc = `",
+        "jest.mock('react-native-reanimated');",
+        "`;",
+        "const quote = /'/g;",
+        "const paren = /\\(/;",
+        "jest.mock('react-native-safe-area-context');",
+        // A deep import is a module the preset does not provide.
+        "jest.mock('react-native-reanimated/lib/module/animation', () => ({}));",
+        // Keeps part of the library: for review, not deletion.
+        "jest.mock('react-native-reanimated', () => ({",
+        "  ...jest.requireActual('react-native-reanimated/mock'),",
+        "  useReducedMotion: () => true,",
+        "}));",
+        "",
+      ].join("\n"),
+      ...installedLibraries(
+        "react-native-reanimated",
+        "react-native-gesture-handler",
+        "react-native-safe-area-context",
+      ),
+    });
+    withBabelParser(root);
+    const report = analyzeJestConfig(root);
+    const fromSetup = (lines: string[]) =>
+      lines.filter((line) => /^(?:\.\/|<rootDir>\/)jest\.setup\.js: /.test(line));
+    expect(fromSetup(report.presetCovered)).toEqual([
+      "./jest.setup.js: import 'react-native-gesture-handler/jestSetup' — react-native-gesture-handler's own test setup, which the native engine runs before the setup files; delete the line.",
+      "./jest.setup.js: require('react-native-reanimated/mock') — the auto-detected reanimated preset shadows react-native-reanimated; delete the line.",
+      "./jest.setup.js: jest.mock('react-native-gesture-handler') — the native engine runs react-native-gesture-handler with its own Jest setup (react-native-gesture-handler/jestSetup.js), which replaces its native layer; delete the line.",
+      "./jest.setup.js: jest.mock('react-native-safe-area-context') — the auto-detected safeAreaContext preset shadows react-native-safe-area-context; delete the line.",
+    ]);
+    expect(fromSetup(report.attention)).toEqual([
+      "./jest.setup.js: jest.mock('react-native-reanimated') — the reanimated preset provides react-native-reanimated, but this mock changes part of it (jest.requireActual or a spread); keep only the changes the tests rely on.",
+    ]);
+  });
+
   it("lists a preset-shadowed allowlist entry with the others that need nothing (#797)", () => {
     const root = fixture({
       "package.json": { name: "x" },
       "jest.config.json": {
         transformIgnorePatterns: ["node_modules/(?!(react-native|react-native-reanimated)/)"],
       },
-      ...installed("react-native-reanimated"),
+      ...installedLibraries("react-native-reanimated"),
     });
     withBabelParser(root);
     const report = analyzeJestConfig(root);

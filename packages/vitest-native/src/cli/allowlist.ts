@@ -14,8 +14,8 @@ export interface AllowlistEntry {
   /** exact (`moti/`), prefix (`expo`), or scope (`@expo/.*`, `@react-native/`). */
   kind: "exact" | "prefix" | "scope";
   /**
-   * A name the pattern never writes out, only produces: `jest-react-native` from
-   * `(jest-)?react-native`.
+   * A name the pattern never writes out, only produces through a group:
+   * `jest-react-native` from `(jest-)?react-native`, `expo-camera` from `expo-(av|camera)`.
    */
   expanded?: boolean;
 }
