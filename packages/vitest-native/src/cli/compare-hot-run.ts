@@ -43,13 +43,19 @@ import {
   type CompareOptions,
 } from "./compare-run.js";
 import { relativeToRoot, rootSpellings } from "../native/root-spelling.mjs";
-import { compareHotRuns, type HotMode, type HotRun, type HotVerdict } from "./compare-hot.js";
+import {
+  compareHotRuns,
+  MIN_TIMED_SAMPLES,
+  type HotMode,
+  type HotRun,
+  type HotVerdict,
+} from "./compare-hot.js";
 
 export interface CompareHotOptions extends Pick<
   CompareOptions,
   "root" | "vitestArgs" | "vitestConfig" | "json" | "timeoutMs" | "showOutput" | "log"
 > {
-  /** Runs per mode (at least 1; the default 2 lets the first warm caches). */
+  /** Runs per mode (at least 1). The first warms caches when there are more; the default 3 times two. */
   runs: number;
   /** One extra hot run with shuffled file order. */
   shuffle: boolean;
@@ -151,16 +157,56 @@ function readRetried(file: string, root: string): Set<string> {
 
 const fmtS = (ms: number | null) => (ms === null ? "–" : `${(ms / 1000).toFixed(1)} s`);
 
+/**
+ * The speed half of a no-difference verdict, by the evidence log's rules: a claim only from
+ * at least MIN_TIMED_SAMPLES timed runs per mode, with the spread shown, and none when the
+ * ranges overlap.
+ */
+function timingLines(v: HotVerdict): string[] {
+  const n = Math.min(v.timedMs["per-file"].length, v.timedMs.hot.length);
+  const of = (m: HotMode) => {
+    const r = v.rangeMs[m];
+    return r && r[0] !== r[1]
+      ? `${fmtS(v.medianMs[m])} median (${fmtS(r[0]).replace(" s", "")}–${fmtS(r[1])})`
+      : fmtS(v.medianMs[m]);
+  };
+  const walls = `per file ${of("per-file")}, hot ${of("hot")}`;
+  if (v.speed === "too-few-samples") {
+    return [
+      `  Timing: ${n === 1 ? "one timed run" : `${n} timed runs`} per mode (${walls}), too few to ` +
+        `say whether hot is faster. Rerun with --runs ${MIN_TIMED_SAMPLES + 1} or more for a speed verdict.`,
+    ];
+  }
+  const head = `  Timing, ${n} timed runs per mode: ${walls}`;
+  if (v.speed === "faster") {
+    return [
+      `${head}: hot is ${v.speedup!.toFixed(1)}× faster.`,
+      `  hotRuntime: 'auto' showed no difference for this suite. To use it, add it to reactNative({ … }).`,
+    ];
+  }
+  if (v.speed === "slower") {
+    return [
+      `${head}: hot is ${(1 / v.speedup!).toFixed(1)}× slower here, so there is nothing to gain by switching.`,
+    ];
+  }
+  return [`${head}: the ranges overlap, so no speed difference can be claimed.`];
+}
+
 export function renderHotVerdict(v: HotVerdict, runs: HotRun[], top = 20): string[] {
   const lines: string[] = [];
   const count = (m: HotMode) => runs.filter((r) => r.mode === m).length;
   const seeds = runs.filter((r) => r.seed !== undefined).map((r) => r.seed);
   lines.push("");
-  for (const r of runs) {
-    lines.push(
-      `  ${(r.label ?? r.mode).padEnd(32)} ${fmtS(r.wallMs)}${r.untimed ? " (not timed)" : ""}`,
-    );
-  }
+  runs.forEach((r, i) => {
+    const role = v.roles[i];
+    const note =
+      role === "warm-up"
+        ? " (warm-up, not timed)"
+        : role === "check"
+          ? ` (${r.seed !== undefined ? "order" : "worker"} check, not timed)`
+          : "";
+    lines.push(`  ${(r.label ?? r.mode).padEnd(32)} ${fmtS(r.wallMs)}${note}`);
+  });
   lines.push("");
   const runsText =
     `${count("per-file")} per-file and ${count("hot")} hot runs` +
@@ -172,22 +218,7 @@ export function renderHotVerdict(v: HotVerdict, runs: HotRun[], top = 20): strin
         `  ${v.judgedBySubset} of them are flaky per file and were judged by the subset rule.`,
       );
     }
-    const samples = Math.min(v.wallsMs["per-file"].length, v.wallsMs.hot.length);
-    const note = samples < 2 ? " (one timed sample per mode)" : "";
-    if (v.speedup !== null && v.speedup > 1.05) {
-      lines.push(
-        `  Median wall: per file ${fmtS(v.medianMs["per-file"])}, hot ${fmtS(v.medianMs.hot)}: ` +
-          `${v.speedup.toFixed(1)}× faster${note}.`,
-      );
-      lines.push(
-        `  hotRuntime: 'auto' showed no difference for this suite. To use it, add it to reactNative({ … }).`,
-      );
-    } else {
-      lines.push(
-        `  Median wall: per file ${fmtS(v.medianMs["per-file"])}, hot ${fmtS(v.medianMs.hot)}${note}: ` +
-          `hot is not faster here, so there is nothing to gain by switching.`,
-      );
-    }
+    lines.push(...timingLines(v));
   } else {
     lines.push(`✗ Differences in ${runsText} (${v.testsCompared} tests compared):`);
     for (const d of v.differences.slice(0, top)) {
@@ -418,10 +449,11 @@ export async function runCompareHot(options: CompareHotOptions): Promise<number>
           {
             command: "compare --hot",
             versions: { vitest: vitest.version, vitestNative, node: process.version },
-            runs: done.map((r) => ({
+            runs: done.map((r, i) => ({
               label: r.label,
               mode: r.mode,
               wallMs: r.wallMs,
+              timing: verdict.roles[i],
               seed: r.seed ?? null,
               untimed: !!r.untimed,
               unhandledErrors: r.unhandledErrors ?? 0,

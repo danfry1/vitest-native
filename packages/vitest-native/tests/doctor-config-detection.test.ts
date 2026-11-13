@@ -59,6 +59,16 @@ describe("analyzeConfigUsage", () => {
     });
   });
 
+  it("sees the plugin called through an alias or namespace with $ in its name", () => {
+    // `$` in the binding is a RegExp anchor unless escaped: the call was not found.
+    const aliased = `import { reactNative as $rn } from "vitest-native";
+export default { plugins: [$rn()] };`;
+    expect(analyzeConfigUsage(aliased)).toEqual({ imports: true, invokes: true });
+    const namespaced = `import * as $vn from "vitest-native";
+export default { plugins: [$vn.reactNative()] };`;
+    expect(analyzeConfigUsage(namespaced)).toEqual({ imports: true, invokes: true });
+  });
+
   it("does not count an import that has been commented out", () => {
     // The case comment-stripping actually exists for. A bare mention is already
     // excluded by requiring an import statement; a commented-OUT import matches

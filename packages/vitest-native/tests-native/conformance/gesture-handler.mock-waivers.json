@@ -72,24 +72,6 @@
     "issue": "n/a (mock engine preset)"
   },
   {
-    "export": "TouchableHighlight",
-    "path": "TouchableHighlight",
-    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
-    "issue": "n/a (mock engine preset)"
-  },
-  {
-    "export": "TouchableNativeFeedback",
-    "path": "TouchableNativeFeedback",
-    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
-    "issue": "n/a (mock engine preset)"
-  },
-  {
-    "export": "TouchableOpacity",
-    "path": "TouchableOpacity",
-    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
-    "issue": "n/a (mock engine preset)"
-  },
-  {
     "export": "legacy_createNativeWrapper",
     "path": "legacy_createNativeWrapper",
     "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",

@@ -105,7 +105,7 @@ through the jest-compat layer. See [migrating from Jest](https://vitest-native.d
 | | Supported |
 |---|---|
 | Node.js | 22.22.3+ on Node 22, 24.12+ on Node 24, or 26+ |
-| Vitest | 5.x |
+| Vitest | 5.x (5.1.0 or later recommended) |
 | Vite | ^8.0.5 |
 | React | 19 or later |
 | React Native | 0.86–0.88 |
