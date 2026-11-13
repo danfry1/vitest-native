@@ -1,3 +1,4 @@
+import Module from "node:module";
 import { afterAll, describe, expect, it } from "vitest";
 import { assertOneReact, presetFactoryContext, rendererRequire } from "../src/preset-react.mjs";
 import { nestedReactProjects } from "./support/nested-react";
@@ -58,7 +59,52 @@ describe("assertOneReact", () => {
     }
   });
 
+  it("checks a root once, and a failed root fails again naming each caller", () => {
+    const root = projects.project({ rntlReact: true });
+    const resolves = countReactResolves(() => {
+      expect(() => assertOneReact(root, "first caller")).toThrowError(/\] first caller the React/);
+      expect(() => assertOneReact(root, "second caller")).toThrowError(
+        /\] second caller the React/,
+      );
+    });
+    expect(resolves).toBeGreaterThan(0);
+    expect(countReactResolves(() => expect(() => assertOneReact(root)).toThrow())).toBe(0);
+  });
+
+  // A resolver step that asserts, as Node's React dedupe does, runs again for the check's
+  // own resolutions of react: the nested call must not start another check.
+  it("fails with its code, not a stack overflow, when called from Node's resolver", () => {
+    const root = projects.project({ rnReact: true });
+    const nodeResolve = (Module as any)._resolveFilename;
+    (Module as any)._resolveFilename = function (request: string, ...rest: unknown[]) {
+      if (request === "react") assertOneReact(root, "Node's dedupe serves");
+      return nodeResolve.call(this, request, ...rest);
+    };
+    try {
+      expect(() => assertOneReact(root, "Node's dedupe serves")).toThrowError(
+        expect.objectContaining({ code: "PRESET_REACT_MISMATCH" }),
+      );
+    } finally {
+      (Module as any)._resolveFilename = nodeResolve;
+    }
+  });
+
   it("passes where every copy agrees", () => {
     expect(() => assertOneReact(projects.project())).not.toThrow();
   });
 });
+
+function countReactResolves(run: () => void): number {
+  const nodeResolve = (Module as any)._resolveFilename;
+  let count = 0;
+  (Module as any)._resolveFilename = function (request: string, ...rest: unknown[]) {
+    if (request === "react") count++;
+    return nodeResolve.call(this, request, ...rest);
+  };
+  try {
+    run();
+  } finally {
+    (Module as any)._resolveFilename = nodeResolve;
+  }
+  return count;
+}
