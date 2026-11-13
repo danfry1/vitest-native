@@ -8,9 +8,10 @@
 // Node now serves the names in REACT_DEDUPE from one anchor, the one the presets build
 // their mocks with (preset-react.mjs, rendererRequire: where `react-native` resolves),
 // through both of its resolvers: `require` (the `dedupe` resolve step) and `import`
-// (loader.mjs, resolveBefore). Each resolves from the anchor with its own conditions, so
-// a dual package gets the build that resolver would pick (`import` → test-renderer's
-// dist/index.js, the file Vitest's externals load; `require` → dist/index.cjs). Files
+// (loader.mjs, resolveBefore). Only where a request resolves from changes: which build
+// of a dual package it gets is still that resolver's rule, the one the test's own import
+// follows (test-renderer: `import` → dist/index.js, as Vitest's externals load it;
+// under an ownership model the shared resolver's answer, `require`'s dist/index.cjs). Files
 // are served in Vite's spelling (realpathSync.native), the one its externals reach Node
 // in: on a case-insensitive disk or a Windows 8.3 root, Node's own spelling of the same
 // file is a different module. The first deduped request of a project root holds the

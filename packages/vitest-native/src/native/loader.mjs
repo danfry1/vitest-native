@@ -340,11 +340,23 @@ function resolveBefore(specifier, context, presets = true) {
       done: { url: `${PRESET_CJS_SCHEME}?${query}`, format: "commonjs", shortCircuit: true },
     };
   }
-  // React and its renderers: one copy, resolved from the anchor (react-dedupe.mjs) by
-  // resolvePlain, with this import's own conditions.
-  if (parent) {
-    const from = anchoredImportParent(specifier, projectContext()?.projectRoot ?? PROJECT_ROOT);
-    if (from) return { parent, dedupeFrom: from };
+  // React and its renderers: one copy, resolved from the anchor (react-dedupe.mjs) in
+  // place of the importer, by this realm's own rule for which build: the shared resolver's
+  // under an ownership model (`require` wins, as below), else Node's with this import's
+  // conditions (resolvePlain, resolveDeduped).
+  const dedupeFrom = parent
+    ? anchoredImportParent(specifier, projectContext()?.projectRoot ?? PROJECT_ROOT)
+    : null;
+  if (dedupeFrom) {
+    const from = fileURLToPath(dedupeFrom);
+    const shared =
+      SHARED_RESOLVER === null
+        ? null
+        : SHARED_RESOLVER.resolve(specifier, from, (id) => createRequire(from).resolve(id));
+    const resolved = shared
+      ? { url: pathToFileURL(inViteSpelling(shared)).href, shortCircuit: true }
+      : undefined;
+    return { parent, resolved, dedupeFrom };
   }
   let resolved;
   if (
@@ -560,9 +572,10 @@ function resolveDeduped(specifier, context, nextResolve, from) {
 function resolvePlain(specifier, context, nextResolve, presets) {
   const before = resolveBefore(specifier, context, presets);
   if (before.done) return before.done;
-  let resolved = before.dedupeFrom
-    ? resolveDeduped(specifier, context, nextResolve, before.dedupeFrom)
-    : before.resolved;
+  let resolved = before.resolved;
+  if (!resolved && before.dedupeFrom) {
+    resolved = resolveDeduped(specifier, context, nextResolve, before.dedupeFrom);
+  }
   if (!resolved) {
     const key = stampedResolutionKey(specifier, context);
     // A hit skips nextResolve, which Node accepts only from a short-circuited result.
