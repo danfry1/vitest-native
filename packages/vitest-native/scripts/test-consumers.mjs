@@ -254,7 +254,7 @@ async function runLibraryFloors(tarball) {
   const fixtureRoot = path.join(tempRoot, "reanimated-floor");
   fs.cpSync(path.join(fixturesRoot, "reanimated-floor"), fixtureRoot, { recursive: true });
   addPackedDependency(fixtureRoot, tarball);
-  await scratchInstall(fixtureRoot);
+  await scratchInstall(fixtureRoot, { tarballs: [tarball] });
   const reactNativeVersion = JSON.parse(
     fs.readFileSync(path.join(fixtureRoot, "node_modules/react-native/package.json"), "utf8"),
   ).version;

@@ -132,23 +132,26 @@ export function chooseOverrides({ repoLock, scratchLock, topLevel, satisfies }) 
 
 /**
  * Every scratch package resolved from somewhere other than the registry (git, a tarball
- * URL, a local path), but the top level's own `file:` tarballs. Those have no publish
- * time, so the age check cannot see them.
+ * URL, a local path). Those have no publish time, so the age check cannot see them. The
+ * one exception is a top-level dependency on a tarball the caller names in `tarballs`
+ * (the package this repository packs), matched by its resolved path; bun's lock records
+ * it as `name@<path>`, without the manifest's `file:`.
  */
-export function nonRegistryPackages(scratchLock, manifest) {
-  const ownFiles = new Set(
-    DEPENDENCY_FIELDS.flatMap((field) =>
-      Object.entries(manifest[field] ?? {})
-        .filter(([, spec]) => spec.startsWith("file:"))
-        .map(([name]) => name),
-    ),
+export function nonRegistryPackages(scratchLock, { manifest, dir, tarballs = [] }) {
+  const topLevel = new Set(
+    DEPENDENCY_FIELDS.flatMap((field) => Object.keys(manifest[field] ?? {})),
   );
+  const own = new Set(tarballs.map((file) => path.resolve(file)));
   const found = [];
   for (const [key, entry] of Object.entries(scratchLock.packages ?? {})) {
     const split = splitId(entry[0]);
     if (split && EXACT.test(split.spec)) continue;
     // The top level's own entry is keyed by its bare name; a nested copy (`parent/name`) is not.
-    if (split && ownFiles.has(key) && split.spec.startsWith("file:")) {
+    if (
+      split &&
+      topLevel.has(key) &&
+      own.has(path.resolve(dir, split.spec.replace(/^file:/, "")))
+    ) {
       continue;
     }
     found.push(entry[0]);
@@ -211,6 +214,7 @@ export async function scratchInstall(dir, options = {}) {
     now = Date.now(),
     repoLockText = fs.readFileSync(path.join(repoRoot, "bun.lock"), "utf8"),
     log = console.log,
+    tarballs = [],
   } = options;
   const manifestPath = path.join(dir, "package.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
@@ -250,7 +254,7 @@ export async function scratchInstall(dir, options = {}) {
     bun("--lockfile-only");
   }
   const scratchLock = readLock();
-  const unvetted = nonRegistryPackages(scratchLock, manifest);
+  const unvetted = nonRegistryPackages(scratchLock, { manifest, dir, tarballs });
   if (unvetted.length > 0) {
     throw new Error(
       `scratch-install: not from the registry, so their age cannot be checked: ${unvetted.join(", ")}`,
