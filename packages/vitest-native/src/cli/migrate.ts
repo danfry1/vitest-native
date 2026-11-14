@@ -40,7 +40,7 @@ import { mockFactoryForwardReads } from "./mock-factory-reads.js";
 import {
   callsReanimatedSetUpTests,
   libraryResolver,
-  MOCKS_REANIMATED,
+  mocksReanimated,
   onlyCallsSetUpTests,
   stripsOnlyReanimatedProps,
 } from "./superseded.js";
@@ -382,7 +382,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
     .filter((f): f is { file: string; code: string } => f.code !== null);
   const realReanimatedSetup = setupSources.find(({ code }) => callsReanimatedSetUpTests(code));
   const reanimatedMocked =
-    setupSources.some(({ code }) => MOCKS_REANIMATED.test(code)) ||
+    setupSources.some(({ code }) => mocksReanimated(code)) ||
     // A root manual mock, which Jest applied to the package by itself.
     ["", ".js", ".ts", ".tsx"].some((ext) =>
       fs.existsSync(path.join(root, "__mocks__", `react-native-reanimated${ext}`)),

@@ -121,5 +121,12 @@ export function callsReanimatedSetUpTests(source: string): boolean {
   return direct.test(code) || (takes.test(code) && /(?:^|[^.\w])setUpTests\s*\(/m.test(code));
 }
 
-/** A `jest.mock()` of Reanimated itself: the suite runs its mock, not the library. */
-export const MOCKS_REANIMATED = /\bjest\.mock\(\s*(['"])react-native-reanimated\1/;
+/**
+ * Whether a setup file mocks Reanimated itself (`jest.mock('react-native-reanimated', …)`),
+ * so the suite runs its mock, not the library. A commented-out mock does not count; a file
+ * that cannot be read exactly does, which keeps the mock, as before.
+ */
+export function mocksReanimated(source: string): boolean {
+  const code = withoutComments(source);
+  return code === null || /\bjest\.mock\(\s*(['"])react-native-reanimated\1/.test(code);
+}

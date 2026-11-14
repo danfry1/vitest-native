@@ -932,6 +932,13 @@ module.exports = {
         "jest/jestSetupAfterEnv.js": `import { setUpTests } from 'react-native-reanimated';\n`,
       });
       expect(unused.suggestedConfig).not.toContain("reanimated: false");
+      // A mock left in a comment is not one.
+      const commented = paperLike({
+        ...REAL_REANIMATED,
+        "jest.setup.js":
+          "// jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));\n",
+      });
+      expect(commented.suggestedConfig).toContain("presets: { reanimated: false }");
     });
 
     it("keeps the mock for a suite that also mocks Reanimated, however it does (#834)", () => {
