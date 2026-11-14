@@ -323,7 +323,13 @@ describe("native engine: the registry builds in the background on a cold cache",
               // After close resolves the process exits once nothing holds its event loop:
               // what still does is sampled until then. Vitest's removal of its temporary
               // directory, the last step of close, is timed when it exists (internal).
-              `const held = () => { mark("held", { resources: process.getActiveResourcesInfo() }); setTimeout(held, 500).unref(); };\n` +
+              // Each sample names the owner of every handle and request still active: this
+              // process's stdout, stderr or stdin, or a child's stdio[n].
+              `const owners = () => { const handles = process._getActiveHandles(); const children = handles.filter((h) => h?.constructor?.name === "ChildProcess"); ` +
+              `const owner = (s) => s === process.stdout ? "stdout" : s === process.stderr ? "stderr" : s === process.stdin ? "stdin" : children.map((c) => [c, c.stdio?.indexOf(s) ?? -1]).filter(([, i]) => i >= 0).map(([c, i]) => "child " + c.spawnfile + " " + (c.spawnargs ?? []).slice(1).join(" ").slice(-80) + " stdio[" + i + "]")[0] ?? null; ` +
+              `return { handles: handles.map((h) => ({ type: h?.constructor?.name, owner: owner(h), pid: h?.pid, fd: h?._handle?.fd, destroyed: h?.destroyed, pending: h?.writableLength })), ` +
+              `requests: process._getActiveRequests().map((r) => { const s = handles.find((h) => h?._handle && h._handle === r.handle); return { type: r?.constructor?.name, owner: s ? owner(s) ?? s.constructor?.name : r.handle?.constructor?.name ?? null }; }) }; };\n` +
+              `const held = () => { mark("held", { resources: process.getActiveResourcesInfo(), ...owners() }); setTimeout(held, 500).unref(); };\n` +
               `const timed = (vitest, key, start, end) => { const original = vitest[key]; if (typeof original === "function") vitest[key] = async (...args) => { if (start) mark(start); try { return await original.apply(vitest, args); } finally { mark(end); if (end === "closed") held(); } }; };\n` +
               `const timing = { name: "timing", closeBundle: () => mark("viteClosed"), configureVitest: ({ vitest }) => { vitest.onClose(() => mark("hooks")); timed(vitest, "close", null, "closed"); timed(vitest, "_clearTmpDir", "tmpStart", "tmpEnd"); } };\n` +
               "export default {",
@@ -348,6 +354,8 @@ describe("native engine: the registry builds in the background on a cold cache",
                 at: number;
                 reason?: string;
                 resources?: string[];
+                handles?: unknown[];
+                requests?: unknown[];
               },
           )
       : [];
