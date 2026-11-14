@@ -28,7 +28,9 @@ import {
  *    depends on its own exact release. The tree is resolved again until no new override
  *    applies (an overridden vite asks for the repository's rolldown, and so on).
  * 3. Every package the repository's lockfile does not have is checked against the
- *    registry's publish time; one younger than the cooldown stops the install.
+ *    registry's publish time; one younger than the cooldown stops the install. So does one
+ *    resolved from git, a URL or a local path, which has no publish time, other than the
+ *    top level's own `file:` tarball.
  * 4. The install is frozen, with install scripts off, and the cooldown is also written to
  *    `<dir>/bunfig.toml` so a later `bun install` there keeps it.
  *
@@ -58,16 +60,21 @@ export function rangedTopLevel(manifest) {
   return problems;
 }
 
+/** A lockfile id's name and what it resolved to: a version, or a git, URL or file spec. */
+function splitId(id) {
+  // The first "@" after a scope: a git URL can hold another (git@github.com).
+  const at = id.indexOf("@", 1);
+  return at <= 0 ? null : { name: id.slice(0, at), spec: id.slice(at + 1) };
+}
+
 /** Every registry package a lockfile resolves: name → its versions. */
 export function lockedVersions(lock) {
   const versions = new Map();
   for (const entry of Object.values(lock.packages ?? {})) {
-    const id = entry[0];
-    const at = id.lastIndexOf("@");
-    if (at <= 0) continue;
-    const version = id.slice(at + 1);
-    if (!EXACT.test(version)) continue; // a workspace, link or tarball
-    const name = id.slice(0, at);
+    const split = splitId(entry[0]);
+    if (!split) continue;
+    const { name, spec: version } = split;
+    if (!EXACT.test(version)) continue; // a workspace, link, git or tarball
     if (!versions.has(name)) versions.set(name, new Set());
     versions.get(name).add(version);
   }
@@ -121,6 +128,60 @@ export function chooseOverrides({ repoLock, scratchLock, topLevel, satisfies }) 
     if (own.every(Boolean)) overrides[name] = version;
   }
   return overrides;
+}
+
+/**
+ * Every scratch package resolved from somewhere other than the registry (git, a tarball
+ * URL, a local path). Those have no publish time, so the age check cannot see them. The
+ * one exception is a top-level dependency on a tarball the caller names in `tarballs`
+ * (the package this repository packs), matched by its resolved path; bun's lock records
+ * it as `name@<path>`, without the manifest's `file:`.
+ */
+export function nonRegistryPackages(scratchLock, { manifest, dir, tarballs = [] }) {
+  const topLevel = new Set(
+    DEPENDENCY_FIELDS.flatMap((field) => Object.keys(manifest[field] ?? {})),
+  );
+  const own = new Set(tarballs.map((file) => path.resolve(file)));
+  const found = [];
+  for (const [key, entry] of Object.entries(scratchLock.packages ?? {})) {
+    const split = splitId(entry[0]);
+    if (split && EXACT.test(split.spec)) continue;
+    // The top level's own entry is keyed by its bare name; a nested copy (`parent/name`) is not.
+    if (
+      split &&
+      topLevel.has(key) &&
+      own.has(path.resolve(dir, split.spec.replace(/^file:/, "")))
+    ) {
+      continue;
+    }
+    found.push(entry[0]);
+  }
+  return found.sort();
+}
+
+/**
+ * Where a lockfile holds `name` at a version other than `version`, and every range its
+ * tree asks for `name` with, by the package that asks: what an unapplied override needs.
+ */
+export function otherCopies(lock, name, version) {
+  const copies = [];
+  const askers = [];
+  for (const [key, entry] of Object.entries(lock.packages ?? {})) {
+    const split = splitId(entry[0]);
+    if (split?.name === name && split.spec !== version) copies.push(`${entry[0]} at ${key}`);
+    const meta = entry.find((part) => part && typeof part === "object" && !Array.isArray(part));
+    for (const field of RANGE_FIELDS) {
+      const range = meta?.[field]?.[name];
+      if (range !== undefined) askers.push(`${entry[0]} ${field} ${range}`);
+    }
+  }
+  for (const workspace of Object.values(lock.workspaces ?? {})) {
+    for (const field of RANGE_FIELDS) {
+      const range = workspace[field]?.[name];
+      if (range !== undefined) askers.push(`top level ${field} ${range}`);
+    }
+  }
+  return `${copies.join(", ") || "no other copy"}; asked for by ${askers.join(", ") || "nothing"}`;
 }
 
 /** `name@version` for every scratch package the repository's lockfile does not have. */
@@ -178,6 +239,7 @@ export async function scratchInstall(dir, options = {}) {
     now = Date.now(),
     repoLockText = fs.readFileSync(path.join(repoRoot, "bun.lock"), "utf8"),
     log = console.log,
+    tarballs = [],
   } = options;
   const manifestPath = path.join(dir, "package.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
@@ -212,6 +274,11 @@ export async function scratchInstall(dir, options = {}) {
   const overrides = {};
   for (let round = 1; ; round++) {
     const more = chooseOverrides({ repoLock, scratchLock: readLock(), topLevel, satisfies });
+    // An override already set that bun left unapplied comes back each round; the check
+    // below names where the other copy is.
+    for (const [name, version] of Object.entries(more)) {
+      if (overrides[name] === version) delete more[name];
+    }
     if (Object.keys(more).length === 0) break;
     if (round > MAX_ROUNDS) {
       throw new Error(
@@ -224,13 +291,21 @@ export async function scratchInstall(dir, options = {}) {
     resolve();
   }
   const scratchLock = readLock();
+  const unvetted = nonRegistryPackages(scratchLock, { manifest, dir, tarballs });
+  if (unvetted.length > 0) {
+    throw new Error(
+      `scratch-install: not from the registry, so their age cannot be checked: ${unvetted.join(", ")}`,
+    );
+  }
   const resolved = lockedVersions(scratchLock);
   const ignored = Object.entries(overrides).filter(
     ([name, version]) => resolved.has(name) && [...resolved.get(name)].some((v) => v !== version),
   );
   if (ignored.length > 0) {
     throw new Error(
-      `scratch-install: bun did not apply these overrides: ${ignored.map(([n, v]) => `${n}@${v}`).join(", ")}`,
+      `scratch-install: bun did not apply these overrides: ${ignored
+        .map(([name, version]) => `${name}@${version} (${otherCopies(scratchLock, name, version)})`)
+        .join("; ")}`,
     );
   }
 
