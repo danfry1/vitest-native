@@ -3,7 +3,7 @@
  * Verifies that each preset's factory produces mocks with correct shapes,
  * callable methods, and expected return values — not just that they exist.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import React from "react";
 import {
   reanimated,
@@ -198,6 +198,38 @@ describe("preset: navigation", () => {
       expect(describeRoute(route).route).toBe(route);
       expect(describeRoute(route).render()).toBeNull();
       expect(render()).toBeNull();
+    });
+
+    it("useNavigationBuilder's navigation is useNavigation()'s, the same on every render", async () => {
+      const { result, rerender } = await renderHook(() => ({
+        builder: mock.useNavigationBuilder(),
+        navigation: mock.useNavigation(),
+      }));
+      const first = result.current.builder.navigation;
+      expect(first).toBe(result.current.navigation);
+      await rerender({});
+      expect(result.current.builder.navigation).toBe(first);
+    });
+
+    it("navigateDeprecated with an object needs a name, as React Navigation's does", () => {
+      expect(() => mock.CommonActions.navigateDeprecated({ params: {} })).toThrow(
+        "You need to specify a name when calling navigateDeprecated",
+      );
+    });
+
+    it("popTo's deprecated boolean merge warns and merges", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        expect(mock.StackActions.popTo("Home", undefined, true)).toEqual({
+          type: "POP_TO",
+          payload: { name: "Home", params: undefined, merge: true },
+        });
+        expect(warn).toHaveBeenCalledWith(
+          "Passing a boolean as the third argument to 'popTo' is deprecated. Pass '{ merge: true }' instead.",
+        );
+      } finally {
+        warn.mockRestore();
+      }
     });
 
     it("NavigationProvider gives its children the route and navigation", async () => {

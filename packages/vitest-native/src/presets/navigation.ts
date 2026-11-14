@@ -28,6 +28,10 @@ function createMockNavigation() {
     addListener: vi.fn(() => vi.fn()),
     removeListener: vi.fn(),
     getId: vi.fn(() => undefined),
+    preload: vi.fn(),
+    replaceParams: vi.fn(),
+    navigateDeprecated: vi.fn(),
+    emit: vi.fn(() => ({ defaultPrevented: false })),
   };
 }
 
@@ -248,6 +252,13 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             stale: false,
           }));
 
+          // Navigation methods React Navigation 7 added beside the ones above (preloading,
+          // replacing params, the pre-7 navigate) and the event emitter of a navigator's helpers.
+          const preload = vi.fn();
+          const replaceParams = vi.fn();
+          const navigateDeprecated = vi.fn();
+          const emit = vi.fn(() => ({ defaultPrevented: false }));
+
           const defaultNavigation = {
             navigate,
             goBack,
@@ -262,6 +273,10 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             addListener: vi.fn(() => vi.fn()),
             removeListener: vi.fn(),
             getId: vi.fn(() => undefined),
+            preload,
+            replaceParams,
+            navigateDeprecated,
+            emit,
           };
 
           const defaultRoute = {
@@ -305,13 +320,6 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           function useNavigationState(selector: (state: any) => any) {
             return selector(getState());
           }
-
-          // Navigation methods React Navigation 7 added beside the ones above (preloading,
-          // replacing params, the pre-7 navigate) and the event emitter of a navigator's helpers.
-          const preload = vi.fn();
-          const replaceParams = vi.fn();
-          const navigateDeprecated = vi.fn();
-          const emit = vi.fn(() => ({ defaultPrevented: false }));
 
           function createNavigationContainerRef() {
             return {
@@ -389,20 +397,41 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
               type: "REPLACE_PARAMS",
               payload: { params },
             })),
-            navigateDeprecated: vi.fn((name: any, params?: object) => ({
-              type: "NAVIGATE_DEPRECATED",
-              payload: typeof name === "string" ? { name, params } : name,
-            })),
+            navigateDeprecated: vi.fn((name: any, params?: object) => {
+              if (typeof name === "string") {
+                return { type: "NAVIGATE_DEPRECATED", payload: { name, params } };
+              }
+              const payload = name || {};
+              if (!("name" in payload)) {
+                throw new Error(
+                  "You need to specify a name when calling navigateDeprecated with an object as the argument. See https://reactnavigation.org/docs/navigation-actions#navigatelegacy for usage.",
+                );
+              }
+              return { type: "NAVIGATE_DEPRECATED", payload };
+            }),
           };
           const StackActions = {
             push: vi.fn(),
             pop: vi.fn(),
             popToTop: vi.fn(),
             replace: vi.fn(),
-            popTo: vi.fn((name: string, params?: object, options?: { merge?: boolean }) => ({
-              type: "POP_TO",
-              payload: { name, params, merge: options?.merge },
-            })),
+            popTo: vi.fn(
+              (name: string, params?: object, options?: { merge?: boolean } | boolean) => {
+                if (typeof options === "boolean") {
+                  console.warn(
+                    "Passing a boolean as the third argument to 'popTo' is deprecated. Pass '{ merge: true }' instead.",
+                  );
+                }
+                return {
+                  type: "POP_TO",
+                  payload: {
+                    name,
+                    params,
+                    merge: typeof options === "boolean" ? options : options?.merge,
+                  },
+                };
+              },
+            ),
           };
           const TabActions = {
             jumpTo: vi.fn(),
@@ -478,14 +507,8 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             })),
             useNavigationBuilder: vi.fn(() => ({
               state: getState(),
-              // A navigator's helpers: the navigation object, and its event emitter.
-              navigation: {
-                ...useNavigation(),
-                emit,
-                preload,
-                replaceParams,
-                navigateDeprecated,
-              },
+              // The navigation object useNavigation() gives, the same one on every render.
+              navigation: useNavigation(),
               descriptors: {},
               describe: vi.fn((route: any) => ({
                 route,
