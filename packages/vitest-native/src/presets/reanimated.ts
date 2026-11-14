@@ -218,6 +218,7 @@ export function derivedValue(updater: () => unknown): SharedValue {
     // Run again on mount, as Reanimated's mapper runs when it starts (a StrictMode
     // remount stops it first).
     React.useEffect(() => {
+      state.started = true;
       state.run();
       return () => state.stop();
     }, [state]);
@@ -234,9 +235,18 @@ function derivedState(updater: () => unknown) {
     inputs: new Set<SharedValue>(),
     /** What the last render read, followed when it commits (followRendered). */
     rendered: null as Set<SharedValue> | null,
+    /** Between the mount effect and unmount. */
+    started: false,
+    /** Whether the updater is running: a write it makes to its own input waits. */
+    running: false,
     ran: false,
     last: undefined as unknown,
     run(follow = true) {
+      // Reanimated's mapperRun returns while mappers are processing: an updater that
+      // writes a value it reads does not run again inside itself, it waits for the
+      // next write to one of its inputs.
+      if (held.running) return;
+      held.running = true;
       const outer = derivedReads;
       const read = new Set<SharedValue>();
       derivedReads = read;
@@ -245,6 +255,7 @@ function derivedState(updater: () => unknown) {
         next = held.updater();
       } finally {
         derivedReads = outer;
+        held.running = false;
       }
       read.delete(held.derived);
       if (follow) held.follow(read);
@@ -262,11 +273,22 @@ function derivedState(updater: () => unknown) {
         if (!held.inputs.has(input)) input.addListener(held, () => held.run());
       held.inputs = read;
     },
+    /**
+     * After a commit: follow what its render read. On an update that reads an input not
+     * followed before, run again, as Reanimated restarts a mapper whose closure changed:
+     * a child's effects run before this one, and a write they made to that input in this
+     * commit was not heard. The first commit's run is the mount effect's.
+     */
     followRendered() {
-      if (held.rendered) held.follow(held.rendered);
+      const rendered = held.rendered;
       held.rendered = null;
+      if (!rendered) return;
+      const added = [...rendered].some((input) => !held.inputs.has(input));
+      held.follow(rendered);
+      if (held.started && added) held.run();
     },
     stop() {
+      held.started = false;
       for (const input of held.inputs) input.removeListener(held);
       held.inputs.clear();
     },
