@@ -51,6 +51,17 @@ reactNative({ presets: { navigation: false } })
 
 Under the native engine, Gesture Handler and FlashList already run as themselves, with the Jest setup each library ships. In the object form, `presets: { gestureHandler: false }` and `{ flashList: false }` keep that setup, so a setting carried over from older mocks changes nothing there and can be deleted. Under the mock engine they turn the preset off.
 
+### Reanimated: its mock or the real library
+
+Reanimated has two ways to run under Jest, and a suite is written against one of them:
+
+| Your Jest setup | What it runs | Under vitest-native |
+|---|---|---|
+| `jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'))`, or no Reanimated setup | Reanimated's mock: animations land at once, and `getAnimatedStyle` finds no animated style | The default. The `reanimated` preset serves the same mock; delete the `jest.mock` line. |
+| `setUpTests()` from `react-native-reanimated`, and no mock of it | The real library: mappers run, timed animations need timers advanced, and `getAnimatedStyle` reads the style the animated components set | `presets: { reanimated: false }` under the native engine, with Reanimated 4.7 or later. The real library runs through its own Jest resolver; keep the setup file that calls `setUpTests()`. |
+
+`vitest-native migrate` reads your Jest setup and writes the matching option. The mock engine has no real React Native for the library to run on, so keep the preset there.
+
 ## Available presets
 
 | Preset | Library | What's mocked |
