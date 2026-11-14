@@ -1309,6 +1309,15 @@
       "bugSignature": "^app\\.test\\.tsx: AssertionError: expected 10 to be 60"
     },
     {
+      "id": "pre-351-gh-buttons-unpressable",
+      "class": "presets",
+      "title": "Gesture Handler 3's buttons cannot be pressed from Testing Library",
+      "source": "#351 (rc.4 report)",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/gesture-handler-button-host",
+      "bugSignature": "^app\\.test\\.tsx: AssertionError: a Gesture Handler 3 button was not pressed"
+    },
+    {
       "id": "pre-banner-names-presets",
       "class": "presets",
       "title": "The engine banner does not name the presets it applies",
