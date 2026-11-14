@@ -131,9 +131,9 @@ it("a reaction a child starts before its parent's derived value still runs after
   // the pass orders mappers by what they write and read, as Reanimated's does.
   let a!: SharedValue<number>;
   const calls: unknown[] = [];
-  function Watcher({ a, d }: { a: SharedValue<number>; d: SharedValue<number> }) {
+  function Watcher({ source, d }: { source: SharedValue<number>; d: SharedValue<number> }) {
     useAnimatedReaction(
-      () => [a.get(), d.get()],
+      () => [source.get(), d.get()],
       (now) => {
         calls.push(now);
       },
@@ -143,7 +143,7 @@ it("a reaction a child starts before its parent's derived value still runs after
   function Source() {
     a = useSharedValue(0);
     const d = useDerivedValue(() => a.get() * 2);
-    return <Watcher a={a} d={d} />;
+    return <Watcher source={a} d={d} />;
   }
   await render(<Source />);
   calls.length = 0;
@@ -257,4 +257,56 @@ it("a reaction's state update from a write lands at the next act, as under Reani
   } finally {
     error.mockRestore();
   }
+});
+
+/** The listener ids live on `value`, counted through its public addListener/removeListener. */
+function liveListeners(value: SharedValue<number>): Set<unknown> {
+  const live = new Set<unknown>();
+  const add = value.addListener.bind(value);
+  const remove = value.removeListener.bind(value);
+  const tracked = value as unknown as {
+    addListener: (id: unknown, listener: (value: number) => void) => void;
+    removeListener: (id: unknown) => void;
+  };
+  tracked.addListener = (id, listener) => {
+    live.add(id);
+    add(id as number, listener);
+  };
+  tracked.removeListener = (id) => {
+    live.delete(id);
+    remove(id as number);
+  };
+  return live;
+}
+
+it("unmounting the readers of a long-lived shared value leaves no listener on it", async () => {
+  let input!: SharedValue<number>;
+  let live: Set<unknown> | undefined;
+  function Reader() {
+    const d = useDerivedValue(() => input.get() * 2);
+    const style = useAnimatedStyle(() => ({ opacity: input.get() + d.get() }));
+    useAnimatedReaction(
+      () => input.get(),
+      () => {},
+    );
+    return <Animated.View style={style} />;
+  }
+  function Holder({ readers }: { readers: number }) {
+    input = useSharedValue(0);
+    live ??= liveListeners(input);
+    return (
+      <>
+        {Array.from({ length: readers }, (_, i) => (
+          <Reader key={i} />
+        ))}
+      </>
+    );
+  }
+  const { rerender } = await render(<Holder readers={0} />);
+  const baseline = live!.size;
+  await rerender(<Holder readers={50} />);
+  expect(live!.size).toBe(baseline + 150);
+  input.set(1);
+  await rerender(<Holder readers={0} />);
+  expect(live!.size).toBe(baseline);
 });

@@ -380,6 +380,8 @@ function sortMappers(): Mapper[] {
 function hookMapper<T extends { mapper: Mapper }>(create: () => T, commit: (held: T) => void): T {
   const rendering = useRefOrNull<T>();
   if (rendering === null) {
+    // Called outside a render (the mock allows it): there is no component, so nothing
+    // ever stops this mapper; it follows its inputs for as long as they live.
     const held = create();
     startMapper(held.mapper);
     return held;
