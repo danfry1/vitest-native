@@ -50,6 +50,10 @@ describe("toVitestFakeTimersConfig", () => {
     expect(translate({ toFake: ["setTimeout"], doNotFake: ["Date"] }).toFake).toEqual([
       "setTimeout",
     ]);
+    // doNotFake still subtracts from the call's own list.
+    expect(
+      translate({ toFake: ["setTimeout", "queueMicrotask"], doNotFake: ["queueMicrotask"] }).toFake,
+    ).toEqual(["setTimeout"]);
     expect(translate({ toNotFake: ["Date"] })).toEqual({
       loopLimit: 100_000,
       now: REAL_NOW,

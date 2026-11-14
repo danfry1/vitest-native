@@ -275,9 +275,11 @@ export function toVitestFakeTimersConfig(config, realNow = Date.now, projectFake
   // test pinned with setSystemTime leaked into every later jest.useFakeTimers().
   out.now = now ?? realNow();
   const chosen = rest.toFake !== undefined || rest.toNotFake !== undefined;
-  // A call's own Vitest `toFake` is kept as given, with or without doNotFake.
-  if (rest.toFake === undefined && (doNotFake !== undefined || (!chosen && !projectFakesApis))) {
-    const real = new Set(doNotFake ?? []);
+  const real = new Set(doNotFake ?? []);
+  if (Array.isArray(rest.toFake)) {
+    // A call's own Vitest `toFake` is its list, less anything doNotFake names.
+    if (doNotFake !== undefined) out.toFake = rest.toFake.filter((api) => !real.has(api));
+  } else if (doNotFake !== undefined || (!chosen && !projectFakesApis)) {
     out.toFake = FAKEABLE_TIMER_APIS.filter((api) => !KEPT_REAL.has(api) && !real.has(api));
   }
   return out;
