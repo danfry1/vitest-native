@@ -2212,6 +2212,15 @@
         ]
       },
       "fixRef": "964c6c664c6032c6f0a908f9747977e57dae2f96"
+    },
+    {
+      "id": "pre-708-keyboard-controller-animated-keyboard",
+      "class": "presets",
+      "title": "keyboard-controller's useAnimatedKeyboard is missing",
+      "source": "#708",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/keyboard-controller-mock-gaps",
+      "bugSignature": "^keyboard\\.test\\.tsx: TypeError: \\(0 , [\\w$]+\\.useAnimatedKeyboard\\) is not a function"
     }
   ]
 }
