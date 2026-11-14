@@ -1,6 +1,7 @@
+import { placeSetupFiles, runSetupFilesInOrder } from "./setup-files.js";
 import type { Plugin, ResolvedConfig, UserConfig } from "vite";
 import type { PoolRunnerInitializer } from "vitest/node";
-import type { VitestNativeOptions, ResolvedOptions, Preset } from "./types.js";
+import type { VitestNativeOptions, ResolvedOptions, Preset, PresetModule } from "./types.js";
 import { getConfiguredPlatformExtensions, getPlatformExtensions } from "./resolve.js";
 import { firstExact, platformSubpathFile } from "./native/resolve.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -24,7 +25,6 @@ import { VitestNativeError, VitestNativeTypeError } from "./errors.mjs";
 import { assertSupportedNode } from "./node-range.js";
 import { presetFromModule } from "./preset-modules.mjs";
 import { BUILT_IN_PRESET } from "./presets/built-in.js";
-import { freshRuntimeDeclinedNotice, presetsHoldingReact } from "./fresh-runtime-presets.js";
 import { serializableAliases } from "./jest-compat/aliases.mjs";
 import { tsconfigPathAliases } from "./native/tsconfig-paths.mjs";
 import {
@@ -45,7 +45,13 @@ import {
 import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.js";
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { JSX_TRANSFORM, nativeEngineConfig } from "./native/apply.js";
-import { isProjectJsFile, loadProjectJsx, projectJsxOptions } from "./project-jsx.js";
+import {
+  isPackageJsFile,
+  isProjectJsFile,
+  loadPackageJsx,
+  loadProjectJsx,
+  projectJsxOptions,
+} from "./project-jsx.js";
 import {
   createProjectBabel,
   isProjectSourceFile,
@@ -684,8 +690,6 @@ async function startRegistryFor(options: RegistryOptions): Promise<StartedRegist
 
 /** Recommended-floor warnings already printed in this process. */
 const warnedRecommended = new Set<string>();
-// The freshRuntime decline notices already printed, once per process (fresh-runtime-presets.ts).
-const freshRuntimeNotices = new Set<string>();
 
 /** Vitest instances whose close already settles the background registry builds. */
 const registrySettlers = new WeakSet<object>();
@@ -1521,25 +1525,23 @@ export function pinInlineProjectRoots(test: unknown, declaringRoot: string): num
 }
 
 /**
- * Run React Native's setup before the user's own setup files.
- *
- * Vite merges a config hook's returned arrays AFTER the user's (`mergeConfig`
- * concatenates left to right), so returning `setupFiles: [ours]` ran every user setup
- * file first. A user setup that imports `@testing-library/react-native` or
- * `react-native` then reached Node before the require hooks existed and failed on
- * React Native's Flow source ("Unexpected token 'typeof'"). The hot runtime hid this
- * by installing the hooks at worker boot; every other run broke. Jest has the same
- * ordering contract: a preset's `setupFiles` run before the project's
- * `setupFilesAfterEnv`. Moving the entries into the user's list (and out of the merged
- * result) keeps a single copy of each at the front, in order.
+ * Run React Native's setup before the user's own setup files (placeSetupFiles). A user
+ * setup that imports `@testing-library/react-native` or `react-native` otherwise reached
+ * Node before the require hooks existed and failed on React Native's Flow source
+ * ("Unexpected token 'typeof'"). The hot runtime hid this by installing the hooks at
+ * worker boot; every other run broke. Jest has the same ordering contract: a preset's
+ * `setupFiles` run before the project's `setupFilesAfterEnv`. The entries move into the
+ * user's list and out of the merged result, so a single copy of each runs, first.
  */
 function prependSetupFile(userConfig: UserConfig, contributed: { setupFiles?: unknown }): void {
-  const ours = contributed.setupFiles as string[];
-  const userTest = ((userConfig as { test?: { setupFiles?: unknown } }).test ??= {});
+  const userTest = ((userConfig as { test?: Parameters<typeof placeSetupFiles>[0] }).test ??= {});
   const existing = userTest.setupFiles;
-  const userFiles = Array.isArray(existing) ? existing : existing == null ? [] : [existing];
-  if (userFiles.length === 0) return;
-  userTest.setupFiles = [...ours, ...userFiles.filter((f) => !ours.includes(f))];
+  if (existing == null || (Array.isArray(existing) && existing.length === 0)) {
+    // Nothing of the project's to run first: the merge lists ours alone, in order.
+    runSetupFilesInOrder(userTest);
+    return;
+  }
+  placeSetupFiles(userTest, contributed.setupFiles as string[]);
   contributed.setupFiles = [];
 }
 
@@ -2085,7 +2087,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // configureProject has is `C:\…`, and both must find the same route.
   const projectBabelFor = (root: string | undefined): ProjectBabel | undefined =>
     root === undefined ? undefined : projectBabels.get(path.resolve(root));
-  const presetModules = new Map<string, () => Record<string, any>>();
+  const presetModules = new Map<string, PresetModule["factory"]>();
   // The preset that shadows each module (configResolved), and the Jest setup files of
   // the libraries that run as themselves under the native engine (config()).
   const presetNameByModule = new Map<string, string>();
@@ -2698,18 +2700,6 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
             );
         if (nativePresetNames.length > 0) {
           fields.presetNames = nativePresetNames;
-        }
-        // freshRuntime declines while a preset's module holds React per worker (#719).
-        if (fields.hotFreshRuntime === true) {
-          const holding = presetsHoldingReact(nativePresetNames, resolvedRoot);
-          if (holding.length > 0) {
-            delete fields.hotFreshRuntime;
-            const notice = freshRuntimeDeclinedNotice(holding);
-            if (!freshRuntimeNotices.has(notice)) {
-              freshRuntimeNotices.add(notice);
-              console.warn(notice);
-            }
-          }
         }
         // 'resolution' implies nodeMocks: the bridge serves a mocked dependency as the
         // test's instance, so Node's own require of it must be served the same.
@@ -3506,6 +3496,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           );
       }
       if (projectJsx && isProjectJsFile(id)) return jsx();
+      // A package's .js file that Vite serves uncompiled and cannot parse: JSX in a
+      // package the native engine does not detect (#763). Native only: the mock engine
+      // compiles the packages it inlines through its own path.
+      if (engine === "native" && projectJsx && isPackageJsFile(id)) {
+        return loadPackageJsx(
+          id,
+          projectJsx,
+          viteConfig,
+          chain,
+          diagnostics ? console.log : undefined,
+        );
+      }
 
       // The native engine's react-native facade. It re-exports the SAME instance
       // Node's graph holds — `_rn.View` is the very object an externalized library

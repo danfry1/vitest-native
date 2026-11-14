@@ -29,7 +29,7 @@ import { renderHook } from "@testing-library/react-native";
 
 describe("preset: navigation", () => {
   const preset = navigation();
-  const mock = preset.modules["@react-navigation/native"].factory();
+  const mock = preset.modules["@react-navigation/native"].factory({ React });
 
   // createNavigatorFactory(Navigator) returns a factory yielding { Navigator, Screen,
   // Group } — the real shape. It returned a bare vi.fn() whose result was undefined,
@@ -384,7 +384,7 @@ describe("preset: navigation", () => {
   });
 
   describe("@react-navigation/native-stack", () => {
-    const stackMock = preset.modules["@react-navigation/native-stack"].factory();
+    const stackMock = preset.modules["@react-navigation/native-stack"].factory({ React });
     const stack = stackMock.createNativeStackNavigator();
 
     it("createNativeStackScreen returns the screen config, and NativeStackView is a view", () => {
@@ -482,7 +482,7 @@ describe("preset: navigation", () => {
   });
 
   describe("@react-navigation/bottom-tabs", () => {
-    const tabsMock = preset.modules["@react-navigation/bottom-tabs"].factory();
+    const tabsMock = preset.modules["@react-navigation/bottom-tabs"].factory({ React });
     const tabs = tabsMock.createBottomTabNavigator();
 
     it("createBottomTabNavigator returns Navigator, Screen, Group", () => {
@@ -523,7 +523,7 @@ describe("preset: navigation", () => {
   });
 
   describe("@react-navigation/drawer", () => {
-    const drawerMock = preset.modules["@react-navigation/drawer"].factory();
+    const drawerMock = preset.modules["@react-navigation/drawer"].factory({ React });
     const drawer = drawerMock.createDrawerNavigator();
 
     it("createDrawerNavigator returns Navigator, Screen, Group", () => {
@@ -534,7 +534,7 @@ describe("preset: navigation", () => {
   });
 
   describe("@react-navigation/elements", () => {
-    const elementsMock = preset.modules["@react-navigation/elements"].factory();
+    const elementsMock = preset.modules["@react-navigation/elements"].factory({ React });
 
     it("Header components are renderable", () => {
       expect(elementsMock.Header.displayName).toBe("Header");
@@ -559,7 +559,7 @@ describe("preset: navigation", () => {
 
 describe("preset: reanimated", () => {
   const preset = reanimated();
-  const mock = preset.modules["react-native-reanimated"].factory();
+  const mock = preset.modules["react-native-reanimated"].factory({ React });
 
   it("useSharedValue is a function (uses React.useRef internally, must be called in component)", () => {
     expect(typeof mock.useSharedValue).toBe("function");
@@ -816,7 +816,7 @@ describe("preset: reanimated", () => {
 
 describe("preset: gestureHandler", () => {
   const preset = gestureHandler();
-  const mock = preset.modules["react-native-gesture-handler"].factory();
+  const mock = preset.modules["react-native-gesture-handler"].factory({ React });
 
   it("State has expected enum values", () => {
     expect(mock.State.UNDETERMINED).toBe(0);
@@ -891,7 +891,7 @@ describe("preset: gestureHandler", () => {
 
 describe("preset: safeAreaContext", () => {
   const preset = safeAreaContext();
-  const mock = preset.modules["react-native-safe-area-context"].factory();
+  const mock = preset.modules["react-native-safe-area-context"].factory({ React });
 
   // The hooks read context, so they run inside a render.
   const insetsNow = async (wrapper?: React.ComponentType<{ children: React.ReactNode }>) =>
@@ -997,7 +997,7 @@ describe("preset: safeAreaContext", () => {
 
 describe("preset: asyncStorage", () => {
   const preset = asyncStorage();
-  const mock = preset.modules["@react-native-async-storage/async-storage"].factory();
+  const mock = preset.modules["@react-native-async-storage/async-storage"].factory({ React });
 
   it("setItem and getItem work together", async () => {
     await mock.setItem("key1", "value1");
@@ -1077,7 +1077,7 @@ describe("preset: asyncStorage", () => {
 
 describe("preset: screens", () => {
   const preset = screens();
-  const mock = preset.modules["react-native-screens"].factory();
+  const mock = preset.modules["react-native-screens"].factory({ React });
 
   it("enableScreens is callable", () => {
     expect(() => mock.enableScreens()).not.toThrow();
@@ -1108,7 +1108,7 @@ describe("preset: screens", () => {
 describe("preset: expo", () => {
   describe("expo-constants", () => {
     const preset = expo();
-    const mock = preset.modules["expo-constants"].factory();
+    const mock = preset.modules["expo-constants"].factory({ React });
     // Constants values live on the default export, as they do in the real package.
     const Constants = mock.default;
 
@@ -1144,7 +1144,7 @@ describe("preset: expo", () => {
 
   describe("expo-font", () => {
     const preset = expo();
-    const mock = preset.modules["expo-font"].factory();
+    const mock = preset.modules["expo-font"].factory({ React });
 
     it("useFonts returns [loaded, null]", () => {
       const [loaded, error] = mock.useFonts();
@@ -1159,7 +1159,7 @@ describe("preset: expo", () => {
 
   describe("expo-asset", () => {
     const preset = expo();
-    const mock = preset.modules["expo-asset"].factory();
+    const mock = preset.modules["expo-asset"].factory({ React });
 
     it("Asset.fromModule returns asset-like object", () => {
       const asset = mock.Asset.fromModule(42);
@@ -1172,7 +1172,7 @@ describe("preset: expo", () => {
 
   describe("expo-splash-screen", () => {
     const preset = expo();
-    const mock = preset.modules["expo-splash-screen"].factory();
+    const mock = preset.modules["expo-splash-screen"].factory({ React });
 
     it("preventAutoHideAsync resolves", async () => {
       await expect(mock.preventAutoHideAsync()).resolves.toBe(true);
@@ -1194,7 +1194,7 @@ describe("preset: expo", () => {
 
   describe("expo-linking", () => {
     const preset = expo();
-    const mock = preset.modules["expo-linking"].factory();
+    const mock = preset.modules["expo-linking"].factory({ React });
 
     it("createURL returns an expo URL", () => {
       const url = mock.createURL("home");
@@ -1230,7 +1230,7 @@ describe("preset: expo", () => {
 
   describe("expo-status-bar", () => {
     const preset = expo();
-    const mock = preset.modules["expo-status-bar"].factory();
+    const mock = preset.modules["expo-status-bar"].factory({ React });
 
     it("StatusBar is a renderable component", () => {
       expect(mock.StatusBar).toBeDefined();
@@ -1250,7 +1250,7 @@ describe("preset: expo", () => {
 // --- Device Info ---
 
 describe("preset: deviceInfo", () => {
-  const mock = deviceInfo().modules["react-native-device-info"].factory();
+  const mock = deviceInfo().modules["react-native-device-info"].factory({ React });
 
   it("default object exposes string getters that don't crash on .toLowerCase()", () => {
     expect(typeof mock.default.getBrandSync()).toBe("string");
@@ -1271,7 +1271,7 @@ describe("preset: deviceInfo", () => {
 // --- MMKV ---
 
 describe("preset: mmkv", () => {
-  const mock = mmkv().modules["react-native-mmkv"].factory();
+  const mock = mmkv().modules["react-native-mmkv"].factory({ React });
 
   it("MMKV instance round-trips values", () => {
     const m = new mock.MMKV();
@@ -1300,7 +1300,7 @@ describe("preset: mmkv", () => {
 // --- SVG ---
 
 describe("preset: svg", () => {
-  const mock = svg().modules["react-native-svg"].factory();
+  const mock = svg().modules["react-native-svg"].factory({ React });
 
   it("default is Svg; core elements are renderable host components", () => {
     expect(mock.default).toBe(mock.Svg);
@@ -1313,7 +1313,7 @@ describe("preset: svg", () => {
 // --- WebView ---
 
 describe("preset: webview", () => {
-  const mock = webview().modules["react-native-webview"].factory();
+  const mock = webview().modules["react-native-webview"].factory({ React });
 
   it("exposes WebView as both default and named, renderable", () => {
     expect(mock.default).toBe(mock.WebView);
@@ -1324,7 +1324,7 @@ describe("preset: webview", () => {
 // --- FlashList ---
 
 describe("preset: flashList", () => {
-  const mock = flashList().modules["@shopify/flash-list"].factory();
+  const mock = flashList().modules["@shopify/flash-list"].factory({ React });
 
   it("default is FlashList; list variants are renderable host components", () => {
     expect(mock.default).toBe(mock.FlashList);
@@ -1394,7 +1394,7 @@ describe("preset: flashList", () => {
 // --- Bottom Sheet ---
 
 describe("preset: bottomSheet", () => {
-  const mock = bottomSheet().modules["@gorhom/bottom-sheet"].factory();
+  const mock = bottomSheet().modules["@gorhom/bottom-sheet"].factory({ React });
 
   it("default is BottomSheet; sheet containers are renderable host components", () => {
     expect(mock.default.displayName).toBe("BottomSheet");
@@ -1477,7 +1477,7 @@ describe("preset: bottomSheet", () => {
 // --- Keyboard Controller ---
 
 describe("preset: keyboardController", () => {
-  const mock = keyboardController().modules["react-native-keyboard-controller"].factory();
+  const mock = keyboardController().modules["react-native-keyboard-controller"].factory({ React });
 
   it("provider + native views are renderable host components", () => {
     for (const name of [

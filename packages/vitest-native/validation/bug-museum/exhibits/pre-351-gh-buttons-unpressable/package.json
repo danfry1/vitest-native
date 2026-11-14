@@ -1,0 +1,13 @@
+{
+  "name": "museum-pre-351-gh-buttons-unpressable",
+  "private": true,
+  "dependencies": {
+    "react": "*",
+    "react-native": "*",
+    "react-native-gesture-handler": "*",
+    "react-native-unistyles": "*"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "*"
+  }
+}
