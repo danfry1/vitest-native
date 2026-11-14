@@ -1,0 +1,9 @@
+{
+  "name": "expo-modules-core",
+  "version": "58.0.0",
+  "main": "build/index.js",
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  }
+}

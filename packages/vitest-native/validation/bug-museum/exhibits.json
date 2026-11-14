@@ -2203,6 +2203,15 @@
         ]
       },
       "fixRef": "964c6c664c6032c6f0a908f9747977e57dae2f96"
+    },
+    {
+      "id": "env-expo-snapshot-friendly-ref",
+      "class": "env-contract",
+      "title": "A snapshot prints the fiber tree behind an Expo ref",
+      "source": "#849",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/expo-snapshot-friendly-ref",
+      "bugSignature": "^snapshot-ref\\.test\\.tsx: Error: Snapshot `a snapshot prints the ref as jest-expo does 1` mismatched"
     }
   ]
 }
