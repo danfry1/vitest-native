@@ -740,6 +740,15 @@
       }
     },
     {
+      "id": "env-jest-renamed-jest-mock",
+      "class": "env-contract",
+      "title": "jest.mock through a renamed jest from @jest/globals is ignored",
+      "source": "react-native-paper bake-off (#833)",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/jest-mock-transform-aliased-jest",
+      "bugSignature": "^renamed\\.test\\.ts: AssertionError: AccessibilityInfo from the renamed jest's mock: expected undefined to be 'mocked'"
+    },
+    {
       "id": "env-permissive-expo-dev-launcher",
       "class": "env-contract",
       "title": "Importing expo throws under nativeModules: 'permissive'",
