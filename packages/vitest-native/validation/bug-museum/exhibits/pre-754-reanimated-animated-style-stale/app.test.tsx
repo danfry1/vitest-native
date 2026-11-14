@@ -1,6 +1,10 @@
 import React from "react";
 import { render, screen } from "@testing-library/react-native";
-import Animated, { type SharedValue, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import Animated, {
+  type SharedValue,
+  useAnimatedStyle,
+  useSharedValue,
+} from "react-native-reanimated";
 
 // A child React skips (memoized, as React Compiler memoizes it) whose style follows a
 // shared value that changes after it rendered.

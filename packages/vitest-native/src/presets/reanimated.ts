@@ -266,24 +266,27 @@ function renderMapper<T extends Mapper>(create: () => T, update: (held: T) => vo
 export function derivedValue(updater: () => unknown): SharedValue {
   const held = renderMapper(
     () => {
-      const derived = sharedValue<unknown>(undefined);
-      let ran = false;
-      let last: unknown;
-      const state = mapper(() => {
-        const next = state.updater();
-        if (!ran || !Object.is(last, next)) {
-          ran = true;
-          last = next;
-          derived.value = next;
+      const own = {
+        derived: sharedValue<unknown>(undefined),
+        updater,
+        ran: false,
+        last: undefined,
+      };
+      const body = () => {
+        const next = own.updater();
+        if (!own.ran || !Object.is(own.last, next)) {
+          own.ran = true;
+          own.last = next as undefined;
+          own.derived.value = next;
         }
-      }, derived);
-      return Object.assign(state, { derived, updater });
+      };
+      return Object.assign(mapper(body, own.derived), { own });
     },
     (state) => {
-      state.updater = updater;
+      state.own.updater = updater;
     },
   );
-  return held.derived;
+  return held.own.derived;
 }
 
 /**
@@ -297,25 +300,26 @@ export function derivedValue(updater: () => unknown): SharedValue {
 export function animatedStyle(updater: () => unknown): unknown {
   const held = renderMapper(
     () => {
-      const state = mapper(() => {
-        const next = state.updater();
-        if (state.rendering || !isPlainObject(next) || !isPlainObject(state.shown)) {
-          state.shown = isPlainObject(next) ? { ...next } : next;
+      const own = { updater, shown: undefined as unknown, rendering: true };
+      const body = () => {
+        const next = own.updater();
+        const shown = own.shown;
+        if (own.rendering || !isPlainObject(next) || !isPlainObject(shown)) {
+          own.shown = isPlainObject(next) ? { ...next } : next;
           return;
         }
-        const shown = state.shown;
         for (const key of Object.keys(shown)) if (!(key in next)) delete shown[key];
         Object.assign(shown, next);
-      });
-      return Object.assign(state, { updater, shown: undefined as unknown, rendering: true });
+      };
+      return Object.assign(mapper(body), { own });
     },
     (state) => {
-      state.updater = updater;
-      state.rendering = true;
+      state.own.updater = updater;
+      state.own.rendering = true;
     },
   );
-  held.rendering = false;
-  return held.shown;
+  held.own.rendering = false;
+  return held.own.shown;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -449,8 +453,9 @@ export function mockCorrections(
       const result = hook(() => ({ probe: probe.get() }));
       probe.set(probe.get() + 1);
       return result;
-    }) as Record<string, unknown> | undefined;
-    if (given !== NEEDS_RENDER && given?.probe !== probe.get()) fixed[name] = animatedStyle;
+    });
+    const follows = (given as Record<string, unknown> | undefined)?.probe === probe.get();
+    if (given !== NEEDS_RENDER && !follows) fixed[name] = animatedStyle;
   }
   let reacted = false;
   const reaction = gives("useAnimatedReaction", (hook) =>
