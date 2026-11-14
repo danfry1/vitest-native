@@ -68,6 +68,19 @@ it("a style the updater drops is gone, and a style object it returns is left as 
   expect(hidden).toEqual({ display: "none" });
 });
 
+it("a component's animated style is one object across renders, as Reanimated's is", async () => {
+  const styles: unknown[] = [];
+  function Box({ width }: { width: number }) {
+    const style = useAnimatedStyle(() => ({ width }));
+    styles.push(style);
+    return <Animated.View testID="box" style={style} />;
+  }
+  const { rerender } = await render(<Box width={1} />);
+  await rerender(<Box width={2} />);
+  expect(styles.at(-1)).toBe(styles[0]);
+  expect(screen.getByTestId("box")).toHaveAnimatedStyle({ width: 2 });
+});
+
 it("animated props read after set() are the updater's new result", async () => {
   let radius!: SharedValue<number>;
   function Dot() {

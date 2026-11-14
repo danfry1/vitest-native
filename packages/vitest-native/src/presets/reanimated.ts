@@ -292,19 +292,20 @@ export function derivedValue(updater: () => unknown): SharedValue {
 /**
  * Reanimated's useAnimatedStyle and useAnimatedProps: what `updater` returns, kept current
  * whenever a shared value the updater read changes, without a render (renderMapper).
- * Reanimated applies the new result to the view; here each render gives a copy of the
- * result, and a change rewrites that copy in place, so the props a test reads hold it,
- * also in a child React skipped. The updater's own object is never written. A result
- * that is not a plain object is given as it is, and updated only by a render.
+ * Reanimated applies the new result to the view, through one style object it keeps per
+ * component; here that object is a copy of the first result, rewritten in place on every
+ * later run, so the props a test reads hold the current result, also in a child React
+ * skipped. The updater's own object is never written. A result that is not a plain
+ * object is given as it is, and updated only by a render.
  */
 export function animatedStyle(updater: () => unknown): unknown {
   const held = renderMapper(
     () => {
-      const own = { updater, shown: undefined as unknown, rendering: true };
+      const own = { updater, shown: undefined as unknown };
       const body = () => {
         const next = own.updater();
         const shown = own.shown;
-        if (own.rendering || !isPlainObject(next) || !isPlainObject(shown)) {
+        if (!isPlainObject(next) || !isPlainObject(shown)) {
           own.shown = isPlainObject(next) ? { ...next } : next;
           return;
         }
@@ -315,10 +316,8 @@ export function animatedStyle(updater: () => unknown): unknown {
     },
     (state) => {
       state.own.updater = updater;
-      state.own.rendering = true;
     },
   );
-  held.own.rendering = false;
   return held.own.shown;
 }
 
