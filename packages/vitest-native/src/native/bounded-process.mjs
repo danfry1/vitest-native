@@ -2,11 +2,15 @@
 //
 // Expensive toolchain/configuration modules must not become permanent members of
 // Vite's main process merely because their result is needed once at startup. The
-// child receives one JSON value on stdin and returns one JSON value over fd 3;
+// child receives one JSON value in a file named by its first argument (readInput) and
+// returns one JSON value over fd 3;
 // stdout/stderr remain available to arbitrary user/toolchain code without being
 // able to corrupt the protocol.
 import { spawn } from "node:child_process";
+import crypto from "node:crypto";
+import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { suspendedNote, suspensionTracker } from "./suspension.mjs";
 
 // The protocol channel carries the one answer and is capped strictly. stdout/stderr
@@ -29,9 +33,73 @@ export function lowerPriority(pid, priority, setPriority = os.setPriority) {
   }
 }
 
+/** The helper's side: the JSON value its parent wrote for it. */
+export function readInput(argv = process.argv) {
+  return JSON.parse(fs.readFileSync(argv[2], "utf8"));
+}
+
+/**
+ * Writes a helper's input to a file of its own in `dir`, read by the helper by path.
+ *
+ * Not stdin: the parent would end it with a write and a shutdown request, and a pending
+ * request holds this process's event loop open. On Windows a pipe's shutdown is a flush
+ * that waits until the reader has drained the pipe or is gone, and closing the pipe does
+ * not cancel it: a helper stopped before it read its input (one still starting on a
+ * loaded machine) kept a cancelled run from exiting for seconds. A file involves no
+ * request to the child. Created exclusively under a random name, so concurrent workers
+ * never share one.
+ */
+function writeInput(dir, label, input) {
+  const inputDir = path.join(dir, "helper-input");
+  fs.mkdirSync(inputDir, { recursive: true });
+  removeOrphanedInputs(inputDir);
+  const file = path.join(
+    inputDir,
+    [slugOf(label), HOST, process.pid, crypto.randomUUID(), "json"].join("."),
+  );
+  fs.writeFileSync(file, JSON.stringify(input), { flag: "wx", mode: 0o600 });
+  return file;
+}
+
+const slugOf = (text) => text.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "x";
+// Input files are named <label>.<host>.<pid>.<uuid>.json.
+const HOST = slugOf(os.hostname());
+// A helper reads its input within seconds of starting.
+const ORPHAN_AGE_MS = 10 * 60_000;
+
+/**
+ * Removes input files whose writer has died: a run killed outright (SIGKILL, a closed
+ * terminal) cannot run the removal its helper's end would have. Only this host's files,
+ * and only old ones: a process id means nothing on another machine or container sharing
+ * the directory (a mounted project in CI), and a recent file may still be read. A process
+ * that exists but cannot be signalled (EPERM) is alive.
+ */
+function removeOrphanedInputs(inputDir) {
+  // writeInput has just created the directory: an unreadable one fails that write, and
+  // runBoundedProcess reports it.
+  const now = Date.now();
+  for (const name of fs.readdirSync(inputDir)) {
+    const [, host, pidText] = name.split(".");
+    const pid = Number(pidText);
+    if (host !== HOST || !Number.isInteger(pid) || pid <= 0 || pid === process.pid) continue;
+    const file = path.join(inputDir, name);
+    try {
+      if (now - fs.statSync(file).mtimeMs < ORPHAN_AGE_MS) continue;
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error?.code === "ESRCH") removeInput(file);
+    }
+  }
+}
+
+function removeInput(file) {
+  // A helper killed on Windows may still hold it for a moment.
+  fs.rmSync(file, { force: true, maxRetries: 5, retryDelay: 50 });
+}
+
 function attempt(
   entryFile,
-  input,
+  inputFile,
   heapMb,
   spawnProcess,
   timeoutMs,
@@ -47,10 +115,11 @@ function attempt(
     }
     let child;
     try {
-      child = spawnProcess(process.execPath, [`--max-old-space-size=${heapMb}`, entryFile], {
-        stdio: ["pipe", "pipe", "pipe", "pipe"],
-        windowsHide: true,
-      });
+      child = spawnProcess(
+        process.execPath,
+        [`--max-old-space-size=${heapMb}`, entryFile, inputFile],
+        { stdio: ["ignore", "pipe", "pipe", "pipe"], windowsHide: true },
+      );
     } catch (error) {
       resolve({
         ok: false,
@@ -147,9 +216,6 @@ function attempt(
     child.on("error", (error) => {
       finish({ ok: false, oom: false, error: error.message, heapMb });
     });
-    // A helper may exit before draining input. EPIPE is emitted asynchronously;
-    // catching stdin.end() does not catch it. The close event reports the cause.
-    child.stdin?.on("error", () => {});
     child.on("close", (code, exitSignal) => {
       if (settled) return;
       const oom = OOM_RE.test(stderr);
@@ -188,17 +254,6 @@ function attempt(
       });
     }, pollMs);
     timer.unref?.();
-    try {
-      child.stdin?.end(JSON.stringify(input));
-    } catch (error) {
-      child.kill("SIGKILL");
-      finish({
-        ok: false,
-        oom: false,
-        heapMb,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
   });
 }
 
@@ -218,16 +273,44 @@ export async function runBoundedProcess(
     priority,
     // Let this process exit while the child runs (the child's timer is unref'd too).
     unref = false,
+    // Where the input file is written: the project's cache directory (cacheRootFor), on
+    // the project's volume rather than the system temporary directory.
+    inputDir = os.tmpdir(),
   },
 ) {
-  const run = (heapMb) =>
-    attempt(entryFile, input, heapMb, spawnProcess, timeoutMs, label, signal, priority, unref);
-  const first = await run(initialHeapMb);
-  if (first.ok || !first.oom || retryHeapMb <= initialHeapMb) {
-    return { ...first, attempts: 1 };
+  let inputFile;
+  try {
+    inputFile = writeInput(inputDir, label, input);
+  } catch (error) {
+    return {
+      ok: false,
+      oom: false,
+      error: `${label} input could not be written: ${error instanceof Error ? error.message : String(error)}`,
+      attempts: 0,
+    };
   }
-  const retry = await run(retryHeapMb);
-  return { ...retry, attempts: 2 };
+  try {
+    const run = (heapMb) =>
+      attempt(
+        entryFile,
+        inputFile,
+        heapMb,
+        spawnProcess,
+        timeoutMs,
+        label,
+        signal,
+        priority,
+        unref,
+      );
+    const first = await run(initialHeapMb);
+    if (first.ok || !first.oom || retryHeapMb <= initialHeapMb) {
+      return { ...first, attempts: 1 };
+    }
+    const retry = await run(retryHeapMb);
+    return { ...retry, attempts: 2 };
+  } finally {
+    removeInput(inputFile);
+  }
 }
 
 export const boundedProcessDefaults = Object.freeze({
