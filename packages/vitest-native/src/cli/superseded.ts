@@ -113,11 +113,9 @@ export function onlyCallsSetUpTests(source: string): boolean {
 export function callsReanimatedSetUpTests(source: string): boolean {
   const code = withoutComments(source);
   if (code === null) return false;
-  const lib = `['"]react-native-reanimated['"]`;
-  const takes = new RegExp(
-    `\\{[^}]*\\bsetUpTests\\b[^}]*\\}\\s*(?:=\\s*require\\(\\s*${lib}\\s*\\)|from\\s*${lib})`,
-  );
-  const direct = new RegExp(`require\\(\\s*${lib}\\s*\\)\\.setUpTests\\(`);
+  const takes =
+    /\{[^}]*\bsetUpTests\b[^}]*\}\s*(?:=\s*require\(\s*['"]react-native-reanimated['"]\s*\)|from\s*['"]react-native-reanimated['"])/;
+  const direct = /require\(\s*['"]react-native-reanimated['"]\s*\)\.setUpTests\(/;
   return direct.test(code) || (takes.test(code) && /(?:^|[^.\w])setUpTests\s*\(/m.test(code));
 }
 
