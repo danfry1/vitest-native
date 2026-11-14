@@ -102,19 +102,31 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
   // name; `import { jest as mockJest }` was not hoisted or registered (#833).
   describe("the jest object under another name", () => {
     const registered = (out: string, spec: string) =>
-      expect(body(out)).toContain(`vi.hoisted(() => globalThis.__vnJestMock?.(import.meta.url, '${spec}'`);
+      expect(body(out)).toContain(
+        `vi.hoisted(() => globalThis.__vnJestMock?.(import.meta.url, '${spec}'`,
+      );
 
     it.each([
       ["a renamed import", "import { jest as mockJest } from '@jest/globals';", "mockJest"],
       ["a namespace import", "import * as globals from '@jest/globals';", "globals.jest"],
       ["a string-named import", "import { 'jest' as mockJest } from '@jest/globals';", "mockJest"],
-      ["the jest-compat shim", "import { jest as j } from 'vitest-native/jest-compat/jest-globals';", "j"],
-      ["a destructured require", "const { jest: mockJest } = require('@jest/globals');", "mockJest"],
+      [
+        "the jest-compat shim",
+        "import { jest as j } from 'vitest-native/jest-compat/jest-globals';",
+        "j",
+      ],
+      [
+        "a destructured require",
+        "const { jest: mockJest } = require('@jest/globals');",
+        "mockJest",
+      ],
       ["a required namespace", "const globals = require('@jest/globals');", "globals.jest"],
       ["a require's jest member", "const mockJest = require('@jest/globals').jest;", "mockJest"],
     ])("hoists and registers a mock made through %s", (_form, binding, ref) => {
       const out = run(
-        [binding, `${ref}.mock('./a', () => ({ a: ${ref}.fn() }));`, `${ref}.unmock('b');`].join("\n"),
+        [binding, `${ref}.mock('./a', () => ({ a: ${ref}.fn() }));`, `${ref}.unmock('b');`].join(
+          "\n",
+        ),
       ).code;
       registered(out, "./a");
       expect(out).toContain("vi.mock('./a', () => __vn_jest_compat__(\"__vnJestMocked\")");
@@ -158,9 +170,27 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
 
     it.each([
       ["a further name", "const j = mockJest;", "j.mock('./a');", "const j = mockJest", "j.mock"],
-      ["a destructured method", "const { mock } = mockJest;", "mock('./a');", "{ mock } = mockJest", "mock"],
-      ["a method's alias", "const hoist = mockJest.doMock;", "hoist('./a');", "hoist = mockJest.doMock", "hoist"],
-      ["the global's further name", "const j = jest;", "j.unmock('./a');", "const j = jest", "j.unmock"],
+      [
+        "a destructured method",
+        "const { mock } = mockJest;",
+        "mock('./a');",
+        "{ mock } = mockJest",
+        "mock",
+      ],
+      [
+        "a method's alias",
+        "const hoist = mockJest.doMock;",
+        "hoist('./a');",
+        "hoist = mockJest.doMock",
+        "hoist",
+      ],
+      [
+        "the global's further name",
+        "const j = jest;",
+        "j.unmock('./a');",
+        "const j = jest",
+        "j.unmock",
+      ],
     ])("fails by name for a mock call through %s", (_form, alias, call, shown, name) => {
       let thrown: any;
       try {

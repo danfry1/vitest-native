@@ -6,7 +6,10 @@ import { jestCompatAliases, jestCompatSetup, jestMockTransform } from "vitest-na
 export default defineConfig({
   plugins: [jestMockTransform(), reactNative({ hotRuntime: false })],
   resolve: {
-    alias: Object.entries(jestCompatAliases()).map(([find, replacement]) => ({ find, replacement })),
+    alias: Object.entries(jestCompatAliases()).map(([find, replacement]) => ({
+      find,
+      replacement,
+    })),
   },
   test: {
     include: ["*.test.{ts,tsx}"],
