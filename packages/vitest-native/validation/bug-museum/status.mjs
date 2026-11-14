@@ -24,13 +24,14 @@ import { depsProblem } from "./lib/deps.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { exhibitHash } from "./lib/hash.mjs";
+import { cliArguments } from "../../scripts/support/arguments.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const argument = (name) => {
-  const index = process.argv.indexOf(`--${name}`);
-  return index === -1 ? undefined : process.argv[index + 1];
-};
-const resultsDir = argument("results");
+const options = cliArguments(
+  { script: "status.mjs", valued: ["results"] },
+  "status.mjs --results <dir>",
+).values;
+const resultsDir = options.results;
 if (!resultsDir) throw new Error("--results <dir> is required");
 const readColumn = (name) => {
   const file = path.join(resultsDir, `${name}.json`);

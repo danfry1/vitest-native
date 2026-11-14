@@ -1,7 +1,6 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
-import React from "react";
-import { hostComponent as hostClass, asHost } from "../mocks/host.js";
+import { hosts } from "../mocks/host-classes.js";
 import { builtInPreset } from "./built-in.js";
 import { libraryMockModule, type LibraryMock } from "./library-mock.js";
 
@@ -11,7 +10,7 @@ import { libraryMockModule, type LibraryMock } from "./library-mock.js";
 // mock functions that read the provider's metrics (`<SafeAreaProvider initialMetrics>`)
 // and zero insets on a 320x640 frame otherwise. Under the mock engine, and for a
 // version without that mock, the module below serves.
-export const SAFE_AREA_MOCK: LibraryMock = {
+const SAFE_AREA_MOCK: LibraryMock = {
   pkg: "react-native-safe-area-context",
   entry: "jest/mock",
   file: "lib/module/jest/mock.js",
@@ -38,7 +37,8 @@ export function safeAreaContext(): Preset {
           // there is no runtime binding to import. Declaring them made a value
           // import of a type resolve here and fail under Metro.
         ],
-        factory: () => {
+        factory: ({ React }) => {
+          const { hostComponent: hostClass, asHost } = hosts(React);
           const defaultInsets = { top: 47, right: 0, bottom: 34, left: 0 };
           const defaultFrame = { x: 0, y: 0, width: 390, height: 844 };
 

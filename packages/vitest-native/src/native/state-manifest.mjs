@@ -6,6 +6,7 @@
 // restored and verified before the next file. A failure names the responsible entry
 // instead of being swallowed and turning into an order-dependent later assertion.
 import { VitestNativeError, VitestNativeTypeError } from "../errors.mjs";
+import { hotDiagnostic } from "./hot-diagnostic.mjs";
 
 const NOT_CAPTURED = Symbol("vitest-native.state.not-captured");
 
@@ -67,9 +68,7 @@ export function createStateManifest({ diagnostics = false, mutation = null } = {
     for (const record of records) capture(record);
     initialized = true;
     if (diagnostics) {
-      console.log(
-        `[vitest-native] state manifest: ${records.map(({ entry }) => entry.id).join(", ")}`,
-      );
+      hotDiagnostic(`state manifest: ${records.map(({ entry }) => entry.id).join(", ")}`);
     }
   }
 
