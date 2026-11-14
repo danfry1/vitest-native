@@ -30,6 +30,8 @@ probeModule(
   {
     // The mock returns the component it is given; the generic `{}` would come back as is.
     args: { createBottomSheetScrollableComponent: () => [0, ScrollView] },
+    // The package's default export is the BottomSheet class component, which renders.
+    noCall: { default: "a class component" },
     wrapper: (children) => (
       <BottomSheet.BottomSheetModalProvider>{children}</BottomSheet.BottomSheetModalProvider>
     ),
