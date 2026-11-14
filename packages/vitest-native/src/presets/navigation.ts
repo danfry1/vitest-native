@@ -403,9 +403,10 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
               }
               const payload = name || {};
               if (!("name" in payload)) {
-                throw new Error(
-                  "You need to specify a name when calling navigateDeprecated with an object as the argument. See https://reactnavigation.org/docs/navigation-actions#navigatelegacy for usage.",
-                );
+                // @react-navigation/routers' own message, a plain Error as it throws it.
+                const missingName =
+                  "You need to specify a name when calling navigateDeprecated with an object as the argument. See https://reactnavigation.org/docs/navigation-actions#navigatelegacy for usage.";
+                throw new Error(missingName);
               }
               return { type: "NAVIGATE_DEPRECATED", payload };
             }),
