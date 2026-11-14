@@ -2555,6 +2555,14 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       if ((userConfig as { test?: { restoreMocks?: unknown } }).test?.restoreMocks === true) {
         fields.restoreMocks = true;
       }
+      // jest-compat's jest.useFakeTimers() fakes queueMicrotask as Jest does, unless the
+      // project names the APIs Vitest fakes (jest-compat/jest-object.mjs).
+      const fakeTimers = (
+        userConfig as { test?: { fakeTimers?: { toFake?: unknown; toNotFake?: unknown } } }
+      ).test?.fakeTimers;
+      if (fakeTimers?.toFake !== undefined || fakeTimers?.toNotFake !== undefined) {
+        fields.fakeTimersApis = true;
+      }
       const env: Record<string, string> = {};
       // jest.requireActual resolves through Node, which does not apply resolve.alias.
       // Hand the serializable entries to the compat setup so an aliased specifier

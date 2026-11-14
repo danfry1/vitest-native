@@ -2243,6 +2243,15 @@
         ]
       },
       "fixRef": "964c6c664c6032c6f0a908f9747977e57dae2f96"
+    },
+    {
+      "id": "pre-835-jest-fake-timers-queue-microtask",
+      "class": "env-contract",
+      "title": "jest.useFakeTimers() leaves queueMicrotask real under jest-compat",
+      "source": "#835",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/jest-fake-timers-microtask",
+      "bugSignature": "^microtask\\.test\\.ts: AssertionError: expected \"vi\\.fn\\(\\)\" to not be called at all"
     }
   ]
 }
