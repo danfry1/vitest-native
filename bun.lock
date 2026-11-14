@@ -92,6 +92,7 @@
         "rn-condition-cjs-lib": "file:./tests-native/fixtures/rn-condition-cjs-lib",
         "rn-condition-lib": "file:./tests-native/fixtures/rn-condition-lib",
         "rn-ecosystem-lib": "file:./tests-native/fixtures/rn-ecosystem-lib",
+        "rn-esbuild-reexport-lib": "file:./tests-native/fixtures/rn-esbuild-reexport-lib",
         "rn-mainfield-lib": "file:./tests-native/fixtures/rn-mainfield-lib",
         "rn-platform-flow-lib": "file:./tests-native/fixtures/rn-platform-flow-lib",
         "rn-singleton-lib": "file:./tests-native/fixtures/rn-singleton-lib",
@@ -2016,6 +2017,8 @@
     "vitest-native/rn-condition-lib": ["rn-condition-lib@file:packages/vitest-native/tests-native/fixtures/rn-condition-lib", { "peerDependencies": { "react-native": "*" } }],
 
     "vitest-native/rn-ecosystem-lib": ["rn-ecosystem-lib@file:packages/vitest-native/tests-native/fixtures/rn-ecosystem-lib", { "peerDependencies": { "react-native": "*" } }],
+
+    "vitest-native/rn-esbuild-reexport-lib": ["rn-esbuild-reexport-lib@file:packages/vitest-native/tests-native/fixtures/rn-esbuild-reexport-lib", { "peerDependencies": { "react": "*", "react-native": "*" } }],
 
     "vitest-native/rn-mainfield-lib": ["rn-mainfield-lib@file:packages/vitest-native/tests-native/fixtures/rn-mainfield-lib", { "peerDependencies": { "react-native": "*" } }],
 
