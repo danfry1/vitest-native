@@ -3,49 +3,49 @@
     "export": "KeyboardControllerNative",
     "path": "KeyboardControllerNative",
     "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
-    "issue": "n/a (internal native binding)"
+    "issue": "n/a (internal)"
   },
   {
     "export": "FocusedInputEvents",
     "path": "FocusedInputEvents",
     "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
-    "issue": "n/a (internal native binding)"
+    "issue": "n/a (internal)"
   },
   {
     "export": "WindowDimensionsEvents",
     "path": "WindowDimensionsEvents",
     "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
-    "issue": "n/a (internal native binding)"
+    "issue": "n/a (internal)"
   },
   {
     "export": "KeyboardControllerViewCommands",
     "path": "KeyboardControllerViewCommands",
     "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
-    "issue": "n/a (internal native binding)"
+    "issue": "n/a (internal)"
   },
   {
     "export": "RCTOverKeyboardView",
     "path": "RCTOverKeyboardView",
     "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
-    "issue": "n/a (internal native binding)"
+    "issue": "n/a (internal)"
   },
   {
     "export": "RCTKeyboardExtender",
     "path": "RCTKeyboardExtender",
     "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
-    "issue": "n/a (internal native binding)"
+    "issue": "n/a (internal)"
   },
   {
     "export": "ClippingScrollView",
     "path": "ClippingScrollView",
     "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
-    "issue": "n/a (internal native binding)"
+    "issue": "n/a (internal)"
   },
   {
     "export": "RCTKeyboardToolbarGroupView",
     "path": "RCTKeyboardToolbarGroupView",
     "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
-    "issue": "n/a (internal native binding)"
+    "issue": "n/a (internal)"
   },
   {
     "export": "KeyboardContext",

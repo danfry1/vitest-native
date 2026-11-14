@@ -13,6 +13,12 @@ on:
 
 permissions: read-all
 
+# A new push to a pull request cancels the analysis of the one it replaces. Anything else
+# has a group per commit, so no analysis of main waits behind, or is dropped for, another.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   analyze:
     name: Analyze
