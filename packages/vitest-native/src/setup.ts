@@ -24,6 +24,7 @@ import Module, { createRequire } from "node:module";
 import path from "node:path";
 import type { Preset } from "./types.js";
 import { importPresetModule, presetModulePaths } from "./preset-modules.mjs";
+import { presetFactoryContext } from "./preset-react.mjs";
 import { installRendererReportError } from "./report-error.mjs";
 import { AUTO_DETECT_PRESETS, presetForInstalled } from "./preset-map.js";
 import { animatedMatchers } from "./matchers/animated.js";
@@ -198,7 +199,7 @@ function activate(preset: Preset): Promise<void> | void {
   );
   const register = () => {
     for (const [modName, presetModule] of modules) {
-      const presetMock = presetModule.factory();
+      const presetMock = presetModule.factory(presetFactoryContext(modName, projectRoot));
       installPresetCjsBridge(modName, presetMock);
       // Store on globalThis so virtual ESM modules can access named exports.
       g.__vitest_native_preset_mocks[modName] = presetMock;

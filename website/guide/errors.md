@@ -105,6 +105,10 @@ The message says which.
 
 The Skia preset's mock was built before CanvasKit loaded. Inside a test run the setup file loads it first; a mock built outside a test run needs `await presets.skia().prepare()` first.
 
+### `PRESET_REACT_MISMATCH` {#PRESET_REACT_MISMATCH}
+
+Under the native engine, a preset builds its mock with the React that `react-native` uses, and the project or React Native Testing Library resolves a different copy of React. Hooks and contexts from one copy fail in a tree the other renders. The message names both paths. Install one copy of `react`: dedupe it in the workspace, or align the versions the packages ask for.
+
 ### `NITRO_HYBRID_OBJECT_UNAVAILABLE` {#NITRO_HYBRID_OBJECT_UNAVAILABLE}
 
 A library asked Nitro for a native HybridObject, which has no implementation in tests. Use the library's own test mode if it has one, or mock the library with `vi.mock()`.
