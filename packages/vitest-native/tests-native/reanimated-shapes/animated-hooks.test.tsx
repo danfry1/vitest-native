@@ -48,7 +48,9 @@ it("a memoized child that React skips shows the current animated style", async (
   expect(screen.getByTestId("slider")).toHaveAnimatedStyle({ transform: [{ translateX: 50 }] });
 });
 
-it("a style the updater drops is gone, and a style object it returns is left as it was", async () => {
+it("a key the updater stops returning keeps its last value, as Reanimated merges", async () => {
+  // Reanimated's Jest path merges each result into the style it keeps
+  // (useAnimatedStyle.ts, updatePropsJestWrapper). The updater's own objects are not written.
   const shown = { opacity: 1 };
   const hidden = { display: "none" as const };
   let visible!: SharedValue<boolean>;
@@ -61,7 +63,7 @@ it("a style the updater drops is gone, and a style object it returns is left as 
   visible.set(false);
   // Hidden now, so the query includes hidden elements.
   expect(screen.getByTestId("panel", { includeHiddenElements: true })).toHaveAnimatedStyle(
-    { display: "none" },
+    { opacity: 1, display: "none" },
     { shouldMatchAllProps: true },
   );
   expect(shown).toEqual({ opacity: 1 });

@@ -226,7 +226,7 @@ describe("derived values", () => {
 // reaction on mount and on each change. Its mock runs the updaters at render only and
 // never the reaction (#754); tests-native/reanimated-shapes/animated-hooks.test.tsx renders.
 describe("animated styles", () => {
-  it("the corrected useAnimatedStyle rewrites its result in place, never the updater's own", () => {
+  it("the corrected useAnimatedStyle merges each result in place, never into the updater's own", () => {
     const fixed = mockCorrections(noOpMock(), dir);
     const progress = fixed.useSharedValue(0);
     const shown = { opacity: 0, width: 10 };
@@ -235,7 +235,8 @@ describe("animated styles", () => {
     expect(style).toEqual(shown);
     expect(style).not.toBe(shown);
     progress.set(1);
-    expect(style).toEqual({ opacity: 1 });
+    expect(style).toEqual({ opacity: 1, width: 10 });
     expect(shown).toEqual({ opacity: 0, width: 10 });
+    expect(hidden).toEqual({ opacity: 1 });
   });
 });
