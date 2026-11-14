@@ -98,6 +98,89 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
     expect(calls[0].expression.arguments[1].params).toHaveLength(0);
   });
 
+  // babel-plugin-jest-hoist follows `jest` imported from @jest/globals under any local
+  // name; `import { jest as mockJest }` was not hoisted or registered (#833).
+  describe("the jest object under another name", () => {
+    const registered = (out: string, spec: string) =>
+      expect(body(out)).toContain(`vi.hoisted(() => globalThis.__vnJestMock?.(import.meta.url, '${spec}'`);
+
+    it.each([
+      ["a renamed import", "import { jest as mockJest } from '@jest/globals';", "mockJest"],
+      ["a namespace import", "import * as globals from '@jest/globals';", "globals.jest"],
+      ["a string-named import", "import { 'jest' as mockJest } from '@jest/globals';", "mockJest"],
+      ["the jest-compat shim", "import { jest as j } from 'vitest-native/jest-compat/jest-globals';", "j"],
+      ["a destructured require", "const { jest: mockJest } = require('@jest/globals');", "mockJest"],
+      ["a required namespace", "const globals = require('@jest/globals');", "globals.jest"],
+      ["a require's jest member", "const mockJest = require('@jest/globals').jest;", "mockJest"],
+    ])("hoists and registers a mock made through %s", (_form, binding, ref) => {
+      const out = run(
+        [binding, `${ref}.mock('./a', () => ({ a: ${ref}.fn() }));`, `${ref}.unmock('b');`].join("\n"),
+      ).code;
+      registered(out, "./a");
+      expect(out).toContain("vi.mock('./a', () => __vn_jest_compat__(\"__vnJestMocked\")");
+      expect(out).toContain("vi.unmock((globalThis.__vnJestUnmock?.(import.meta.url, 'b'), 'b'));");
+      expect(out).not.toContain(`${ref}.mock(`);
+      // The factory still reads the binding it was written with.
+      expect(out).toContain(`({ a: ${ref}.fn() })`);
+    });
+
+    it("makes a renamed jest.mock inside a function a doMock", () => {
+      const out = run(
+        [
+          "import { jest as mockJest } from '@jest/globals';",
+          "const setup = () => { mockJest.mock('./a', () => ({ a: 1 })); };",
+        ].join("\n"),
+      ).code;
+      expect(out).toMatch(/vi\.doMock\('\.\/a'/);
+    });
+
+    it("moves a renamed jest.requireActual of project source to Vite", async () => {
+      const out = await run(
+        [
+          "import { jest as mockJest } from '@jest/globals';",
+          "mockJest.mock('./api', () => ({ ...mockJest.requireActual('./api'), x: 1 }));",
+        ].join("\n"),
+      );
+      expect(out.code).toContain("await vi.importActual('./api')");
+    });
+
+    it("leaves a mock method of anything else alone", () => {
+      expect(
+        run(
+          [
+            "import { jest as mockJest } from 'other';",
+            "mockJest.mock('./a', () => ({}));",
+            "api.mock('./b');",
+          ].join("\n"),
+        ),
+      ).toBeNull();
+    });
+
+    it.each([
+      ["a further name", "const j = mockJest;", "j.mock('./a');", "const j = mockJest", "j.mock"],
+      ["a destructured method", "const { mock } = mockJest;", "mock('./a');", "{ mock } = mockJest", "mock"],
+      ["a method's alias", "const hoist = mockJest.doMock;", "hoist('./a');", "hoist = mockJest.doMock", "hoist"],
+      ["the global's further name", "const j = jest;", "j.unmock('./a');", "const j = jest", "j.unmock"],
+    ])("fails by name for a mock call through %s", (_form, alias, call, shown, name) => {
+      let thrown: any;
+      try {
+        run(["import { jest as mockJest } from '@jest/globals';", alias, call].join("\n"));
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown?.code).toBe("JEST_BINDING_NOT_FOLLOWED");
+      expect(thrown.message).toContain(shown.startsWith("const") ? shown.slice(6) : shown);
+      expect(thrown.message).toContain("foo.test.tsx:2");
+      expect(thrown.message).toContain(`\`${name}(…)\` call on line 3`);
+    });
+
+    it("lets a further name be used for anything but a mock call", () => {
+      expect(() =>
+        run(["const j = jest;", "const fn = j.fn();", "jest.mock('./a', () => ({}));"].join("\n")),
+      ).not.toThrow();
+    });
+  });
+
   describe("a factory's require of project source", () => {
     const viaVite = (spec: string) =>
       `(await __vn_jest_compat__("__vnFactoryRequire")(import.meta.url, ${spec}, () => import(${spec})))`;
