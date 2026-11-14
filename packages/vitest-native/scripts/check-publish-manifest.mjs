@@ -16,6 +16,9 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+// Offline, this publish resolves nothing; the cooldown applies anyway, as to every script
+// that runs a package manager (tests/release-age.test.ts).
+import "./release-age.mjs";
 
 /** The lines of npm's publish output that report a manifest correction. */
 export function autoCorrections(output) {
