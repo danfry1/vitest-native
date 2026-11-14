@@ -53,9 +53,7 @@ Run it with `npx vitest`. The plugin sets up React Native Testing Library, asset
 
 ## How it's checked
 
-- **Against real React Native.** The same probes run under the mock engine and under real React Native on every supported release, and any difference fails CI. [Fidelity report →](/guide/fidelity)
-- **Against known bugs.** Each bug in the project's [bug museum](https://github.com/danfry1/vitest-native/tree/main/packages/vitest-native/validation/bug-museum) is a runnable reproduction that fails on a build that has the bug.
-- **Against your own suite.** `npx vitest-native compare` runs your Jest and your Vitest, and lists every test that passes under Jest and not under Vitest. [compare →](/guide/cli#compare)
+<ProofCards />
 
 Pinned public apps are run too, as observations rather than evidence of capability. [Validation model →](/guide/validation-model)
 
