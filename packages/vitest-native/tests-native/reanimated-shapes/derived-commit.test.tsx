@@ -137,8 +137,8 @@ it("a memoized child and a cached element follow while their parent re-renders",
     seen[name] = useDerivedValue(() => v.get() + 1);
     return null;
   });
-  function Tick(_: { n: number }) {
-    return null;
+  function Tick({ n }: { n: number }) {
+    return n < 0 ? <></> : null;
   }
   function Parent({ tick }: { tick: number }) {
     x = useSharedValue(0);
@@ -163,7 +163,8 @@ it("a memoized child and a cached element follow while their parent re-renders",
 it("the updater runs at render and on mount, once per write, and once per update render", async () => {
   let x!: SharedValue<number>;
   const updater = vi.fn(() => x.get());
-  function Follower(_: { tick: number }) {
+  function Follower({ tick }: { tick: number }) {
+    void tick;
     x = useSharedValue(0);
     useDerivedValue(updater);
     return null;
