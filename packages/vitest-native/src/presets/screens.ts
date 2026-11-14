@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import React from "react";
 import { hostComponent as hostClass, asHost } from "../mocks/host.js";
 import { builtInPreset } from "./built-in.js";
+import { activeReactNative } from "./active-react-native.js";
 
 export function screens(): Preset {
   return builtInPreset({
@@ -112,16 +113,55 @@ export function screens(): Preset {
             "ScreenStackHeaderSearchBarView",
           );
           const ScreenStackHeaderSubview = createScreenComponent("ScreenStackHeaderSubview");
-          const Tabs = createScreenComponent("Tabs");
+          // An object of two components, as in the package (src/components/tabs/index.ts).
+          const Tabs = {
+            Host: createScreenComponent("TabsHost"),
+            Screen: createScreenComponent("TabsScreen"),
+          };
 
           // A real React context: native-stack reads it, and a component stub would
           // fail the moment anything calls useContext on it.
           const ScreenContext = React.createContext(Screen);
-          const useTransitionProgress = vi.fn(() => ({ progress: 1, closing: 0, goingForward: 0 }));
+          // The package's hook reads the Animated values a native-stack Screen creates, each
+          // `new Animated.Value(0)` (src/components/Screen.tsx), and moves them only on native
+          // transition events, which a test has none of. Here each component gets its own
+          // three values from the engine's Animated, kept across renders, so
+          // `progress.interpolate(...)` and an `Animated.View` style work as in the app.
+          const useTransitionProgress = vi.fn(function useTransitionProgress() {
+            const values = React.useRef<Record<string, unknown> | null>(null);
+            if (!values.current) {
+              const { Animated } = activeReactNative();
+              values.current = {
+                progress: new Animated.Value(0),
+                closing: new Animated.Value(0),
+                goingForward: new Animated.Value(0),
+              };
+            }
+            return values.current;
+          });
           const executeNativeBackPress = vi.fn(() => true);
           const isSearchBarAvailableForCurrentPlatform = true;
-          const featureFlags = { experiment: {}, flags: {} };
-          const compatibilityFlags = {};
+          // The package's defaults (src/flags.ts), settable as there.
+          const featureFlags = {
+            experiment: {
+              synchronousScreenUpdatesEnabled: false,
+              synchronousHeaderConfigUpdatesEnabled: false,
+              synchronousHeaderSubviewUpdatesEnabled: false,
+              androidLegacyTopInsetBehavior: false,
+              androidResetScreenShadowStateOnOrientationChangeEnabled: true,
+              iosPreventReattachmentOfDismissedScreens: true,
+              iosPreventReattachmentOfDismissedModals: true,
+              ios26AllowInteractionsDuringTransition: true,
+            },
+            stable: { debugLogging: false },
+          };
+          // What native-stack reads to pick its code path for screens 4.x.
+          const compatibilityFlags = {
+            isNewBackTitleImplementation: true,
+            usesHeaderFlexboxImplementation: true,
+            usesNewAndroidHeaderHeightImplementation: true,
+            usesStableTabsApi: true,
+          };
 
           return {
             default: { Screen, ScreenContainer, enableScreens, screensEnabled },

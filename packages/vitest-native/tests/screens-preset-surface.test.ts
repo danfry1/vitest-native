@@ -21,6 +21,7 @@
 import React from "react";
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react-native";
+import { StyleSheet } from "react-native";
 import { screens } from "../src/presets/screens.js";
 
 /** Every name react-native-screens 4.26.2 exports from its entry point. */
@@ -137,9 +138,76 @@ describe("screens preset surface", () => {
     expect(context.Consumer).toBeTruthy();
   });
 
-  it("returns a transition-progress shape rather than a bare mock", () => {
-    const progress = (module.factory().useTransitionProgress as () => unknown)();
-    expect(progress).toMatchObject({ progress: expect.any(Number) });
+  it("gives useTransitionProgress Animated values, kept across renders, at the package's 0", async () => {
+    // The package hands out a native-stack Screen's three `new Animated.Value(0)`s; a
+    // screen's style interpolates them, which a number cannot do.
+    const { Animated } = await import("react-native");
+    const useTransitionProgress = module.factory().useTransitionProgress as () => Record<
+      "progress" | "closing" | "goingForward",
+      InstanceType<typeof Animated.Value>
+    >;
+    const seen: ReturnType<typeof useTransitionProgress>[] = [];
+    function Fading({ tick }: { tick: number }) {
+      const values = useTransitionProgress();
+      seen.push(values);
+      const opacity = values.progress.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] });
+      return React.createElement(Animated.View, { testID: `fading-${tick}`, style: { opacity } });
+    }
+    const { rerender } = await render(React.createElement(Fading, { tick: 0 }));
+    await rerender(React.createElement(Fading, { tick: 1 }));
+    const [first, second] = seen;
+    for (const key of ["progress", "closing", "goingForward"] as const) {
+      expect(first[key]).toBeInstanceOf(Animated.Value);
+      expect((first[key] as unknown as { __getValue(): number }).__getValue()).toBe(0);
+      expect(second[key]).toBe(first[key]);
+    }
+    expect(StyleSheet.flatten(screen.getByTestId("fading-1").props.style)).toMatchObject({
+      opacity: 0.5,
+    });
+  });
+
+  it("serves Tabs as the package's object of Host and Screen components", async () => {
+    const { Tabs } = module.factory() as {
+      Tabs: Record<"Host" | "Screen", React.ComponentType<any>>;
+    };
+    await render(
+      React.createElement(
+        Tabs.Host,
+        { testID: "tabs" },
+        React.createElement(Tabs.Screen, { testID: "tab-home" }),
+      ),
+    );
+    expect(screen.getByTestId("tabs")).toBeTruthy();
+    expect(screen.getByTestId("tab-home")).toBeTruthy();
+  });
+
+  it("serves the package's flag defaults, which a project may set", () => {
+    const { featureFlags, compatibilityFlags } = module.factory() as {
+      featureFlags: { experiment: Record<string, boolean>; stable: Record<string, boolean> };
+      compatibilityFlags: Record<string, boolean>;
+    };
+    // react-native-screens 4.25 src/flags.ts.
+    expect(featureFlags).toEqual({
+      experiment: {
+        synchronousScreenUpdatesEnabled: false,
+        synchronousHeaderConfigUpdatesEnabled: false,
+        synchronousHeaderSubviewUpdatesEnabled: false,
+        androidLegacyTopInsetBehavior: false,
+        androidResetScreenShadowStateOnOrientationChangeEnabled: true,
+        iosPreventReattachmentOfDismissedScreens: true,
+        iosPreventReattachmentOfDismissedModals: true,
+        ios26AllowInteractionsDuringTransition: true,
+      },
+      stable: { debugLogging: false },
+    });
+    expect(compatibilityFlags).toEqual({
+      isNewBackTitleImplementation: true,
+      usesHeaderFlexboxImplementation: true,
+      usesNewAndroidHeaderHeightImplementation: true,
+      usesStableTabsApi: true,
+    });
+    featureFlags.experiment.synchronousScreenUpdatesEnabled = true;
+    expect(featureFlags.experiment.synchronousScreenUpdatesEnabled).toBe(true);
   });
 
   it("keeps the v3 names a project on the older major still imports", () => {

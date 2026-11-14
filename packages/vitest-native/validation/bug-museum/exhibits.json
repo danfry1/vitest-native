@@ -2194,6 +2194,15 @@
         ]
       },
       "fixRef": "964c6c664c6032c6f0a908f9747977e57dae2f96"
+    },
+    {
+      "id": "pre-717-screens-transition-progress",
+      "class": "presets",
+      "title": "useTransitionProgress returns numbers, not Animated values",
+      "source": "#717",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/screens-preset-transition-progress",
+      "bugSignature": "^fade\\.test\\.tsx: TypeError: progress\\.interpolate is not a function"
     }
   ]
 }
