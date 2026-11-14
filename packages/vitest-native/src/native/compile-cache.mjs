@@ -11,6 +11,7 @@
 // module — the next file, the next worker, the next run — loads bytecode instead
 // of recompiling. Verified to apply to `mod._compile`, which is how the hooks load
 // RN. No-op on Node < 22.8 (the API is absent) and harmless when caching is off.
+import fs from "node:fs";
 import nodeModule from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -46,7 +47,12 @@ export function enableV8CompileCache(projectRoot, { skip = false } = {}) {
     const root = projectRoot
       ? cacheRootFor(projectRoot)
       : path.join(os.tmpdir(), "vitest-native-cache");
-    enable.call(nodeModule, path.join(root, "v8"));
+    const dir = path.join(root, "v8");
+    if (!writesColdCache() && !holdsEntries(dir)) {
+      globalThis[DECIDED] = "off";
+      return;
+    }
+    enable.call(nodeModule, dir);
     // No atomic-write handling needed (unlike the transform cache, which writes
     // executable source): Node CRC32-validates each compile-cache entry on read,
     // so a torn or raced write from concurrent workers is a cache miss and a
@@ -54,4 +60,42 @@ export function enableV8CompileCache(projectRoot, { skip = false } = {}) {
   } catch {
     // Read-only tmp, unsupported platform, etc. — caching is a pure optimization.
   }
+}
+
+// A cold cache is written by one worker (#831). Every worker compiles the same modules,
+// so each held the same entries and wrote them all when it exited, inside the pool's
+// close: a cold four-worker run wrote 535 entries for 158 distinct ones, and on a loaded
+// Windows runner the writes held close for up to 14 s. The first pool worker writes
+// them; the others compile as Node does without the cache, which costs them nothing on
+// a cold cache, where there is nothing to read. Once the cache holds entries every
+// worker reads it, and writes only what it lacked. Outside a Vitest pool (no
+// VITEST_POOL_ID) the one thread is the writer.
+function writesColdCache() {
+  return (process.env.VITEST_POOL_ID ?? "1") === "1";
+}
+
+/**
+ * Whether Node has written compile-cache entries under `dir` for this Node. It keeps
+ * them per build, in a directory named `v<version>-<arch>-…`; another Node's entries
+ * are never read by this one.
+ */
+function holdsEntries(dir) {
+  let builds;
+  try {
+    builds = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+  const thisNode = `v${process.versions.node}-${process.arch}-`;
+  for (const build of builds) {
+    if (!build.isDirectory() || !build.name.startsWith(thisNode)) continue;
+    const entries = fs.opendirSync(path.join(dir, build.name));
+    try {
+      if (entries.readSync() !== null) return true;
+    } finally {
+      entries.closeSync();
+    }
+  }
+  return false;
 }

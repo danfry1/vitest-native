@@ -33,12 +33,15 @@ describe("enableV8CompileCache", () => {
   beforeEach(() => {
     original = (Module as unknown as Record<string, unknown>).enableCompileCache;
     delete (globalThis as Record<string, unknown>)[DECIDED];
+    // The first pool worker, which enables the cache whether or not it holds entries.
+    vi.stubEnv("VITEST_POOL_ID", "1");
     vi.resetModules();
   });
 
   afterEach(() => {
     (Module as unknown as Record<string, unknown>).enableCompileCache = original;
     delete (globalThis as Record<string, unknown>)[DECIDED];
+    vi.unstubAllEnvs();
   });
 
   async function load() {
@@ -105,5 +108,57 @@ describe("enableV8CompileCache", () => {
     const enableV8CompileCache = await load();
 
     expect(() => enableV8CompileCache()).not.toThrow();
+  });
+
+  describe("a cold cache is written by one worker (#831)", () => {
+    let project: string;
+    let v8Dir: string;
+    beforeEach(() => {
+      project = fs.mkdtempSync(path.join(os.tmpdir(), "vn-compile-cache-"));
+      fs.mkdirSync(path.join(project, "node_modules"));
+      v8Dir = path.join(project, "node_modules", ".cache", "vitest-native", "v8");
+    });
+    afterEach(() => fs.rmSync(project, { recursive: true, force: true }));
+
+    const entryFor = (build: string) => {
+      fs.mkdirSync(path.join(v8Dir, build), { recursive: true });
+      fs.writeFileSync(path.join(v8Dir, build, "672c096e"), "");
+    };
+    const thisNode = `v${process.versions.node}-${process.arch}-cf738c9d-501`;
+
+    async function decide(poolId: string | undefined) {
+      const dirs: string[] = [];
+      (Module as unknown as Record<string, unknown>).enableCompileCache = (dir: string) => {
+        dirs.push(dir);
+        return { status: 1, directory: dir };
+      };
+      vi.stubEnv("VITEST_POOL_ID", poolId);
+      const enableV8CompileCache = await load();
+      enableV8CompileCache(project);
+      return dirs;
+    }
+
+    it("enables a cold cache only in the first pool worker", async () => {
+      expect(await decide("1")).toEqual([v8Dir]);
+      delete (globalThis as Record<string, unknown>)[DECIDED];
+      vi.resetModules();
+      expect(await decide("2")).toEqual([]);
+      expect((globalThis as Record<string, unknown>)[DECIDED]).toBe("off");
+    });
+
+    it("enables a cache that holds this Node's entries in every worker", async () => {
+      entryFor(thisNode);
+      expect(await decide("3")).toEqual([v8Dir]);
+    });
+
+    it("treats another Node's entries as a cold cache", async () => {
+      entryFor(`v0.0.0-${process.arch}-cf738c9d-501`);
+      fs.mkdirSync(path.join(v8Dir, thisNode), { recursive: true });
+      expect(await decide("2")).toEqual([]);
+    });
+
+    it("makes the one thread outside a pool the writer", async () => {
+      expect(await decide(undefined)).toEqual([v8Dir]);
+    });
   });
 });
