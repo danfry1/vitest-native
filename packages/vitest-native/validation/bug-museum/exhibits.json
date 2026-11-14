@@ -1287,6 +1287,15 @@
       "bugSignature": "^app\\.test\\.tsx: AssertionError: expected 10 to be 60"
     },
     {
+      "id": "pre-754-reanimated-animated-style-stale",
+      "class": "presets",
+      "title": "An animated style stays at its first result between renders",
+      "source": "#754",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/reanimated-render-only-hooks",
+      "bugSignature": "^app\\.test\\.tsx: AssertionError: expected \\+0 to be 50"
+    },
+    {
       "id": "pre-banner-names-presets",
       "class": "presets",
       "title": "The engine banner does not name the presets it applies",

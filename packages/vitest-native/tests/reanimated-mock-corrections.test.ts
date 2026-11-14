@@ -30,6 +30,9 @@ function noOpMock() {
     useAnimatedSensor: () => ({ sensor: { value: { x: 0, y: 0, z: 0 } } }),
     makeMutable: (value: number) => value,
     useSharedValue: (value: number) => ({ value, get: () => value }),
+    useAnimatedStyle: (updater: () => unknown) => updater(),
+    useAnimatedProps: (updater: () => unknown) => updater(),
+    useAnimatedReaction: NOOP,
     default: { interpolate: NOOP, clamp: NOOP, ScrollView: () => null },
   };
 }
@@ -66,6 +69,13 @@ function workingMock() {
     useAnimatedSensor: () => ({ sensor: value }),
     makeMutable: () => value,
     useSharedValue: () => value,
+    // A result that reads the updater again, and a reaction that runs.
+    useAnimatedStyle: (updater: () => Record<string, unknown>) =>
+      new Proxy({}, { get: (_target, key) => updater()[key as string] }),
+    useAnimatedProps: (updater: () => Record<string, unknown>) =>
+      new Proxy({}, { get: (_target, key) => updater()[key as string] }),
+    useAnimatedReaction: (prepare: () => unknown, react: (p: unknown, q: unknown) => void) =>
+      react(prepare(), null),
     default: { interpolate: () => "theirs", clamp: () => "theirs", ScrollView: () => null },
   };
 }
@@ -83,6 +93,9 @@ const NAMES = [
   "useAnimatedKeyboard",
   "useAnimatedSensor",
   "makeMutable",
+  "useAnimatedStyle",
+  "useAnimatedProps",
+  "useAnimatedReaction",
 ] as const;
 
 describe("reanimated mock corrections", () => {
@@ -206,5 +219,24 @@ describe("derived values", () => {
     expect(heard).toHaveBeenCalledTimes(2);
     b.set(11);
     expect(doubled.get()).toBe(22);
+  });
+});
+
+// Reanimated reruns a style or props updater when a shared value it read changes, and a
+// reaction on mount and on each change. Its mock runs the updaters at render only and
+// never the reaction (#754); tests-native/reanimated-shapes/animated-hooks.test.tsx renders.
+describe("animated styles", () => {
+  it("the corrected useAnimatedStyle merges each result in place, never into the updater's own", () => {
+    const fixed = mockCorrections(noOpMock(), dir);
+    const progress = fixed.useSharedValue(0);
+    const shown = { opacity: 0, width: 10 };
+    const hidden = { opacity: 1 };
+    const style = fixed.useAnimatedStyle(() => (progress.get() > 0 ? hidden : shown));
+    expect(style).toEqual(shown);
+    expect(style).not.toBe(shown);
+    progress.set(1);
+    expect(style).toEqual({ opacity: 1, width: 10 });
+    expect(shown).toEqual({ opacity: 0, width: 10 });
+    expect(hidden).toEqual({ opacity: 1 });
   });
 });

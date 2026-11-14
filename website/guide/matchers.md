@@ -85,7 +85,7 @@ test("greeting is visible with correct style", async () => {
 | `toHaveAnimatedStyle(style, config?)` | Element's (flattened) style contains the given entries. Pass `{ shouldMatchAllProps: true }` to require an exact match. |
 | `toHaveAnimatedProps(props)`          | Element's animated props contain the given entries.                                                                     |
 
-Because the `reanimated` preset resolves `useAnimatedStyle`/`useAnimatedProps` synchronously, the animated values land on the rendered element and these matchers read straight from it:
+The `reanimated` preset applies each result of `useAnimatedStyle`/`useAnimatedProps` to the rendered element, at render and whenever a shared value the updater read changes ([Reanimated's animated hooks](/guide/presets#reanimated-s-animated-hooks)), and these matchers read straight from it:
 
 ```tsx
 import { render, screen } from "@testing-library/react-native";

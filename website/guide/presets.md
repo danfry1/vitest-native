@@ -75,6 +75,17 @@ Under the native engine, Gesture Handler and FlashList already run as themselves
 | `presets.unistyles()` | `react-native-unistyles`, `react-native-unistyles/reanimated` | Unistyles 3: `StyleSheet.configure`/`create` with themes, variants and compound variants, `useUnistyles`, `withUnistyles`, `UnistylesRuntime` theme switching, `mq` with `Display`/`Hide`; matches the library's own Jest mock and follows its source where that mock does less |
 | `presets.skia()` | `react-native-skia`, `@shopify/react-native-skia` | Skia's own test mock (`Mock(CanvasKit)`) over CanvasKit, Skia compiled to WebAssembly: the `Skia` API computes with real Skia, `Canvas` and its drawing render as Views; plus Skia's Reanimated helpers (`usePathValue`, `useTexture`, …) and a `matchFont` that returns a font |
 
+## Reanimated's animated hooks
+
+Under both engines, `useDerivedValue`, `useAnimatedStyle`, `useAnimatedProps` and `useAnimatedReaction` run as Reanimated's mappers do under Jest. Reanimated's own test mock runs the style and props updaters only at render and never calls a reaction.
+
+- **A write runs one pass.** `progress.set(0.5)` reruns, at once and in order, every updater and reaction that read `progress`, each once. A derived value is current before the hooks that read it. A write made during a pass marks its readers for the next pass and does not start another, so an updater or reaction that writes a value it reads cannot loop.
+- **Styles merge.** A component's animated style is one object. Each result is merged into it, so a key the updater stops returning keeps its last value, as in Reanimated: an updater that returns `{ opacity: 1 }` and then `{ display: 'none' }` leaves both keys. `toHaveAnimatedStyle` reads the current style, also in a child React skipped.
+- **Mappers start when the component commits.** Each hook starts in an effect, runs once on mount, and stops on unmount. A render React discards starts nothing. A style or derived value also runs again after each later commit, with that render's updater, so a value taken from props follows them.
+- **Reactions run.** A reaction runs on mount, with `previous` set to `null`, then on each change of a shared value its `prepare` read. Shared values that only `react` reads are not inputs. It starts again when `dependencies` change, or, with the worklets Babel plugin, when its closures change. Each run uses the latest committed render's functions, whereas Reanimated without the plugin keeps the first render's.
+
+A reaction that calls `setState` after a `set()` made outside `act` logs React's "not wrapped in act(...)" warning, and the update lands at the next `act`, as with Reanimated under Jest. A suite that fails on console errors then fails. Wrap the write in `act`, or use `fireEvent`, which does.
+
 ## React Navigation
 
 ::: warning The navigation preset replaces React Navigation

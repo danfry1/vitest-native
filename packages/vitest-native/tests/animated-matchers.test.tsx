@@ -8,7 +8,7 @@
  * the whole hook → render → matcher pipeline is covered without needing
  * react-native-reanimated installed.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import React from "react";
 import { render, screen } from "@testing-library/react-native";
 import { View, Text, StyleSheet } from "react-native";
@@ -86,6 +86,43 @@ describe("toHaveAnimatedProps", () => {
     }
     await render(<Box />);
     expect(screen.getByTestId("animated")).toHaveAnimatedProps({ accessibilityValue: 0.75 });
+  });
+});
+
+// Reanimated reruns these updaters when a shared value they read changes, and applies the
+// result without a render; the preset's reruns them the same way (#754).
+describe("the reanimated preset's hooks follow shared values without a render", () => {
+  it("useAnimatedStyle and useAnimatedProps", async () => {
+    const AnimatedView = rea.createAnimatedComponent(View);
+    let progress!: { set(value: number): void };
+    function Box() {
+      const shared = rea.useSharedValue(0);
+      progress = shared;
+      const style = rea.useAnimatedStyle(() => ({ opacity: shared.value }));
+      const animatedProps = rea.useAnimatedProps(() => ({ accessibilityValue: shared.value }));
+      return <AnimatedView testID="animated" style={style} animatedProps={animatedProps} />;
+    }
+    await render(<Box />);
+    progress.set(0.5);
+    expect(screen.getByTestId("animated")).toHaveAnimatedStyle({ opacity: 0.5 });
+    expect(screen.getByTestId("animated")).toHaveAnimatedProps({ accessibilityValue: 0.5 });
+  });
+
+  it("useAnimatedReaction", async () => {
+    let progress!: { set(value: number): void };
+    const react = vi.fn();
+    function Watcher() {
+      const shared = rea.useSharedValue(0);
+      progress = shared;
+      rea.useAnimatedReaction(() => shared.value * 2, react);
+      return null;
+    }
+    await render(<Watcher />);
+    progress.set(2);
+    expect(react.mock.calls).toEqual([
+      [0, null],
+      [4, 0],
+    ]);
   });
 });
 
