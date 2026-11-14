@@ -11,4 +11,4 @@
 
 ## Expected behaviour
 
-`useAnimatedHeaderHeight()` returns an `Animated.Value` from the engine's React Native, set to the 64 the preset's `useHeaderHeight()` returns, and kept across renders.
+`useAnimatedHeaderHeight()` returns an `Animated.Value` from the engine's React Native, kept across renders. It starts at the height native-stack gives a card screen's header: 44 on an iOS phone in portrait, 56 on Android, with no top inset.

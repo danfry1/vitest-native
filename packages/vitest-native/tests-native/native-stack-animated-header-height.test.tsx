@@ -1,7 +1,8 @@
 /**
  * The navigation preset's useAnimatedHeaderHeight (@react-navigation/native-stack, #828)
  * hands out real React Native's Animated value, as a native stack screen's NativeStackView
- * does, so a screen that pads itself by the header height renders as in the app.
+ * does, seeded with an iOS card screen's default header height (44, no top inset), so a
+ * screen that pads itself by the header height renders as in the app.
  */
 import React from "react";
 import { Animated, StyleSheet } from "react-native";
@@ -21,6 +22,6 @@ it("useAnimatedHeaderHeight gives one real Animated value a style can use", asyn
   expect(seen[0]).toBeInstanceOf(Animated.Value);
   expect(seen[1]).toBe(seen[0]);
   expect(StyleSheet.flatten(screen.getByTestId("padded").props.style)).toMatchObject({
-    paddingTop: 64,
+    paddingTop: 44,
   });
 });

@@ -24,6 +24,7 @@ import {
 import * as Presets from "../src/presets/index.js";
 import { AUTO_DETECT_PRESETS, PRESET_MODULES } from "../src/preset-map.js";
 import { renderHook } from "@testing-library/react-native";
+import { setPlatform } from "../src/helpers.js";
 
 // --- Navigation ---
 
@@ -428,9 +429,20 @@ describe("preset: navigation", () => {
       const { result, rerender } = await renderHook(() => stackMock.useAnimatedHeaderHeight());
       const first = result.current;
       expect(typeof first.interpolate).toBe("function");
-      expect(first.__getValue()).toBe(64);
+      // A card screen's iOS header on a portrait phone, with no top inset.
+      expect(first.__getValue()).toBe(44);
       await rerender({});
       expect(result.current).toBe(first);
+    });
+
+    it("useAnimatedHeaderHeight starts at native-stack's 56 on Android", async () => {
+      setPlatform("android");
+      try {
+        const { result } = await renderHook(() => stackMock.useAnimatedHeaderHeight());
+        expect(result.current.__getValue()).toBe(56);
+      } finally {
+        setPlatform("ios");
+      }
     });
 
     it("createNativeStackNavigator returns Navigator, Screen, Group", () => {
@@ -585,6 +597,34 @@ describe("preset: navigation", () => {
 
     it("useHeaderHeight returns a number", () => {
       expect(elementsMock.useHeaderHeight()).toBe(64);
+    });
+
+    it("getDefaultHeaderHeight is the library's: per platform, orientation and modal, plus the status bar", () => {
+      const portrait = { width: 390, height: 844 };
+      const height = elementsMock.getDefaultHeaderHeight;
+      expect(height(portrait, false, 47)).toBe(91);
+      expect(height(portrait, true, 0)).toBe(56);
+      expect(height({ width: 844, height: 390 }, false, 0)).toBe(32);
+      // A Dynamic Island's inset is taller than its status bar.
+      const { PixelRatio } = (globalThis as any).__vitest_native_mock;
+      expect(height(portrait, false, 59)).toBe(44 + (59 - (5 + 1 / PixelRatio.get())));
+      const { Platform } = (globalThis as any).__vitest_native_mock;
+      const isPad = Object.getOwnPropertyDescriptor(Platform, "isPad");
+      Object.defineProperty(Platform, "isPad", { configurable: true, value: true });
+      try {
+        expect(height(portrait, false, 24)).toBe(74);
+        expect(height(portrait, true, 24)).toBe(80);
+      } finally {
+        if (isPad) Object.defineProperty(Platform, "isPad", isPad);
+        else delete Platform.isPad;
+      }
+      setPlatform("android");
+      try {
+        expect(height(portrait, false, 24)).toBe(88);
+        expect(height(portrait, false, 59)).toBe(123);
+      } finally {
+        setPlatform("ios");
+      }
     });
 
     it("getHeaderTitle extracts title from options", () => {

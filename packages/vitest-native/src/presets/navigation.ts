@@ -28,6 +28,37 @@ function emitEvent({ type, data, target, canPreventDefault }: any) {
   return Object.defineProperties({}, descriptors);
 }
 
+/**
+ * @react-navigation/elements' getDefaultHeaderHeight (2.9.45), on the engine's Platform
+ * and PixelRatio: the header's height for a frame, a modal or not, plus the status bar.
+ */
+function getDefaultHeaderHeight(
+  layout: { width: number; height: number },
+  modalPresentation: boolean,
+  topInset: number,
+): number {
+  const { Platform, PixelRatio } = activeReactNative();
+  // With a Dynamic Island the status bar is shorter than the safe area's top inset.
+  const hasDynamicIsland = Platform.OS === "ios" && topInset > 50;
+  const statusBarHeight = hasDynamicIsland ? topInset - (5 + 1 / PixelRatio.get()) : topInset;
+  if (Platform.OS !== "ios") return 64 + statusBarHeight;
+  if (Platform.isPad || Platform.isTV) return (modalPresentation ? 56 : 50) + statusBarHeight;
+  if (layout.width > layout.height) return 32 + statusBarHeight;
+  return (modalPresentation ? 56 : 44) + statusBarHeight;
+}
+
+/**
+ * The height a native stack screen's header starts at (NativeStackView.native, 7.21):
+ * 56 on Android, which native-stack fixes until react-native-screens moves to Material 3,
+ * and getDefaultHeaderHeight's elsewhere. A card screen on the window's frame, with no
+ * top inset, as safe-area-context's own Jest mock reports none outside a provider.
+ */
+function nativeStackHeaderHeight(): number {
+  const { Dimensions, Platform } = activeReactNative();
+  if (Platform.OS === "android") return 56;
+  return getDefaultHeaderHeight(Dimensions.get("window"), false, 0);
+}
+
 /** Builds a minimal navigation prop matching useNavigation()'s shape. */
 function createMockNavigation() {
   return {
@@ -708,14 +739,14 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           );
           (NativeStackView as any).displayName = "NativeStackView";
 
-          // The library's NativeStackView makes `new Animated.Value(headerHeight)` for each
-          // screen, and its hook throws outside one. The preset answers as a screen does,
-          // with the engine's Animated and @react-navigation/elements' 64, one value per
-          // component kept across renders.
+          // The library's NativeStackView seeds an Animated value with the header's default
+          // height for each screen, and its hook throws outside one. The preset answers as
+          // a card screen does (nativeStackHeaderHeight), with the engine's Animated, one
+          // value per component kept across renders.
           const useAnimatedHeaderHeight = vi.fn(function useAnimatedHeaderHeight() {
             const value = React.useRef<unknown>(null);
             if (value.current === null)
-              value.current = new (activeReactNative().Animated.Value)(64);
+              value.current = new (activeReactNative().Animated.Value)(nativeStackHeaderHeight());
             return value.current;
           });
 
@@ -831,7 +862,7 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             HeaderShownContext: React.createContext(true),
             HeaderHeightContext: React.createContext(64),
             useHeaderHeight: () => 64,
-            getDefaultHeaderHeight: vi.fn(() => 64),
+            getDefaultHeaderHeight: vi.fn(getDefaultHeaderHeight),
             getHeaderTitle: vi.fn(
               (options: any, fallback: string) =>
                 options?.headerTitle ?? options?.title ?? fallback,
