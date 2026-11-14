@@ -1,15 +1,14 @@
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { crossCheck, museum, portedTests } from "../../../website/.vitepress/proof.ts";
+import { crossCheck, museum } from "../../../website/.vitepress/proof.ts";
 import { SUPPORTED_REACT_NATIVE } from "../src/peer-requirements";
 
 // The landing page's "How it's checked" cards read their numbers at build time
 // (website/.vitepress/proof.ts). This holds each one to a second source, so a number on
-// the page is one the repository holds.
+// the page is one the repository holds. The ported tests' count needs a Vitest run of its
+// own, so it is checked in site-proof.e2e.test.ts.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const PACKAGE = path.join(repoRoot, "packages/vitest-native");
 
@@ -50,34 +49,6 @@ describe("the landing page's proof cards", () => {
     expect(status).toContain(`**Proof:** ${read.proven} proven against a build without the bug`);
     expect(status).toContain(`${read.open} open bugs fail on main as their bug`);
   });
-
-  it("count the ported React Native tests as Vitest runs them", () => {
-    const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "rn-conformance-")), "out.json");
-    // A run of its own, outside this worker's Vitest environment.
-    const env = Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !key.startsWith("VITEST")),
-    );
-    execFileSync(
-      process.execPath,
-      [
-        path.join(PACKAGE, "node_modules/vitest/vitest.mjs"),
-        "run",
-        "tests/rn-conformance",
-        "--reporter=json",
-        `--outputFile=${out}`,
-      ],
-      { cwd: PACKAGE, env, stdio: "ignore" },
-    );
-    const report = JSON.parse(fs.readFileSync(out, "utf8"));
-    fs.rmSync(path.dirname(out), { recursive: true, force: true });
-    const read = portedTests();
-    // When this fails, write Vitest's counts into tests/rn-conformance/counts.json.
-    expect({ tests: read.tests, skipped: read.skipped }).toEqual({
-      tests: report.numTotalTests,
-      skipped: report.numPendingTests + report.numTodoTests,
-    });
-    expect(read.areas).toContain("Animated");
-  }, 60_000);
 
   it("are the landing page's only numbers about how it's checked", () => {
     const landing = fs.readFileSync(path.join(repoRoot, "website/index.md"), "utf8");
