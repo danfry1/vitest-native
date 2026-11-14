@@ -1,7 +1,7 @@
 import type { NavigationPresetOptions, Preset } from "../types.js";
 import { vi } from "vitest";
-import React from "react";
-import { hostComponent as hostClass } from "../mocks/host.js";
+import { hosts } from "../mocks/host-classes.js";
+import { perReact } from "./per-react.js";
 import { builtInPreset } from "./built-in.js";
 import { projectContext } from "../context.mjs";
 
@@ -42,10 +42,12 @@ function createMockNavigation() {
  * consistent with the route/navigation props passed to the component.
  */
 function createMockScreen(
+  React: typeof import("react"),
   NavContext: React.Context<any>,
   RouteContext: React.Context<any>,
   defaultRouteParams: Record<string, unknown>,
 ) {
+  const { hostComponent: hostClass } = hosts(React);
   const Screen = React.forwardRef(({ component: Component, children, ...rest }: any, ref: any) => {
     const route = {
       key: rest.name ?? "",
@@ -80,15 +82,6 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
   // worker boundary via the preset `config` below.
   const defaultRouteParams = presetOptions.defaultRouteParams ?? {};
 
-  // Contexts are shared across all module factories in this preset so that
-  // MockScreen can provide them and useNavigation()/useRoute() can read them.
-  const NavigationContext = React.createContext(null as any);
-  const NavigationRouteContext = React.createContext(null as any);
-  const NavigationContainerRefContext = React.createContext(null as any);
-  const NavigationHelpersContext = React.createContext(null as any);
-  const CurrentRenderContext = React.createContext(undefined as any);
-  const PreventRemoveContext = React.createContext(null as any);
-
   // The exports @react-navigation/native adds ON TOP of @react-navigation/core
   // (its src/index.tsx: linking, locale, themes, static navigation, link hooks).
   // These were absent, so anything rendering its own container against this
@@ -97,12 +90,6 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
   // "Cannot read properties of undefined (reading 'Provider')". Shapes follow
   // the real module: contexts are real React contexts with its default values,
   // themes carry its exact colors and platform font stacks.
-  const LinkingContext = React.createContext<{ options?: any }>({ options: undefined });
-  const LocaleDirContext = React.createContext<"ltr" | "rtl">("ltr");
-  const UNSTABLE_UnhandledLinkingContext = React.createContext<{
-    lastUnhandledLink: string | undefined;
-    setLastUnhandledLink: (link: string | undefined) => void;
-  }>({ lastUnhandledLink: undefined, setLastUnhandledLink: () => {} });
   const themeFonts = (() => {
     // Mirrors the real module's Platform.select — the mock is served to native
     // platforms only, so the ios / default branches are the reachable ones.
@@ -146,11 +133,47 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
     fonts: themeFonts,
   };
 
-  // Real React Navigation seeds ThemeContext with DefaultTheme, so useTheme() outside a
-  // ThemeProvider (and outside a render, as a plain call) yields the default theme.
-  const ThemeContext = React.createContext<any>(DefaultTheme);
+  // The contexts and the Screen every module factory below shares, so that a mock
+  // <Screen> provides what useNavigation()/useRoute() read: one set per React.
+  const shared = perReact((React) => {
+    const NavigationContext = React.createContext(null as any);
+    const NavigationRouteContext = React.createContext(null as any);
+    const NavigationContainerRefContext = React.createContext(null as any);
+    const NavigationHelpersContext = React.createContext(null as any);
+    const CurrentRenderContext = React.createContext(undefined as any);
+    const PreventRemoveContext = React.createContext(null as any);
 
-  const Screen = createMockScreen(NavigationContext, NavigationRouteContext, defaultRouteParams);
+    const LinkingContext = React.createContext<{ options?: any }>({ options: undefined });
+    const LocaleDirContext = React.createContext<"ltr" | "rtl">("ltr");
+    const UNSTABLE_UnhandledLinkingContext = React.createContext<{
+      lastUnhandledLink: string | undefined;
+      setLastUnhandledLink: (link: string | undefined) => void;
+    }>({ lastUnhandledLink: undefined, setLastUnhandledLink: () => {} });
+    // Real React Navigation seeds ThemeContext with DefaultTheme, so useTheme() outside a
+    // ThemeProvider (and outside a render, as a plain call) yields the default theme.
+    const ThemeContext = React.createContext<any>(DefaultTheme);
+
+    const Screen = createMockScreen(
+      React,
+      NavigationContext,
+      NavigationRouteContext,
+      defaultRouteParams,
+    );
+
+    return {
+      NavigationContext,
+      NavigationRouteContext,
+      NavigationContainerRefContext,
+      NavigationHelpersContext,
+      CurrentRenderContext,
+      PreventRemoveContext,
+      LinkingContext,
+      LocaleDirContext,
+      UNSTABLE_UnhandledLinkingContext,
+      ThemeContext,
+      Screen,
+    };
+  });
 
   return builtInPreset({
     name: "navigation",
@@ -215,7 +238,21 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           // @react-navigation/routers (re-exported by core)
           "BaseRouter",
         ],
-        factory: () => {
+        factory: ({ React }) => {
+          const { hostComponent: hostClass } = hosts(React);
+          const {
+            NavigationContext,
+            NavigationRouteContext,
+            NavigationContainerRefContext,
+            NavigationHelpersContext,
+            CurrentRenderContext,
+            PreventRemoveContext,
+            LinkingContext,
+            LocaleDirContext,
+            UNSTABLE_UnhandledLinkingContext,
+            ThemeContext,
+            Screen,
+          } = shared(React);
           const NavigationContainer = React.forwardRef((props: any, ref: any) =>
             React.createElement(
               hostClass("NavigationContainer"),
@@ -480,7 +517,9 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
 
       "@react-navigation/native-stack": {
         exports: ["createNativeStackNavigator"],
-        factory: () => {
+        factory: ({ React }) => {
+          const { hostComponent: hostClass } = hosts(React);
+          const { Screen } = shared(React);
           function createNativeStackNavigator() {
             return {
               Navigator: React.forwardRef((props: any, ref: any) =>
@@ -506,7 +545,9 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
 
       "@react-navigation/bottom-tabs": {
         exports: ["createBottomTabNavigator"],
-        factory: () => {
+        factory: ({ React }) => {
+          const { hostComponent: hostClass } = hosts(React);
+          const { Screen } = shared(React);
           function createBottomTabNavigator() {
             return {
               Navigator: React.forwardRef((props: any, ref: any) =>
@@ -532,7 +573,9 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
 
       "@react-navigation/drawer": {
         exports: ["createDrawerNavigator"],
-        factory: () => {
+        factory: ({ React }) => {
+          const { hostComponent: hostClass } = hosts(React);
+          const { Screen } = shared(React);
           function createDrawerNavigator() {
             return {
               Navigator: React.forwardRef((props: any, ref: any) =>
@@ -569,7 +612,8 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           "getDefaultHeaderHeight",
           "getHeaderTitle",
         ],
-        factory: () => {
+        factory: ({ React }) => {
+          const { hostComponent: hostClass } = hosts(React);
           const Header = React.forwardRef((props: any, ref: any) =>
             React.createElement(hostClass("Header"), { ...props, ref }, props.children),
           );

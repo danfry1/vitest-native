@@ -5,6 +5,31 @@ export function classifyObservation(got, baseline) {
   return "OK";
 }
 
+/**
+ * How a CHANGED observation changed: "passes-fell" when fewer tests passed than the
+ * baseline, else "total-only" (test discovery found a different number of tests, and
+ * no pass count fell). Undefined for any other status.
+ */
+export function changeKind(got, baseline) {
+  if (classifyObservation(got, baseline) !== "CHANGED") return undefined;
+  return got.passed < baseline.passed ? "passes-fell" : "total-only";
+}
+
+/**
+ * The closing line's reason for a run that found CHANGED observations, from the
+ * change kinds of those observations.
+ */
+export function changedReason(kinds) {
+  if (kinds.includes("passes-fell")) {
+    return "an external-app observation passed fewer tests than its baseline; inspect package behavior, app setup, and shims before drawing a conclusion";
+  }
+  return (
+    "an external-app observation's test total changed and no pass count fell; " +
+    "confirm the new total is expected, then record it by editing bakeoffs-ratchet.json by hand " +
+    "(--update does not re-base after a change)"
+  );
+}
+
 export function classifyObservationVerdict({ changed, infra }) {
   if (changed && infra) return "mixed";
   if (changed) return "changed";

@@ -1,7 +1,7 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
-import React from "react";
-import { asHost } from "../mocks/host.js";
+import type React from "react";
+import { hosts } from "../mocks/host-classes.js";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { builtInPreset } from "./built-in.js";
@@ -46,17 +46,18 @@ import { projectContext } from "../context.mjs";
 // selection belongs to the stylesheet, so a style read after another instance
 // selected different variants (a Pressable style function, on press) sees theirs.
 
-let rnCache: Record<string, any> | null = null;
-/** The active React Native: the mock engine's, or real RN under the native engine. */
+/**
+ * The active React Native: the mock engine's, or real RN under the native engine.
+ * Required on each call, a module-cache hit: a copy kept for the worker would be the
+ * first file's components, built with its React (freshRuntime, #719).
+ */
 function getRN(): Record<string, any> {
-  if (rnCache) return rnCache;
   try {
     const base = path.join(projectContext()?.projectRoot ?? process.cwd(), "package.json");
-    rnCache = createRequire(base)("react-native");
+    return createRequire(base)("react-native");
   } catch {
-    rnCache = {};
+    return {};
   }
-  return rnCache!;
 }
 
 type Styles = Record<string, any>;
@@ -318,7 +319,7 @@ export function unistyles(): Preset {
           "getServerUnistyles",
           "resetServerUnistyles",
         ],
-        factory: () => buildUnistyles(),
+        factory: ({ React }) => buildUnistyles(React),
       },
       "react-native-unistyles/reanimated": {
         exports: ["useAnimatedTheme", "useAnimatedVariantColor"],
@@ -352,7 +353,8 @@ type Config = {
   };
 };
 
-function buildUnistyles(): Record<string, any> {
+function buildUnistyles(React: typeof import("react")): Record<string, any> {
+  const { asHost } = hosts(React);
   // The configured state, and what configure() left it as, so `_reset` (run by
   // vitest-native's resetAllMocks()) returns to it rather than to a second constant.
   const configured = () => ({

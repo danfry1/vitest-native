@@ -10,13 +10,14 @@
  * The modifiers must still be spies after the fix: a test may assert on how a
  * component configured its animation.
  */
+import React from "react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { reanimated } from "../src/presets/reanimated.js";
 
 /** The module object a worker would get for react-native-reanimated. */
 function moduleFor(): Record<string, any> {
   const preset = reanimated();
-  return preset.modules["react-native-reanimated"].factory();
+  return preset.modules["react-native-reanimated"].factory({ React });
 }
 
 /** Every export with the layout-animation builder's chainable surface. */
