@@ -1501,6 +1501,15 @@
       }
     },
     {
+      "id": "res-package-js-jsx",
+      "class": "transform/resolution",
+      "title": "A package with JSX in a .js file that declares no react-native fails to load",
+      "source": "#763 (react-native-calendars 1.1314.0)",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/uninlined-parse-error",
+      "bugSignature": "^month\\.test\\.tsx: Failed to parse source for import analysis because the content contains invalid JS syntax"
+    },
+    {
       "id": "res-peer-typescript",
       "class": "transform/resolution",
       "title": "TypeScript under node_modules reached by a peer edge is handed to Node",

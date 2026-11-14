@@ -46,7 +46,13 @@ import {
 import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.js";
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { JSX_TRANSFORM, nativeEngineConfig } from "./native/apply.js";
-import { isProjectJsFile, loadProjectJsx, projectJsxOptions } from "./project-jsx.js";
+import {
+  isPackageJsFile,
+  isProjectJsFile,
+  loadPackageJsx,
+  loadProjectJsx,
+  projectJsxOptions,
+} from "./project-jsx.js";
 import {
   createProjectBabel,
   isProjectSourceFile,
@@ -3505,6 +3511,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           );
       }
       if (projectJsx && isProjectJsFile(id)) return jsx();
+      // A package's .js file that Vite serves uncompiled and cannot parse: JSX in a
+      // package the native engine does not detect (#763). Native only: the mock engine
+      // compiles the packages it inlines through its own path.
+      if (engine === "native" && projectJsx && isPackageJsFile(id)) {
+        return loadPackageJsx(
+          id,
+          projectJsx,
+          viteConfig,
+          chain,
+          diagnostics ? console.log : undefined,
+        );
+      }
 
       // The native engine's react-native facade. It re-exports the SAME instance
       // Node's graph holds — `_rn.View` is the very object an externalized library
