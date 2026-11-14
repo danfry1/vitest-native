@@ -29,6 +29,10 @@ const ENV_PRESERVED = new Set(["VITEST_POOL_ID", "VITEST_WORKER_ID"]);
 const RESET_FILE = fileURLToPath(import.meta.url).replaceAll("\\", "/");
 const DEFAULT_PRESERVED_GLOBALS = ["__STORYBOOK_ADDONS_PREVIEW"];
 
+// RNTL's configuration module: dist/ from RNTL 14, build/ before.
+const RNTL_CONFIG_FILE =
+  /[\\/]@testing-library[\\/]react-native[\\/](?:dist|build)[\\/]config\.js$/;
+
 function stateFailure(message) {
   return new VitestNativeError("HOT_STATE_RESTORE_FAILED", message);
 }
@@ -388,6 +392,37 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
     verify: (baseline) => {
       if (baseline && globalThis.ErrorUtils?.getGlobalHandler?.() !== baseline) {
         throw stateFailure("ErrorUtils handler differs from the worker baseline");
+      }
+    },
+  });
+
+  // React Native Testing Library's configure() options live in one module-level object,
+  // and RNTL is resident: without this, a configure() call in one test file reached every
+  // later file on the worker (#807). Each file starts from RNTL's defaults, as it does
+  // when RNTL loads again for it under Jest or per-file isolation; setup files run after
+  // this and configure it again. Every copy loaded is reset, whichever root required it.
+  const rntlConfigs = () =>
+    Object.keys(req.cache)
+      .filter((file) => RNTL_CONFIG_FILE.test(file))
+      .map((file) => req.cache[file]?.exports)
+      .filter((config) => typeof config?.resetToDefaults === "function");
+  // The options object each copy's last reset produced: configure() replaces it, so a
+  // copy whose current object is another was configured since.
+  const resetConfigs = new WeakMap();
+  manifest.register({
+    id: "rntl.config",
+    capture: () => null,
+    restore: () => {
+      for (const config of rntlConfigs()) {
+        config.resetToDefaults();
+        resetConfigs.set(config, config.getConfig?.());
+      }
+    },
+    verify: () => {
+      for (const config of rntlConfigs()) {
+        if (config.getConfig?.() !== resetConfigs.get(config)) {
+          throw stateFailure("React Native Testing Library's configure() options remain");
+        }
       }
     },
   });

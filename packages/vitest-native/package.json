@@ -166,6 +166,8 @@
     "test:native:hot:workspace-member": "node scripts/test-hot-workspace-member.mjs",
     "test:native:coverage": "node scripts/test-coverage-native.mjs",
     "test:native:hot:state-manifest": "node scripts/test-hot-state-manifest.mjs",
+    "test:native:hot:residents": "node scripts/test-hot-residents.mjs",
+    "test:native:hot:residents:mutations": "node scripts/test-hot-residents.mjs --mutations",
     "test:docs": "node scripts/docs-checks.mjs",
     "test:native:hot:soak": "node scripts/test-hot-soak.mjs",
     "test:native:hot:memory": "node scripts/test-hot-memory.mjs",

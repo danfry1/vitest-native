@@ -14,7 +14,13 @@ function messageOf(error) {
   return message.replace(/^\[vitest-native\] /, "");
 }
 
-export function createStateManifest({ diagnostics = false, mutation = null } = {}) {
+export function createStateManifest({ diagnostics = false, mutation: oracle = null } = {}) {
+  // Mutation oracle (validation only, never a user option): `<id>` omits that entry's
+  // restore and leaves its verify armed, so the verifier must catch it
+  // (test:native:hot:state-manifest); `<id>:unverified` omits both, so only a test that
+  // observes the state can (test:native:hot:residents).
+  const unverified = oracle?.endsWith(":unverified") ?? false;
+  const mutation = unverified ? oracle.slice(0, -":unverified".length) : oracle;
   const records = [];
   const ids = new Set();
   let initialized = false;
@@ -97,6 +103,7 @@ export function createStateManifest({ diagnostics = false, mutation = null } = {
     // inline would miss damage caused by a later entry.
     for (const record of ordered) {
       const { entry, snapshot } = record;
+      if (unverified && mutation === entry.id) continue;
       try {
         entry.verify(snapshot);
       } catch (error) {
@@ -141,4 +148,7 @@ export const HOT_STATE_MANIFEST_ENTRIES = Object.freeze([
   "expo.runtime",
   "jest-compat.node-mocks",
   "expo.sdk-warnings",
+  "rntl.config",
+  "vitest.expect-matchers",
+  "vitest.worker-state",
 ]);

@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { createStateManifest, HOT_STATE_MANIFEST_ENTRIES } from "../src/native/state-manifest.mjs";
 import { isResidentImportListener } from "../src/native/reset.mjs";
@@ -58,7 +61,31 @@ describe("hot-runtime state manifest", () => {
       "expo.runtime",
       "jest-compat.node-mocks",
       "expo.sdk-warnings",
+      "rntl.config",
+      "vitest.expect-matchers",
+      "vitest.worker-state",
     ]);
+  });
+
+  // The list is what doctor prints and the mutation gate walks, so it names every entry
+  // the runtime registers, and nothing else.
+  it("names every entry the runtime registers", () => {
+    const registered = new Set<string>();
+    const src = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src");
+    for (const entry of fs.readdirSync(src, { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".mjs")) continue;
+      const text = fs.readFileSync(path.join(entry.parentPath, entry.name), "utf8");
+      for (const match of text.matchAll(
+        /(?:\bregister|registerState|__vitest_native_register_state\?\.)\(\{\s*id: "([^"]+)"/g,
+      )) {
+        registered.add(match[1]);
+      }
+      // An entry registered with a named id: `id: NODE_MOCKS_STATE_ID`.
+      for (const match of text.matchAll(/export const \w+_STATE_ID = "([^"]+)"/g)) {
+        registered.add(match[1]);
+      }
+    }
+    expect([...registered].sort()).toEqual([...HOT_STATE_MANIFEST_ENTRIES].sort());
   });
 
   it("captures once, then restores and verifies before each later file", () => {
@@ -160,6 +187,31 @@ describe("hot-runtime state manifest", () => {
         message: expect.stringContaining("state-under-test verify: observed polluted"),
       }),
     );
+  });
+
+  // The resident-state audit's mutation leg: with the restore and the verify both off,
+  // the state reaches the next file and only a test that observes it can tell.
+  it("leaves an `:unverified` mutation unrestored and unverified, and only that entry", () => {
+    const state = { target: "boot", other: "boot" };
+    const manifest = createStateManifest({ mutation: "target:unverified" });
+    for (const key of ["target", "other"] as const) {
+      manifest.register({
+        id: key,
+        capture: () => state[key],
+        restore: (snapshot) => {
+          state[key] = snapshot;
+        },
+        verify: (snapshot) => {
+          if (state[key] !== snapshot) throw new Error(`observed ${state[key]}`);
+        },
+      });
+    }
+    manifest.beginFile();
+    state.target = "polluted";
+    state.other = "polluted";
+
+    expect(() => manifest.beginFile()).not.toThrow();
+    expect(state).toEqual({ target: "polluted", other: "boot" });
   });
 
   it("attributes capture failures to the responsible entry", () => {

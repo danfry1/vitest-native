@@ -381,6 +381,23 @@ jobs:
         shell: bash
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 900 -- bun run test:native:hot:isolation
 
+      - name: Native engine hot-runtime resident-state audit
+        # Every piece of state a hot worker keeps from one file to the next is either
+        # reset to what per-file isolation gives or a declared carry-over
+        # (tests-native/hot-residents.json): probe pairs under isolation, hot and
+        # freshRuntime, plus an inventory of what crossed each file boundary.
+        if: ${{ !matrix.rntl && matrix.part != 'native' }}
+        shell: bash
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run --filter vitest-native test:native:hot:residents
+
+      - name: Native engine hot-runtime resident-state audit mutations
+        # Switches off each state-manifest entry's restore and verify in turn and requires
+        # its probe to see the leak, and pins an undeclared global for the inventory.
+        # Thirteen hot runs, so the one leg that carries the state-manifest mutations.
+        if: runner.os == 'Linux' && matrix.node-version == '26.13.0'
+        shell: bash
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 600 -- bun run --filter vitest-native test:native:hot:residents:mutations
+
       - name: Native engine hot-runtime state-manifest mutations
         # Omits each per-file restore in turn and requires the isolation suite to fail
         # naming it, so a restore that stops being checked is caught. Fourteen suite
