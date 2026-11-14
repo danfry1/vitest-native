@@ -33,6 +33,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { cliArguments } from "./support/arguments.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const BASELINE_PATH = path.join(packageRoot, "scorecard.json");
@@ -262,10 +263,14 @@ export function compare(actual, baseline) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  const options = cliArguments(
+    { script: "structural-scorecard.mjs", flags: ["update"] },
+    "structural-scorecard.mjs [--update]",
+  ).values;
   const actual = measure();
   const baseline = JSON.parse(fs.readFileSync(BASELINE_PATH, "utf8"));
   const messages = compare(actual, baseline);
-  if (process.argv.includes("--update")) {
+  if (options.update) {
     const rose = METRICS.filter((m) => actual[m] > (baseline[m] ?? Infinity));
     if (rose.length > 0) {
       console.error(`✗ refusing to raise the baseline: ${rose.join(", ")} rose`);
