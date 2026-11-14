@@ -270,13 +270,13 @@ export function derivedValue(updater: () => unknown): SharedValue {
         derived: sharedValue<unknown>(undefined),
         updater,
         ran: false,
-        last: undefined,
+        last: undefined as unknown,
       };
       const body = () => {
         const next = own.updater();
         if (!own.ran || !Object.is(own.last, next)) {
           own.ran = true;
-          own.last = next as undefined;
+          own.last = next;
           own.derived.value = next;
         }
       };
