@@ -305,8 +305,6 @@ function runMappers(): void {
     }
   } finally {
     registry.processing = false;
-    // A pass a body threw out of leaves its later mappers dirty for the next write.
-    registry.anyDirty = [...registry.mappers].some((mapper) => mapper.dirty);
   }
 }
 

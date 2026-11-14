@@ -126,6 +126,31 @@ it("a derived value is current before a reaction that reads it, which runs once"
   ]);
 });
 
+it("a reaction a child starts before its parent's derived value still runs after it", async () => {
+  // A child's effects run first, so its reaction starts before the derived value it reads;
+  // the pass orders mappers by what they write and read, as Reanimated's does.
+  let a!: SharedValue<number>;
+  const calls: unknown[] = [];
+  function Watcher({ a, d }: { a: SharedValue<number>; d: SharedValue<number> }) {
+    useAnimatedReaction(
+      () => [a.get(), d.get()],
+      (now) => {
+        calls.push(now);
+      },
+    );
+    return null;
+  }
+  function Source() {
+    a = useSharedValue(0);
+    const d = useDerivedValue(() => a.get() * 2);
+    return <Watcher a={a} d={d} />;
+  }
+  await render(<Source />);
+  calls.length = 0;
+  a.set(1);
+  expect(calls).toEqual([[1, 2]]);
+});
+
 it("a reaction calls the latest render's prop", async () => {
   let x!: SharedValue<number>;
   const first = vi.fn();
