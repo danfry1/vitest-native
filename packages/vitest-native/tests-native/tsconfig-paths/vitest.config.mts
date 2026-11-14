@@ -1,5 +1,6 @@
 // A partial mock through `resolve.tsconfigPaths`, with its own root so the paths come
 // from this directory's tsconfig.json.
+import "../support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

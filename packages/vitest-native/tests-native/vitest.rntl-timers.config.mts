@@ -4,6 +4,7 @@
 // isolation. Both run in name order, so a later file follows one that loaded RNTL.
 // `--mode setup-hot` and `--mode setup-stock` run rntl-timers-setup/, whose setup file
 // turns fake timers on before RNTL loads.
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 import { reactNative } from "../dist/index.mjs";
