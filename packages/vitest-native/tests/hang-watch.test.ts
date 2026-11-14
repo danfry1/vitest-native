@@ -163,6 +163,78 @@ describe("HangWatch", () => {
     expect(text).toContain("No module was loaded through Vite in this run.");
   });
 
+  it("does not count time the machine spends asleep, and fails once awake time runs out", () => {
+    // On macOS Node's timers count sleep, so the limit fired on wake as if the run had made
+    // no progress for the whole sleep (#689). Here the clock jumps and the limit's check runs
+    // at once, as it does on wake; the tracker reports the time asleep.
+    vi.useFakeTimers();
+    const asleep = { suspendedMs: 0, tick() {} };
+    const exit = vi.fn();
+    const w = new HangWatch({
+      timeoutMs: 1000,
+      exit,
+      write: vi.fn(),
+      cli: true,
+      graceMs: 0,
+      now: () => Date.now(),
+      suspension: asleep,
+    });
+    w.contribute({ active: true, limit: 1000 });
+    w.onTestRunStart();
+    w.onTestModuleQueued(file("/app/a.test.ts")); // progress: the limit starts
+    vi.advanceTimersByTime(300); // 300 ms awake
+    asleep.suspendedMs = 600_000; // then ten minutes asleep
+    vi.setSystemTime(Date.now() + 600_000);
+    w.check(); // the limit's timer, firing on wake
+    expect(exit).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(699); // 999 ms awake since the last progress
+    expect(exit).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1); // the limit, in awake time
+    expect(exit).toHaveBeenCalledWith(1);
+  });
+
+  it("does not credit a sleep from before the run to the run's limit", () => {
+    vi.useFakeTimers();
+    const asleep = { suspendedMs: 0, tick() {} };
+    const exit = vi.fn();
+    const w = new HangWatch({
+      timeoutMs: 1000,
+      exit,
+      write: vi.fn(),
+      cli: true,
+      graceMs: 0,
+      now: () => Date.now(),
+      suspension: asleep,
+    });
+    w.contribute({ active: true, limit: 1000 });
+    asleep.suspendedMs = 600_000; // the machine slept before this run began
+    w.onTestRunStart();
+    w.onTestModuleQueued(file("/app/a.test.ts"));
+    vi.advanceTimersByTime(1000);
+    expect(exit).toHaveBeenCalledWith(1);
+  });
+
+  it("without a sleep, still fails at the limit", () => {
+    vi.useFakeTimers();
+    const exit = vi.fn();
+    const w = new HangWatch({
+      timeoutMs: 1000,
+      exit,
+      write: vi.fn(),
+      cli: true,
+      graceMs: 0,
+      now: () => Date.now(),
+      suspension: { suspendedMs: 0, tick() {} },
+    });
+    w.contribute({ active: true, limit: 1000 });
+    w.onTestRunStart();
+    w.onTestModuleQueued(file("/app/a.test.ts"));
+    vi.advanceTimersByTime(999);
+    expect(exit).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(exit).toHaveBeenCalledWith(1);
+  });
+
   it("is quiet between runs (watch mode waiting for a change)", () => {
     const { w, exit } = watch();
     w.onTestRunStart();
