@@ -1,0 +1,5 @@
+{
+  "name": "pfs-hot-nonconfigurable-global",
+  "private": true,
+  "type": "module"
+}

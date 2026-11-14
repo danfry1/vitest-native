@@ -120,7 +120,8 @@
     "build": "bun --bun tsdown && node scripts/copy-static-types.mjs && node scripts/build-stamp.mjs write",
     "test": "node scripts/ci/vitest.mjs run",
     "test:e2e": "node scripts/ci/vitest.mjs run --config vitest.e2e.config.ts",
-    "test:native": "node scripts/run-scripts.mjs test:native:no-globals test:native:main test:native:per-file test:native:rntl-timers test:native:one-instance test:native:context test:native:shared-root test:native:preset-modules test:native:permissive test:native:reanimated-fallback test:native:partial-mock-external test:native:tsconfig-paths test:native:regex-alias test:native:dispatch-alias test:native:jest-registry-node-mocks test:native:jest-compat-restore-mocks test:native:node-mocks test:native:ownership test:native:project-js-jsx test:native:jest-globals-require test:native:compile-error test:native:project-babel test:native:rn-deep-mock test:native:root-mocks test:native:library-setup-preset-off test:native:reanimated-shapes test:native:conformance",
+    "test:native": "node scripts/run-scripts.mjs test:native:no-globals test:native:main test:native:per-file test:native:rntl-timers test:native:one-instance test:native:context test:native:shared-root test:native:preset-modules test:native:permissive test:native:reanimated-fallback test:native:partial-mock-external test:native:tsconfig-paths test:native:regex-alias test:native:dispatch-alias test:native:jest-registry-node-mocks test:native:jest-compat-restore-mocks test:native:node-mocks test:native:ownership test:native:project-js-jsx test:native:jest-globals-require test:native:compile-error test:native:project-babel test:native:rn-deep-mock test:native:root-mocks test:native:library-setup-preset-off test:native:setup-order test:native:reanimated-shapes test:native:conformance",
+    "test:native:setup-order": "node scripts/ci/vitest.mjs run --config tests-native/vitest.setup-order.config.mts --mode list && node scripts/ci/vitest.mjs run --config tests-native/vitest.setup-order.config.mts --mode parallel && node scripts/ci/vitest.mjs run --config tests-native/vitest.setup-order.config.mts --mode compat-parallel",
     "test:native:library-setup-preset-off": "node scripts/ci/vitest.mjs run --config tests-native/vitest.library-setup-preset-off.config.mts",
     "test:native:reanimated-shapes": "node scripts/ci/vitest.mjs run --config tests-native/vitest.reanimated-shapes.config.mts --mode plain && node scripts/ci/vitest.mjs run --config tests-native/vitest.reanimated-shapes.config.mts --mode compat",
     "test:native:conformance": "node scripts/ci/vitest.mjs run --config tests-native/vitest.conformance.config.mts --mode plain && node scripts/ci/vitest.mjs run --config tests-native/vitest.conformance.config.mts --mode compat",
@@ -155,7 +156,7 @@
     "test:native:android": "node scripts/ci/vitest.mjs run --config tests-native/vitest.android.config.mts",
     "test:native:advice": "node scripts/ci/vitest.mjs run --config tests-native/vitest.advice.config.mts",
     "test:native:hot": "node scripts/ci/vitest.mjs run --config tests-native/vitest.hot.config.mts",
-    "test:native:hot:isolation": "node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-isolation.config.mts && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-user-setup.config.mts && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-jest-compat.config.mts --mode stock && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-jest-compat.config.mts --mode hot && node scripts/ci/vitest.mjs run --config tests-native/vitest.jest-registry-no-isolate.config.mts && bun run test:native:hot:file-accounting && bun run test:native:hot:act-scope && bun run test:native:hot:rntl-optout && bun run test:native:hot:worker-state && bun run test:native:hot:resident-mock && bun run test:native:hot:fresh-runtime && bun run test:native:hot:compile-cache && bun run test:native:hot:workspace-member && bun run test:native:hot:memory && bun run test:native:hot:generation-parity",
+    "test:native:hot:isolation": "node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-isolation.config.mts && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-user-setup.config.mts && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-jest-compat.config.mts --mode stock && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-jest-compat.config.mts --mode hot && node scripts/ci/vitest.mjs run --config tests-native/vitest.jest-registry-no-isolate.config.mts && bun run test:native:hot:file-accounting && bun run test:native:hot:act-scope && bun run test:native:hot:rntl-optout && bun run test:native:hot:worker-state && bun run test:native:hot:nonconfigurable-global && bun run test:native:hot:resident-mock && bun run test:native:hot:fresh-runtime && bun run test:native:hot:compile-cache && bun run test:native:hot:workspace-member && bun run test:native:hot:memory && bun run test:native:hot:generation-parity",
     "test:native:hot:file-accounting": "node scripts/test-hot-file-accounting.mjs",
     "test:native:hot:act-scope": "node scripts/test-hot-act-scope.mjs",
     "test:native:hot:fresh-runtime": "node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-fresh-runtime.config.mts && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-fresh-runtime-memory.config.mts --mode fresh && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-fresh-runtime-memory.config.mts --mode resident && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-fresh-runtime-timers.config.mts --mode fresh",
@@ -189,7 +190,8 @@
     "validate:hot-auto": "node validation/hot-auto/run.mjs",
     "validate:vitest-semantics": "node validation/vitest-semantics/run.mjs",
     "validate:registry-process": "node validation/module-isolation/run-registry-process.mjs",
-    "validate:metro-profile": "node --expose-gc validation/module-isolation/run-metro-profile.mjs"
+    "validate:metro-profile": "node --expose-gc validation/module-isolation/run-metro-profile.mjs",
+    "test:native:hot:nonconfigurable-global": "node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-nonconfigurable-global.config.mts"
   },
   "dependencies": {
     "flow-remove-types": "^2.337.0",
@@ -221,6 +223,7 @@
     "ext-platform-lib": "file:./tests-native/fixtures/ext-platform-lib",
     "ext-rn-named-lib": "file:./tests-native/fixtures/ext-rn-named-lib",
     "generic-mainfield-lib": "file:./tests-native/fixtures/generic-mainfield-lib",
+    "jsx-in-js-lib": "file:./tests-native/fixtures/jsx-in-js-lib",
     "metro": "0.87.2",
     "metro-resolver": "0.87.2",
     "react": "^19.3.1",
