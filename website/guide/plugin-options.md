@@ -39,7 +39,7 @@ Which engine to use. See [Choosing an Engine](/guide/engines) for the full break
 
 **Type:** `boolean` · **Default:** `false` · **Engine:** both
 
-Set to `true` to log plugin activity — useful when debugging resolution or which engine resolved. Default `false`.
+Set to `true` to log plugin activity — useful when debugging resolution or which engine resolved. Default `false`. Under the native engine it also makes the ownership guard's end-of-run summary list every file of every cause ([`SOURCE_EVALUATED_TWICE`](/guide/errors#SOURCE_EVALUATED_TWICE)).
 
 To turn it on for a single run without editing the config each time, read an environment variable you choose:
 
