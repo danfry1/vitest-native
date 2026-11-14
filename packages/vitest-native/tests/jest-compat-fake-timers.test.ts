@@ -47,6 +47,9 @@ describe("toVitestFakeTimersConfig", () => {
 
   it("keeps a call's own Vitest toFake or toNotFake", () => {
     expect(translate({ toFake: ["setTimeout"] }).toFake).toEqual(["setTimeout"]);
+    expect(translate({ toFake: ["setTimeout"], doNotFake: ["Date"] }).toFake).toEqual([
+      "setTimeout",
+    ]);
     expect(translate({ toNotFake: ["Date"] })).toEqual({
       loopLimit: 100_000,
       now: REAL_NOW,
