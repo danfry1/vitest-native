@@ -18,19 +18,20 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildRef, resolveRef } from "./build-ref.mjs";
+import { cliArguments } from "../../scripts/support/arguments.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const argument = (name) => {
-  const index = process.argv.indexOf(`--${name}`);
-  return index === -1 ? undefined : process.argv[index + 1];
-};
-const results = argument("results");
+const options = cliArguments(
+  { script: "run-columns.mjs", valued: ["results", "main", "cache", "max-load", "only"] },
+  "run-columns.mjs --results <dir> [--main <ref>] [--cache <dir>] [--max-load <n>] [--only id,id]",
+).values;
+const results = options.results;
 if (!results) throw new Error("--results <dir> is required");
 fs.mkdirSync(results, { recursive: true });
-const cache = argument("cache") && path.resolve(argument("cache"));
-const maxLoad = Number(argument("max-load") ?? Infinity);
-const only = argument("only")?.split(",");
-const mainRef = argument("main") ?? "origin/main";
+const cache = options.cache && path.resolve(options.cache);
+const maxLoad = Number(options["max-load"] ?? Infinity);
+const only = options.only?.split(",");
+const mainRef = options.main ?? "origin/main";
 
 const exhibits = JSON.parse(
   fs.readFileSync(path.join(here, "exhibits.json"), "utf8"),

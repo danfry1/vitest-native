@@ -6,6 +6,7 @@ import BoundaryDiagram from './components/BoundaryDiagram.vue'
 import FrontDoors from './components/FrontDoors.vue'
 import HeroDemo from './components/HeroDemo.vue'
 import HeroInstall from './components/HeroInstall.vue'
+import ProofCards from './components/ProofCards.vue'
 import SupportLine from './components/SupportLine.vue'
 import './custom.css'
 
@@ -21,5 +22,6 @@ export default {
   enhanceApp({ app }) {
     app.component('FrontDoors', FrontDoors)
     app.component('BoundaryDiagram', BoundaryDiagram)
+    app.component('ProofCards', ProofCards)
   },
 } satisfies Theme

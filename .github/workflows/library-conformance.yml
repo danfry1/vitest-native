@@ -1,0 +1,92 @@
+name: Library conformance (newest supported)
+
+# The conformance probes (test:native:conformance) on the newest release of each library
+# inside its supported range (SUPPORTED_LIBRARY_VERSIONS in src/preset-map.ts), where the
+# Full gate runs them on the locked versions. The probes extract each contract from the
+# installed library, so a new release inside the range that our presets or mocks no longer
+# match fails here before users see it. bunfig's minimumReleaseAge still applies: nothing
+# installed is younger than seven days.
+
+on:
+  pull_request:
+    paths:
+      - "packages/vitest-native/src/presets/**"
+      - "packages/vitest-native/src/mocks/**"
+      - "packages/vitest-native/src/preset-map.ts"
+      - "packages/vitest-native/tests-native/conformance/**"
+      - "packages/vitest-native/tests-native/vitest.conformance.config.mts"
+      - ".github/scripts/latest-supported.mjs"
+      - ".github/workflows/library-conformance.yml"
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: library-conformance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  newest-libraries:
+    name: Conformance on the newest supported libraries
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Read-only, and no package's install scripts run.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        with:
+          node-version: 22.22.3
+
+      - name: Each library at the newest release inside its supported range
+        run: |
+          mapfile -t specs < <(node .github/scripts/latest-supported.mjs --libraries)
+          printf 'Installing: %s\n' "${specs[@]}"
+          bun add -d "${specs[@]}" --ignore-scripts --cwd packages/vitest-native
+
+      - name: Resolved versions
+        run: |
+          for name in react-native-reanimated react-native-worklets react-native-gesture-handler; do
+            node -e "console.log('$name', require('./packages/vitest-native/node_modules/$name/package.json').version)"
+          done
+
+      - name: Build
+        run: bun run build
+
+      - name: Conformance probes
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 900 -- bun run --filter vitest-native test:native:conformance
+
+  report:
+    name: File an issue when the scheduled run fails
+    # Only the scheduled run files an issue: a pull request shows its own failure. Runs no
+    # package code, as compat-check's report job (.github/scripts/compat-report.mjs).
+    needs: [newest-libraries]
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts/compat-report.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: File or update an issue for the failed check
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
+        env:
+          RUN_URL: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        with:
+          script: |
+            const { report } = await import(`${process.env.GITHUB_WORKSPACE}/.github/scripts/compat-report.mjs`);
+            await report({ github, context, runUrl: process.env.RUN_URL });

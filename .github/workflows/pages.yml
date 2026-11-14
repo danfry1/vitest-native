@@ -21,6 +21,8 @@ on:
       - 'packages/vitest-native/src/peer-requirements.ts'
       - 'packages/vitest-native/tests/fixtures/sample-app/jest.config.js'
       - 'packages/vitest-native/tests/fixtures/sample-app/jest.setup.js'
+      - 'packages/vitest-native/tests/rn-conformance/**'
+      - 'packages/vitest-native/validation/bug-museum/exhibits.json'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
     inputs:

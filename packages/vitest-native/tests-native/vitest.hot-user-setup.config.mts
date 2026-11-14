@@ -4,6 +4,7 @@
 // its setup files run. With the reset in this package's own setup file (which Vitest
 // runs after the project's), every file after the first failed with
 // "Can't install fake timers twice on the same global object".
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
