@@ -33,6 +33,8 @@ CI, scripts, dependencies, the build, changesets and releasing. This lane owns t
 - **Stacked PRs get no CI and don't retarget.** Run `gh pr edit --base main`, then push an empty commit. Rerunning a job reuses the old SHA.
 - **After a squash merge:** merge main, take main's side, and check that the diff equals only your own commits.
 - **Nested `file:` fixtures break the frozen install on Windows.** Build them at test time.
+- **Each push to `main` cancels the run before it.** Only the latest head gets a verdict, so a release waits for one run with every job finished and nothing skipped by an earlier failure.
+- **A failed-job rerun tests the original merge commit.** After a fix lands on `main`, update the branch instead of rerunning.
 - **Don't bulk-update branches.** One push starts about 32 of the account's roughly 40 concurrent jobs.
 
 ## Not ours (rerun once, then report)

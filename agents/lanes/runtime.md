@@ -44,6 +44,8 @@ The native engine: ownership, resolution, the Node front door, loaders, workers,
 - **Keep the dispatcher's `_resolveFilename` step.** `registerHooks` resolve is bypassed by `require.resolve` on Node 22.22.3 and 24.12–24.15.
 - **Race tests must force the interleaving with promises.** Relying on timing passes with the bug present.
 - **Run `bun run build` after merges.** The native configs import `dist/`.
+- **Time from a worktree you are not editing.** A run refuses once `src/` changes after the last build. A script that clears `node_modules/.cache/vitest-native` must keep `build-stamp.json`.
+- **React Native stays resident in a hot worker,** so anything added to its classes or prototypes is shared by every file in that worker. Probe a change like that across files, under hot and stock.
 - **On Windows, pass child input through a temp file, not stdin.** Stdin held exit for 14 s.
 - **Not ours:** Node 24.13.0 has a V8 GC SIGSEGV (exit 139, no output). The CI leg is pinned to 24.12.0.
 

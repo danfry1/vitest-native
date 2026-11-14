@@ -151,13 +151,19 @@ adds its own tests, its own changeset, and its own guide page.
 - **Never undo a step in a prepared environment with `git checkout` or
   `git reset`.** Throw the copy away instead, and diff `package.json` and the
   lockfile around every install.
+- **`vitest run -u <path>` updates everything.** Vitest reads the path as
+  the update type, runs every file and rewrites every snapshot. Write
+  `vitest run <path> -u`.
+- **`vitest run` with an empty file list runs the whole suite.** A script
+  that builds the list must stop when it is empty.
 - **Long and timed runs need a machine that won't sleep.** On macOS, check
   `pmset -g log` before believing any timeout.
 
 ### Verification
 
 - **Mutation-check every new regression test:** turn the fix off, watch the
-  test fail, then restore it.
+  test fail, then restore it. A scripted mutation must match the text as the
+  formatter left it, because oxfmt rewraps long lines.
 - **Read the `Test Files` line, not only `Tests`.** It must be non-empty and
   show no skipped files.
 - **Loops and classifiers count what they actually checked,** and assert a

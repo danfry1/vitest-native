@@ -26,5 +26,6 @@ The proof apparatus: the bug museum, cross-check, consumer tests, the ecosystem 
 - **Museum columns use each ref's own install.** The macOS temp cleaner corrupts the build cache in `os.tmpdir()`, so reinstall with `--force`.
 - **The cross-check runs against `dist`.** Rebuild before every proof.
 - **When two runners share a copy, run Jest before Vitest.** Vitest rewrites `.snap` headers.
-- **`vitest run -u <path>` swallows the path filter.** That's a Vitest CLI issue, not ours.
+- **`run.mjs` runs only exhibits listed in `exhibits.json`.** Add a new exhibit's entry first. To merge the file, insert the entry's text before the closing `]`, so no other line changes.
+- **A landed exhibit names `preFixRef: "<squash>^"`, not a branch commit.** A squash merge leaves branch commits off `main`, so a `fixRef` to one stops resolving.
 - **A zero-load baseline is invalid.** Recorders must refuse it.

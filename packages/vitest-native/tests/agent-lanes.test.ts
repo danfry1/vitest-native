@@ -108,7 +108,14 @@ describe("the agent guide", () => {
     // otherwise a path is relative to packages/vitest-native, then to the root.
     const PATH = /`(\/?[\w.-]+(?:\/[\w.*{},-]*)+|[\w-]+\.(?:mjs|ts|json|md|yml|lock|sh))`/g;
     // Build output, ignored directories and git refs: named so agents know them, never tracked.
-    const NOT_FILES = new Set(["dist/", ".vitest/", ".tmp/", "coverage/", "origin/main"]);
+    const NOT_FILES = new Set([
+      "dist/",
+      "build-stamp.json",
+      ".vitest/",
+      ".tmp/",
+      "coverage/",
+      "origin/main",
+    ]);
     const missing: string[] = [];
     for (const file of guideFiles) {
       for (const [, token] of read(file).matchAll(PATH)) {
