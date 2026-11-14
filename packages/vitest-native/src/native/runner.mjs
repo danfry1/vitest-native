@@ -43,7 +43,9 @@ export default class NativeHotRunner extends NativeTestRunner {
     const previousFile = this.vitestNativeFile;
     this.vitestNativeFile = paths[0];
     this.vitestNativeCauseReported = false;
-    const unusable = await this.residentUnusable(previousFile);
+    const previousFailed = this.vitestNativeFailedWithProblem === true;
+    this.vitestNativeFailedWithProblem = false;
+    const unusable = await this.residentUnusable(previousFile, previousFailed);
     try {
       globalThis.__vitest_native_reset_module_runner?.(paths[0]);
     } catch (error) {
@@ -62,11 +64,21 @@ export default class NativeHotRunner extends NativeTestRunner {
   // task, up to the test timeout (5 s when it is off, 30 s at most). After that each
   // file checks again without waiting, and fails naming the cause while it persists,
   // instead of failing on renders that never commit.
-  async residentUnusable(previousFile) {
+  //
+  // The message names the likely cause from how the leaving file ended. React closes an
+  // async act() scope only when its result is awaited, and whether it was is private to
+  // React, so the wait cannot be skipped for a scope that will never close. But a test
+  // that awaits its act() ends with the scope closed, so a file that left it open with no
+  // test failing while it was open started an act() it did not await. One where a test
+  // failed with the scope open usually timed out inside an awaited act().
+  async residentUnusable(previousFile, previousFailed = false) {
     const projectRoot = requireProjectContext().projectRoot;
     let problems = residentProblems(projectRoot);
     if (problems.length === 0) return null;
-    this.vitestNativeLeftBy ??= previousFile;
+    if (this.vitestNativeLeftBy === undefined) {
+      this.vitestNativeLeftBy = previousFile;
+      this.vitestNativeLeftUnawaited = !previousFailed;
+    }
     const timeout = this.config.testTimeout;
     const waitMs = Math.min(timeout > 0 ? timeout : 5_000, 30_000);
     if (!this.vitestNativeWaited) {
@@ -81,14 +93,22 @@ export default class NativeHotRunner extends NativeTestRunner {
       }
       if (problems.length === 0) return null;
     }
+    const leftBy = this.vitestNativeLeftBy ?? "an earlier file";
+    const actScopeOnly = problems.every((problem) => problem.id === "react.act-scope");
+    const cause =
+      actScopeOnly && this.vitestNativeLeftUnawaited
+        ? `No test in it failed while the scope was open, so an act() call in ${leftBy} ` +
+          `was not awaited and React never closed its scope: await it (\`await act(...)\`, ` +
+          `or the promise of an RNTL call that wraps act()).`
+        : `Fix the test that left it open (often one in ${leftBy} that timed out or ` +
+          `failed while awaiting act()).`;
     return new VitestNativeError(
       "HOT_RESIDENT_UNUSABLE",
       `hotRuntime: this worker cannot run this file: ${describeProblems(problems)} since ` +
-        `${this.vitestNativeLeftBy ?? "an earlier file"} ended, and it did not close within ` +
-        `${waitMs} ms. Renders would queue inside it and never commit. Vitest runs every ` +
-        `file of a one-worker run as one task, so the worker cannot be replaced between ` +
-        `files. Fix the test that left it open (often one that timed out while awaiting ` +
-        `act()), or run with maxWorkers >= 2 so the hot runtime can retire the worker.`,
+        `${leftBy} ended, and it did not close within ${waitMs} ms. ${cause} Renders would ` +
+        `queue inside it and never commit. Vitest runs every file of a one-worker run as ` +
+        `one task, so the worker cannot be replaced between files; with maxWorkers >= 2 ` +
+        `the hot runtime retires it instead.`,
     );
   }
 
@@ -102,6 +122,7 @@ export default class NativeHotRunner extends NativeTestRunner {
       const problems = residentProblems(requireProjectContext().projectRoot);
       if (problems.length > 0) {
         this.vitestNativeCauseReported = true;
+        this.vitestNativeFailedWithProblem = true;
         const message =
           `[vitest-native] hotRuntime: ${describeProblems(problems)} after this test failed, ` +
           `often because a test timed out while awaiting act(). React stays loaded across ` +

@@ -184,7 +184,7 @@ The test process reached the hard memory limit the hot runtime derived from the 
 
 ### `HOT_RESIDENT_UNUSABLE` {#HOT_RESIDENT_UNUSABLE}
 
-An earlier file on a reused worker left state open, usually an `act()` scope that never closed, and it did not close in time, so this file could not render. The message names the file that left it. See [a test passes on its own but fails with other files](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files).
+An earlier file on a reused worker left state open, usually an `act()` scope that never closed, and it did not close in time, so this file could not render. The message names the file that left it and the cause: when none of that file's tests failed while the scope was open, an `act()` call it did not await (await it); otherwise a test that timed out or failed inside `act()`. See [a test passes on its own but fails with other files](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files).
 
 ### `HOT_FILE_NOT_RUN` {#HOT_FILE_NOT_RUN}
 
