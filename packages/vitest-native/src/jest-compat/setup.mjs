@@ -472,9 +472,10 @@ nodeDispatch().load.add(
 // prototype.
 //
 // The prototype given is the native methods object of the native engine's host class for
-// RCTView (src/native/boundary.mjs): one class per view name, whose methods delegate to
-// that object, so a spy on it reaches every View ref. A plain object, not the class's
-// prototype, which would make React construct the component as a class. Under the mock
+// RCTView (src/native/boundary.mjs): one class per view name, whose instances inherit from
+// that object, so a spy on it, or a method added to it, reaches every View ref. Not the
+// class's own prototype, and it shadows isReactComponent, either of which would make React
+// construct the component as a class. Under the mock
 // engine, whose registry has no such class, nothing is set. Only here, in the
 // Jest-semantics layer: the engine itself keeps React Native's View as it is.
 //
@@ -498,6 +499,7 @@ function exposeNativeMethods() {
     if (!replaceable) continue;
     const methods = typeof get === "function" ? get(viewName)?.nativeMethods : undefined;
     if (methods == null || typeof methods.measure !== "function") continue;
+    exposeInstanceCheck(target);
     // An ordinary function's own prototype is writable but not configurable.
     if (own === undefined) {
       Object.defineProperty(target, "prototype", {
@@ -511,3 +513,26 @@ function exposeNativeMethods() {
   }
 }
 exposeNativeMethods();
+
+// `ref instanceof View`, as React Native's Jest preset answers it: its View is a class, so
+// a View ref is an instance of it, and suites rely on that (react-native-paper's Menu tests
+// stand View in for HTMLElement and check `el instanceof HTMLElement`). React Native's own
+// View is a forwardRef object, so `instanceof View` throws "Right-hand side of 'instanceof'
+// is not callable". A Symbol.hasInstance on it answers as `instanceof` does for a class:
+// whether View.prototype, read when asked, is on the value's prototype chain. A View ref
+// inherits it (src/native/boundary.mjs), as do Animated.View and Pressable refs, as under
+// Jest, where they render the preset's View; a Text or ScrollView ref has another view
+// name's methods object, so is not a View, as under Jest. Only `instanceof` reads it.
+//
+// Only on a View that is not callable (where `instanceof` already works, it keeps its own
+// answer) and has no Symbol.hasInstance of its own.
+function exposeInstanceCheck(target) {
+  if (typeof target === "function" || Object.hasOwn(target, Symbol.hasInstance)) return;
+  Object.defineProperty(target, Symbol.hasInstance, {
+    value: (instance) => {
+      const prototype = target.prototype;
+      return prototype != null && Object.prototype.isPrototypeOf.call(prototype, instance);
+    },
+    configurable: true,
+  });
+}
