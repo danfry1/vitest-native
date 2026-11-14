@@ -415,11 +415,11 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           };
 
           // Provides a screen's route and navigation, as @react-navigation/core's does.
-          function NavigationProvider({ route, navigation, children }: any) {
+          function NavigationProvider({ route, navigation: helpers, children }: any) {
             return React.createElement(
               NavigationRouteContext.Provider,
               { value: route },
-              React.createElement(NavigationContext.Provider, { value: navigation }, children),
+              React.createElement(NavigationContext.Provider, { value: helpers }, children),
             );
           }
 

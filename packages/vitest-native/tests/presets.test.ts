@@ -189,10 +189,10 @@ describe("preset: navigation", () => {
 
     it("useNavigationBuilder gives a navigator's helpers, describe and render", async () => {
       const { result } = await renderHook(() => mock.useNavigationBuilder());
-      const { navigation, describe: describeRoute, render } = result.current;
-      expect(navigation.emit({ type: "tabPress" })).toEqual({ defaultPrevented: false });
+      const { navigation: helpers, describe: describeRoute, render } = result.current;
+      expect(helpers.emit({ type: "tabPress" })).toEqual({ defaultPrevented: false });
       for (const name of ["preload", "replaceParams", "navigateDeprecated", "navigate"]) {
-        expect(typeof navigation[name], name).toBe("function");
+        expect(typeof helpers[name], name).toBe("function");
       }
       const route = { key: "a", name: "A" };
       expect(describeRoute(route).route).toBe(route);
