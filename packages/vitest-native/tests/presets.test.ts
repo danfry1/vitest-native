@@ -140,13 +140,23 @@ describe("preset: navigation", () => {
     expect(typeof ref.getCurrentRoute).toBe("function");
   });
 
-  it("useTheme returns a theme with colors", () => {
-    const theme = mock.useTheme();
+  it("useTheme returns a theme with colors", async () => {
+    const { result } = await renderHook(() => mock.useTheme());
+    const theme = result.current;
     expect(theme.dark).toBe(false);
     expect(theme.colors).toBeDefined();
     expect(theme.colors.primary).toBeDefined();
     expect(theme.colors.background).toBeDefined();
   });
+
+  // React Navigation's hooks throw outside a render; the preset's did not, and answered
+  // a default, which also hid a hook error inside a render (#747).
+  it.each(["useNavigation", "useRoute", "useTheme"])(
+    "%s throws outside a render, as React Navigation's own does",
+    (hook) => {
+      expect(() => mock[hook]()).toThrow();
+    },
+  );
 
   it("ThemeProvider is a component", () => {
     expect(typeof mock.ThemeProvider).toBe("function");
