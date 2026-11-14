@@ -227,17 +227,17 @@ export function mockCorrections(
   }
 
   if (typeof mock.createBottomSheetScrollableComponent === "function") {
-    const created = mock.createBottomSheetScrollableComponent(0, mock.BottomSheetScrollView);
-    if (created?.$$typeof === undefined) {
-      out.createBottomSheetScrollableComponent = (type: unknown, Scrollable: React.ElementType) =>
-        React.memo(
-          React.forwardRef((props: object, ref) =>
-            React.createElement(mock.createBottomSheetScrollableComponent(type, Scrollable), {
-              ...props,
-              ref,
-            }),
-          ),
+    // The 5.2.14 mock hands back the component it is given. Probed with a sentinel, so a
+    // mock that wraps it, whatever the wrapper is, keeps its own.
+    const sentinel = () => null;
+    if (mock.createBottomSheetScrollableComponent(0, sentinel) === sentinel) {
+      out.createBottomSheetScrollableComponent = (type: unknown, Scrollable: React.ElementType) => {
+        // Made once per created component, not per render, so a render never remounts it.
+        const Inner = mock.createBottomSheetScrollableComponent(type, Scrollable);
+        return React.memo(
+          React.forwardRef((props: object, ref) => React.createElement(Inner, { ...props, ref })),
         );
+      };
     }
   }
   return out;

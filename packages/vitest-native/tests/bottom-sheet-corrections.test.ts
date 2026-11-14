@@ -81,6 +81,41 @@ describe("bottom-sheet mock corrections", () => {
     expect(out.KEYBOARD_DISMISS_THRESHOLD).toBe(99);
   });
 
+  it("wraps a mock's scrollable factory that hands back its component, calling it once per component", () => {
+    const Scrollable = () => null;
+    let calls = 0;
+    const mock = {
+      ...libraryMock(),
+      createBottomSheetScrollableComponent: (_type: unknown, Component: unknown) => {
+        calls += 1;
+        return Component;
+      },
+    };
+    const out = mockCorrections(React, mock);
+    const before = calls;
+    const created = out.createBottomSheetScrollableComponent(0, Scrollable);
+    expect(created.$$typeof).toBe(Symbol.for("react.memo"));
+    expect(calls).toBe(before + 1);
+    const inner = created.type.render({}, null);
+    expect(inner.type).toBe(Scrollable);
+    created.type.render({}, null);
+    expect(calls).toBe(before + 1);
+  });
+
+  it("keeps a mock's scrollable factory that wraps its component in a plain function", () => {
+    const mock = {
+      ...libraryMock(),
+      createBottomSheetScrollableComponent: (_type: unknown, Component: unknown) =>
+        function Wrapped() {
+          return Component as null;
+        },
+    };
+    const out = mockCorrections(React, mock);
+    expect(out.createBottomSheetScrollableComponent).toBe(
+      mock.createBottomSheetScrollableComponent,
+    );
+  });
+
   it("leaves the mock itself as it was", () => {
     const mock = libraryMock();
     const before = { ...mock };
