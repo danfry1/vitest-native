@@ -47,13 +47,31 @@ describe("test:native shards", () => {
     }
   });
 
-  it("lists the longest scripts first, so two shards split them", () => {
+  it("deals the long scripts to different shards, each shard starting with its own", () => {
     // The scripts with their own deadlines are the long ones (script-deadlines.mjs).
-    const longest = Object.keys(SCRIPT_DEADLINES);
-    expect(longest.length).toBe(2);
-    expect(testNative.slice(0, longest.length).sort()).toEqual([...longest].sort());
-    const first = scriptsInShard(testNative, { index: 1, count: 2 });
-    expect(longest.filter((script) => first.includes(script))).toHaveLength(1);
+    const long = Object.keys(SCRIPT_DEADLINES);
+    expect(long.length).toBe(2);
+    const shards = [1, 2].map((index) => scriptsInShard(testNative, { index, count: 2 }, long));
+    expect(shards.map((shard) => shard[0]).sort()).toEqual([...long].sort());
+    expect(shards.flat().sort()).toEqual([...testNative].sort());
+    // The rest keep their listed order.
+    for (const shard of shards) {
+      const rest = shard.slice(1);
+      expect(rest).toEqual(testNative.filter((script) => rest.includes(script)));
+    }
+  });
+
+  it("runs an unsharded list as given, without starting the long scripts together", () => {
+    // Started side by side on a Linux runner, test:native:project-babel went from at most
+    // 316 s to 420 s and passed its deadline, with the step no faster overall.
+    const long = Object.keys(SCRIPT_DEADLINES);
+    expect(scriptsInShard(testNative, undefined, long)).toEqual(testNative);
+    // run-scripts.mjs hands its shard the long scripts, and starts up to 3 at once on CI.
+    const runner = fs.readFileSync(path.join(packageRoot, "scripts/run-scripts.mjs"), "utf8");
+    expect(runner).toContain("scriptsInShard(listed, shard, Object.keys(SCRIPT_DEADLINES))");
+    expect(runner).toMatch(/Math\.min\(3, os\.availableParallelism\(\) - 1\)/);
+    const firstBatch = testNative.slice(0, 3);
+    expect(long.filter((script) => firstBatch.includes(script)).length).toBeLessThan(2);
   });
 
   it("the Full gate's sharded jobs pass their shard and run each other native step once", () => {
