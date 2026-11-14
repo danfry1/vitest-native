@@ -108,8 +108,8 @@ describe("reanimated mock corrections", () => {
     expect(shared.get()).toBe(3); // a whole shared value: get() reads what was written
   });
 
-  // Every helper loaded, so each probe runs: in this worker interpolateColor.js does not
-  // load (it imports React Native), and a missing helper keeps the name unprobed.
+  // Every helper given, so each probe runs whatever this worker's reanimated loads: a
+  // missing helper keeps the name unprobed.
   const allHelpers = {
     interpolate: () => 50,
     clamp: () => 3,

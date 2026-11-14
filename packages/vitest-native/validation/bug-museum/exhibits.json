@@ -2261,6 +2261,15 @@
       "fixedBy": "open",
       "fixRef": "origin/fix/expo-snapshot-friendly-ref",
       "bugSignature": "^snapshot-ref\\.test\\.tsx: Error: Snapshot `a snapshot prints the ref as jest-expo does 1` mismatched"
+    },
+    {
+      "id": "pre-857-mock-interpolate-color",
+      "class": "presets",
+      "title": "Reanimated's interpolateColor throws under the mock engine",
+      "source": "#857",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/mock-interpolate-color",
+      "bugSignature": "^color\\.test\\.tsx: (VitestNativeError: )?\\[vitest-native\\] reanimated's interpolateColor did not load"
     }
   ]
 }

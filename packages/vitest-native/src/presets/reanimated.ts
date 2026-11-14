@@ -514,6 +514,133 @@ function loadOwnFile(file: string, stubbed: RegExp, stub: object): Record<string
   return mod.exports;
 }
 
+/** `load()`, or null when it throws: a package the project may not have. */
+function optional<T>(load: () => T): T | null {
+  try {
+    return load();
+  } catch {
+    return null;
+  }
+}
+
+/** The Babel a project compiles with: its `@babel/core` and the CommonJS modules plugin. */
+type ProjectBabel = {
+  transformSync: (code: string, options: object) => { code?: string | null } | null;
+  version: string;
+  plugin: unknown;
+};
+
+/**
+ * The project's `@babel/core` and `@babel/plugin-transform-modules-commonjs`, or null when
+ * either is missing. A React Native app has both through `@react-native/babel-preset` (or
+ * `babel-preset-expo`); an isolated install (pnpm, bun) puts the plugin beside the preset
+ * rather than at the project root, so it is looked for there too.
+ */
+function projectBabel(root: string): ProjectBabel | null {
+  const fromRoot = createRequire(path.join(root, "package.json"));
+  const core = optional(() => fromRoot("@babel/core"));
+  if (!core) return null;
+  const places = [
+    fromRoot,
+    ...["@react-native/babel-preset", "babel-preset-expo"].flatMap((preset) => {
+      const manifest = optional(() => fromRoot.resolve(`${preset}/package.json`));
+      return manifest ? [createRequire(manifest)] : [];
+    }),
+  ];
+  for (const from of places) {
+    const plugin = optional(() => from("@babel/plugin-transform-modules-commonjs"));
+    if (plugin) return { transformSync: core.transformSync, version: core.version, plugin };
+  }
+  return null;
+}
+
+/** Compiled sources, by file, reanimated version and Babel version: the same in every file. */
+const compiledSources = new Map<string, string>();
+
+/**
+ * Loads one of reanimated's ES module files, and the files it imports, as CommonJS the
+ * project's Babel compiles (projectBabel). For the mock engine, which runs no transform:
+ * interpolateColor.js reaches React Native's `Platform` (common/constants/platform.js),
+ * and an ES module's `import` of React Native goes to its Flow source, which Node cannot
+ * run (#857). Compiled to CommonJS, it is a `require`, which the mock engine answers with
+ * its React Native as it does every other. Each load has its own module cache, outside
+ * Node's, so a file imported twice runs once. Throws when the project has no Babel.
+ */
+export function loadCompiledGraph(
+  dir: string,
+  entry: string,
+  babelRoot: string,
+): Record<string, any> {
+  const babel = projectBabel(babelRoot);
+  if (!babel) {
+    throw new VitestNativeError(
+      "PRESET_UNAVAILABLE",
+      `no @babel/core and @babel/plugin-transform-modules-commonjs resolve from ${babelRoot}`,
+    );
+  }
+  // Read, not required: under the native engine nothing of reanimated's loads through Node.
+  const { version } = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+  const loaded = new Map<string, Module>();
+  const compiled = (file: string) => {
+    const key = `${file}\0${version}\0${babel.version}`;
+    let code = compiledSources.get(key);
+    if (code === undefined) {
+      code =
+        babel.transformSync(fs.readFileSync(file, "utf8"), {
+          filename: file,
+          babelrc: false,
+          configFile: false,
+          sourceType: "module",
+          plugins: [babel.plugin],
+        })?.code ?? "";
+      compiledSources.set(key, code);
+    }
+    return code;
+  };
+  const load = (file: string): Record<string, any> => {
+    const known = loaded.get(file);
+    if (known) return known.exports;
+    const mod = new Module(file);
+    mod.filename = file;
+    mod.paths = (Module as any)._nodeModulePaths(path.dirname(file));
+    mod.require = function (this: Module, request: string) {
+      if (request.startsWith(".")) return load(path.resolve(path.dirname(file), request));
+      return Module.prototype.require.call(this, request);
+    } as Module["require"];
+    loaded.set(file, mod);
+    (mod as unknown as { _compile: (code: string, file: string) => void })._compile(
+      compiled(file),
+      file,
+    );
+    mod.loaded = true;
+    return mod.exports;
+  };
+  return load(path.join(dir, entry));
+}
+
+/**
+ * The stand-in for a helper of reanimated's (`interpolateColor`, `clamp`) that did not
+ * load from `installedDir`: it throws, saying why and what to do.
+ */
+function unavailableHelper(name: string, installedDir: string | null): () => never {
+  return () => {
+    throw new VitestNativeError(
+      "PRESET_UNAVAILABLE",
+      `reanimated's ${name} did not load from ${installedDir ?? "react-native-reanimated (not installed)"}. ` +
+        (underNativeEngine()
+          ? "Its file is missing or failed to load; please report this with your reanimated version."
+          : "The mock engine runs no transform, and its file needs one: it imports React " +
+            "Native, which the engine compiles it against with the project's @babel/core and " +
+            "@babel/plugin-transform-modules-commonjs. Install them, or use the native " +
+            "engine (engine: 'native'). Before reanimated 4.5 its imports have no file " +
+            "extension, and it does not load under the mock engine."),
+    );
+  };
+}
+
+/** The file of reanimated's interpolateColor, which reaches React Native. */
+const COLOR_FILE = "lib/module/interpolateColor.js";
+
 /** What interpolateColor.js's core imports become (see loadOwnFile). */
 const NOT_LOADED = new Proxy(
   {},
@@ -534,12 +661,13 @@ const NOT_LOADED = new Proxy(
  * Reanimated's own `interpolate`, `clamp` and `interpolateColor`, loaded from the
  * installed package's files (by name, the preset answers): plain functions, which
  * reanimated also runs on the JS thread. A file that does not load is left out, and
- * its names keep what the module had. Under the native engine both load from 3.17 on;
- * under the mock engine, which runs no transform, interpolateColor.js does not load
- * (it imports React Native's Flow source), nor, before 4.5, does interpolation.js
- * (its imports have no file extension, which Node's ES module loader rejects).
+ * its names keep what the module had. Under the native engine both load from 3.17 on.
+ * Under the mock engine, which runs no transform, Node cannot load interpolateColor.js
+ * (it imports React Native's Flow source) nor, before 4.5, interpolation.js (its imports
+ * have no file extension). From 4.5 on, interpolateColor.js is compiled with the
+ * project's Babel (loadCompiledGraph), and stays out where the project has none.
  */
-function ownHelpers(dir: string, fromRegistry = false): Helpers {
+export function ownHelpers(dir: string, fromRegistry = false, babelRoot = workerRoot()): Helpers {
   const helpers: Helpers = {};
   // Beside reanimated's own mock the files are already modules of its graph, which the
   // library registry holds: a require by path is served from there, at no Node load.
@@ -560,6 +688,21 @@ function ownHelpers(dir: string, fromRegistry = false): Helpers {
       loadOrNull(own);
     for (const name of names) {
       if (typeof loaded?.[name] === "function") helpers[name] = loaded[name];
+    }
+    // Under the mock engine interpolateColor.js reaches React Native, which Node cannot
+    // load (#857): it is compiled with the project's Babel when it is first called, so a
+    // project that never calls it pays nothing (about 140 ms for Babel and its 34 files).
+    if (!loaded && file === COLOR_FILE && !underNativeEngine()) {
+      let graph: Record<string, any> | null | undefined;
+      for (const name of names) {
+        helpers[name] = (...args: unknown[]) => {
+          // Loaded once: a failure (no Babel) is kept too, not looked for again each call.
+          if (graph === undefined)
+            graph = loadOrNull(() => loadCompiledGraph(dir, file, babelRoot));
+          const helper = graph?.[name];
+          return typeof helper === "function" ? helper(...args) : unavailableHelper(name, dir)();
+        };
+      }
     }
   }
   return helpers;
@@ -849,17 +992,7 @@ export function reanimated(): Preset {
           // output value), and `clamp` and `interpolateColor` say why they fail.
           const installedDir = reanimatedDir(workerRoot());
           const helpers = installedDir ? ownHelpers(installedDir) : {};
-          const unavailable = (name: string) => () => {
-            throw new VitestNativeError(
-              "PRESET_UNAVAILABLE",
-              `reanimated's ${name} did not load from ${installedDir ?? "react-native-reanimated (not installed)"}. ` +
-                (underNativeEngine()
-                  ? "Its file is missing or failed to load; please report this with your reanimated version."
-                  : "The mock engine runs no transform, and its file needs one (it imports React " +
-                    "Native, or, before reanimated 4.5, modules without a file extension). It works " +
-                    "under the native engine (engine: 'native')."),
-            );
-          };
+          const unavailable = (name: string) => unavailableHelper(name, installedDir);
           const interpolate = vi.fn(
             helpers.interpolate ??
               ((_value: number, _input: number[], output: number[]) => output[0]),
