@@ -75,7 +75,9 @@ describe("bottom-sheet mock corrections", () => {
     expect(out.useBottomSheet).toBe(mock.useBottomSheet);
     expect(out.useBottomSheetInternal).toBe(mock.useBottomSheetInternal);
     expect(out.useBottomSheetModalInternal).toBe(mock.useBottomSheetModalInternal);
-    expect(out.createBottomSheetScrollableComponent).toBe(mock.createBottomSheetScrollableComponent);
+    expect(out.createBottomSheetScrollableComponent).toBe(
+      mock.createBottomSheetScrollableComponent,
+    );
     expect(out.KEYBOARD_DISMISS_THRESHOLD).toBe(99);
   });
 
