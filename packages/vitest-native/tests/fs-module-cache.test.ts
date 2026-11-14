@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, onTestFinished } from "vitest";
 import {
   dependencyFingerprint,
   fsModuleCacheKey,
@@ -83,6 +83,57 @@ describe("the plugin", () => {
     });
     expect(off.test.fsModuleCache).toBeUndefined();
   });
+
+  it("changes when only source changes which packages Node compiles (#692)", async () => {
+    // A workspace package importing a library it does not list puts that library among the
+    // packages Node compiles, with the lockfile unchanged; the key follows, through the
+    // ownership policy the worker context carries.
+    // @ts-expect-error — runtime .mjs, no types
+    const { materialise, packageRoot } =
+      await import("../validation/bug-museum/lib/materialise.mjs");
+    // One directory for both, so the project's paths are the same in each key.
+    const work = fs.mkdtempSync(path.join(os.tmpdir(), "vn-fs-cache-closure-"));
+    roots.push(work);
+    const keyOf = async (edits: object[]) => {
+      const root = materialise(
+        {
+          id: "own-workspace-undeclared-import",
+          links: { "@m/feature": "packages/feature", "@m/lib": "packages/lib" },
+        },
+        { work, build: packageRoot, edits },
+      );
+      const plugin = reactNative({ engine: "native", hotRuntime: false }) as never as {
+        configureVitest: (ctx: unknown) => void;
+      };
+      const resolved = await runPluginConfig(plugin as never, { root, test: {} });
+      const generators: (() => string)[] = [];
+      plugin.configureVitest({
+        vitest: { config: {} },
+        project: { config: { root, setupFiles: resolved.test.setupFiles } },
+        defineCacheKeyGenerator: (g: () => string) => generators.push(g),
+      });
+      return generators[0]?.();
+    };
+    // The precompiled React Native registry is not what this is about, and building it twice
+    // under the full unit suite's load took longer than the test's timeout.
+    const noRegistry = process.env.VITEST_NATIVE_NO_REGISTRY;
+    process.env.VITEST_NATIVE_NO_REGISTRY = "1";
+    onTestFinished(() => {
+      if (noRegistry === undefined) delete process.env.VITEST_NATIVE_NO_REGISTRY;
+      else process.env.VITEST_NATIVE_NO_REGISTRY = noRegistry;
+    });
+    const importing = await keyOf([]);
+    const notImporting = await keyOf([
+      {
+        file: "packages/feature/src/index.ts",
+        find: 'import { label, store } from "@m/lib";',
+        replace: 'const label = () => "";\nconst store = { value: null };',
+      },
+    ]);
+    expect(importing).toMatch(/^[0-9a-f]{40}$/);
+    expect(notImporting).toMatch(/^[0-9a-f]{40}$/);
+    expect(importing).not.toBe(notImporting);
+  }, 60_000);
 
   it.each(["defineCacheKeyGenerator"])(
     "registers its cache key with Vitest through %s",

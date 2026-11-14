@@ -1912,6 +1912,19 @@
       }
     },
     {
+      "id": "own-workspace-undeclared-import",
+      "class": "ownership",
+      "title": "A workspace library a React Native sibling imports without declaring it is loaded twice",
+      "source": "a monorepo report (#692)",
+      "fixedBy": "#692's fix",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/lib": "packages/lib"
+      },
+      "bugSignature": "^shared-store\\.test\\.ts: AssertionError: one store: expected null to be 'written by the test'",
+      "fixRef": "d6e75016b206ef45974f7d7d3da2743ccdcb998c"
+    },
+    {
       "id": "res-workspace-member-closure",
       "class": "transform/resolution",
       "title": "A workspace library's dependencies are not compiled for the package that depends on it",

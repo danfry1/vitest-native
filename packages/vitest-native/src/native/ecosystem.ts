@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { babelParser, isPlainJavaScript } from "./plain-javascript.js";
+import { babelParser, isPlainJavaScript, type Parse } from "./plain-javascript.js";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
 import { containsPath, dependencyDirOf, type PackageDirOf } from "./match.mjs";
 import { mainFieldFile } from "./shared-resolver.mjs";
@@ -179,6 +179,134 @@ function runtimeImports(dir: string, manifest: Record<string, unknown>): Set<str
   }
   runtimeMemo.set(dir, names);
   return names;
+}
+
+/** Every string target of a manifest's `exports`: each subpath, each condition. */
+function allExportTargets(exportsField: unknown): string[] {
+  const out: string[] = [];
+  const collect = (value: unknown) => {
+    if (typeof value === "string") out.push(value);
+    else if (value && typeof value === "object") Object.values(value).forEach(collect);
+  };
+  collect(exportsField);
+  return out.filter((target) => !/\.d\.[cm]?ts$/.test(target) && !target.includes("*"));
+}
+
+/** What a package's modules import unconditionally (staticImports). */
+export type StaticImports = { names: Set<string>; truncated: boolean };
+
+/**
+ * The packages a package's modules import unconditionally, by name: from the files its
+ * runtime entries reach (its `react-native` field, `main`, and every `exports` subpath)
+ * through relative imports, the source of each top-level `import` and `export … from`
+ * that is not type-only, and each top-level `require("…")` statement or declaration. Parsed with the
+ * project's Babel parser, so a `require` inside a condition (`if (__DEV__)`) or a function
+ * and a specifier inside a string are not imports. `truncated` when the file limit cut
+ * the scan short. For the undeclared workspace edge of the closure walk (#692), which
+ * decides a package's owner alone and so needs no false hits; the peer edge keeps
+ * runtimeImports.
+ */
+function staticImports(
+  dir: string,
+  manifest: Record<string, unknown>,
+  parse: Parse | null,
+  memo: Map<string, StaticImports>,
+  limit: number,
+): StaticImports {
+  const memoized = memo.get(dir);
+  if (memoized) return memoized;
+  const result: StaticImports = { names: new Set<string>(), truncated: false };
+  memo.set(dir, result);
+  if (!parse) return result;
+  const entries = [
+    typeof manifest["react-native"] === "string" ? manifest["react-native"] : null,
+    typeof manifest.main === "string" ? manifest.main : null,
+    ...allExportTargets(manifest.exports),
+  ].filter((entry): entry is string => entry !== null);
+  if (entries.length === 0) entries.push("index");
+  const pending = entries
+    .map((entry) => runtimeFile(path.resolve(dir, entry)))
+    .filter((file): file is string => file !== null && containsPath(dir, file));
+  const seen = new Set<string>();
+  const specifiers = (file: string): string[] => {
+    const typescript = /\.[cm]?tsx?$/.test(file);
+    let program: { body: Array<Record<string, any>> };
+    try {
+      program = (
+        parse(fs.readFileSync(file, "utf8"), {
+          sourceType: "unambiguous",
+          allowReturnOutsideFunction: true,
+          errorRecovery: true,
+          plugins: typescript
+            ? ["typescript", ...(file.endsWith("x") ? ["jsx"] : [])]
+            : ["jsx", "flow"],
+        }) as { program: { body: Array<Record<string, any>> } }
+      ).program;
+    } catch {
+      return [];
+    }
+    const found: string[] = [];
+    const requireOf = (node: Record<string, any> | null | undefined): string | null =>
+      node?.type === "CallExpression" &&
+      node.callee?.type === "Identifier" &&
+      node.callee.name === "require" &&
+      node.arguments?.length === 1 &&
+      node.arguments[0].type === "StringLiteral"
+        ? node.arguments[0].value
+        : null;
+    for (const node of program.body) {
+      if (node.type === "ImportDeclaration") {
+        const typeOnly =
+          node.importKind === "type" ||
+          (node.specifiers.length > 0 &&
+            node.specifiers.every((spec: Record<string, any>) => spec.importKind === "type"));
+        if (!typeOnly) found.push(node.source.value);
+      } else if (
+        (node.type === "ExportNamedDeclaration" || node.type === "ExportAllDeclaration") &&
+        node.source &&
+        node.exportKind !== "type"
+      ) {
+        found.push(node.source.value);
+      } else if (node.type === "ExpressionStatement") {
+        const spec = requireOf(node.expression);
+        if (spec) found.push(spec);
+      } else if (node.type === "VariableDeclaration") {
+        for (const declaration of node.declarations) {
+          // `const x = require("…")` and `const { y } = require("…").z`.
+          let init = declaration.init;
+          while (init?.type === "MemberExpression") init = init.object;
+          const spec = requireOf(init);
+          if (spec) found.push(spec);
+        }
+      }
+    }
+    return found;
+  };
+  while (pending.length > 0) {
+    if (seen.size >= limit) {
+      result.truncated = true;
+      break;
+    }
+    const file = pending.pop() as string;
+    if (seen.has(file) || file.endsWith(".json")) continue;
+    seen.add(file);
+    for (const specifier of specifiers(file)) {
+      if (specifier.startsWith(".")) {
+        const target = runtimeFile(path.resolve(path.dirname(file), specifier));
+        if (
+          target &&
+          containsPath(dir, target) &&
+          !NODE_MODULES_DIR.test(path.relative(dir, target))
+        ) {
+          pending.push(target);
+        }
+      } else if (PACKAGE_SPECIFIER.test(specifier)) {
+        const parts = specifier.split("/");
+        result.names.add(specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]);
+      }
+    }
+  }
+  return result;
 }
 
 /** Manifest fields that make a package part of the React Native ecosystem. */
@@ -381,6 +509,24 @@ export interface ReachedPackages {
   reachedPaths?: readonly string[];
   /** Called once per workspace member reached through `reachedPaths` but not declared. */
   onReachedUndeclared?: (name: string, dir: string) => void;
+  /**
+   * Called once per workspace member a detected workspace package's source imports
+   * without declaring it (`importer` imports `name`, found at `dir`). It joins the
+   * closure all the same.
+   */
+  onImportedUndeclared?: (
+    importer: string,
+    name: string,
+    dir: string,
+    listed: "devDependency" | "undeclared",
+  ) => void;
+  /** Called when the scan of a package's imports stopped at the file limit. */
+  onImportScanTruncated?: (pkg: string, limit: number) => void;
+  /**
+   * The most files the scan of one package's imports reads (default 5000). Tests lower
+   * it so that reaching it needs a few files, not thousands.
+   */
+  importScanLimit?: number;
 }
 
 /**
@@ -419,7 +565,14 @@ export function detectEcosystemPackages(
   neverTransform: string[] = [],
   activePresets?: readonly string[],
   dirOf: PackageDirOf = dependencyDirOf,
-  { reachedPaths = [], onReachedUndeclared, compileReactNativeFieldSource }: ReachedPackages = {},
+  {
+    reachedPaths = [],
+    onReachedUndeclared,
+    onImportedUndeclared,
+    onImportScanTruncated,
+    importScanLimit = MAX_RUNTIME_FILES,
+    compileReactNativeFieldSource,
+  }: ReachedPackages = {},
 ): string[] {
   // Per detection, so a reinstall in a watch session is read afresh.
   runtimeMemo.clear();
@@ -766,6 +919,11 @@ export function detectEcosystemPackages(
    * Walk the queue. With `installedOnly`, only installed packages (a real path inside a
    * node_modules directory) are added: see "Workspace members the run reaches" below.
    */
+  // The project's Babel parser, for the undeclared workspace edge (staticImports), and its
+  // results for this detection only: a source edit can add or drop an import between two
+  // detections in one process (watch mode), which a process-wide memo would miss.
+  let parser: Parse | false | undefined;
+  const staticMemo = new Map<string, StaticImports>();
   const walk = (installedOnly: boolean) => {
     const admits = (installed: Installed) => !installedOnly || NODE_MODULES_DIR.test(installed.dir);
     while (queue.length > 0) {
@@ -802,6 +960,52 @@ export function detectEcosystemPackages(
           dependsOnReactNative(installed.manifest) &&
           runtimeImports(pkg.dir, pkg.manifest).has(peer);
         if (detectedSet.has(peer) || loadedReactNativePeer) reach(peer, installed);
+      }
+      // A workspace member this workspace package imports without declaring it (#692): its
+      // source imports `@w/lib`, resolved through the workspace's links, and `@w/lib` is
+      // not among its dependencies or peers. Node loads `@w/lib` through this package's
+      // source as surely as a declared one, so it joins the closure (ADR-0004 rule 7)
+      // under the same gates a declared dependency passes; left out, Vite evaluated it for
+      // the test's own import and the two copies kept separate state. Only unconditional,
+      // top-level imports count (staticImports). Workspace members only, on both ends: an
+      // installed package's imports are its own business, and installed targets are what
+      // the walk's other edges cover. Under pnpm a member a package does not declare is
+      // not linked where it can resolve it, so Node cannot load it from there either: no
+      // second copy, and nothing for this edge to do.
+      if (!NODE_MODULES_DIR.test(pkg.dir)) {
+        const listed = (field: string) =>
+          Object.keys((pkg.manifest[field] as object | undefined) ?? {});
+        const declared = new Set([...listed("dependencies"), ...listed("peerDependencies")]);
+        const devOnly = new Set(listed("devDependencies"));
+        // The project's parser; else the one the working directory resolves (vitest-native's
+        // own peer), so the edge never goes quiet for want of a parser. Measured on a
+        // 50-member workspace (25 React Native, 21 files each): about 65 ms more on a cold
+        // detection; each package directory is parsed once per detection.
+        parser ??= babelParser(roots[0]) ?? babelParser(process.cwd()) ?? false;
+        const scanned = staticImports(
+          pkg.dir,
+          pkg.manifest,
+          parser || null,
+          staticMemo,
+          importScanLimit,
+        );
+        if (scanned.truncated)
+          onImportScanTruncated?.(pkg.manifest.name as string, importScanLimit);
+        for (const name of scanned.names) {
+          if (declared.has(name) || walked.has(name) || excluded(name)) continue;
+          const installed = dependencyOf(pkg, name);
+          if (!installed || NODE_MODULES_DIR.test(installed.dir) || !admits(installed)) continue;
+          // The gate the declared edge applies: a member that publishes only ES modules
+          // runs as published (see publishesOnlyEsm), declared or not.
+          if (!inClosure.has(name) && publishesOnlyEsm(installed.manifest)) continue;
+          onImportedUndeclared?.(
+            pkg.manifest.name as string,
+            name,
+            installed.dir,
+            devOnly.has(name) ? "devDependency" : "undeclared",
+          );
+          reach(name, installed);
+        }
       }
     }
   };
