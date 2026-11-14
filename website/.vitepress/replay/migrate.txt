@@ -6,16 +6,17 @@ Mapped automatically:
   • moduleNameMapper '^@/(.*)$' → resolve.alias (absolute path).
   • transformIgnorePatterns (raw): ["node_modules/(?!((jest-)?react-native|@react-native(-community)?|react-native-reanimated|react-native-gesture-handler)/)"]
   • transformIgnorePatterns allows react-native — the native engine transforms React Native itself; nothing to do.
+  • transformIgnorePatterns allows react-native-reanimated — shadowed by the auto-detected reanimated preset; nothing to do.
   • transformIgnorePatterns allows react-native-gesture-handler — detected by the engine (React Native ecosystem), which compiles what Node cannot run; nothing to do.
-  • transformIgnorePatterns allows jest-react-native — not installed; nothing to do.
-  • testMatch (Jest 30's default; Jest is not installed, so Jest 30's) → test.include ["**/__tests__/**/*.?([mc])[jt]s?(x)","**/?(*.)+(spec|test).?([mc])[jt]s?(x)"], so Jest's patterns, not Vitest's default include, decide which files are tests.
+  • testMatch (Jest 30's default) → test.include ["**/__tests__/**/*.?([mc])[jt]s?(x)","**/?(*.)+(spec|test).?([mc])[jt]s?(x)"], so Jest's patterns, not Vitest's default include, decide which files are tests.
   • Jest keeps mock calls between tests unless clearMocks is set → test.clearMocks: false (Vitest 5 clears them before each test by default).
 
 Covered by presets — delete:
-  • transformIgnorePatterns allows react-native-reanimated — shadowed by the auto-detected reanimated preset; nothing to do.
+  • ./jest.setup.js: require('react-native-gesture-handler/jestSetup') — react-native-gesture-handler's own test setup, which the native engine runs before the setup files; delete the line.
+  • ./jest.setup.js: jest.mock('react-native-reanimated') — the auto-detected reanimated preset shadows react-native-reanimated; delete the line.
+  • ./jest.setup.js: jest.mock('react-native-safe-area-context') — the auto-detected safeAreaContext preset shadows react-native-safe-area-context; delete the line.
 
 Needs your attention:
-  • preset: '@react-native/jest-preset' could not be loaded (cannot resolve '@react-native/jest-preset/jest-preset' from .), so its testMatch/testPathIgnorePatterns could not be read; test.include falls back to Jest's defaults — compare with the preset.
   • scripts.test runs Jest — point it at `vitest run` once the suite passes.
 
 Suggested vitest.config:
