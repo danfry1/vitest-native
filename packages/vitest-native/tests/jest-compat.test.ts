@@ -291,6 +291,12 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
       t.call({ parse: counting, resolve }, "import { expect } from '@jest/globals';", id);
       t.call({ parse: counting, resolve }, "api.mock('./a');", id);
       t.call({ parse: counting, resolve }, "jest.fn(); const x = 1;", id);
+      // A mock function's record names `mock`, but no hoisted method.
+      t.call(
+        { parse: counting, resolve },
+        "const fn = jest.fn(); fn(); expect(fn.mock.calls).toHaveLength(1); fn.mock .results;",
+        id,
+      );
       expect(parsed).toBe(0);
       t.call(
         { parse: counting, resolve },

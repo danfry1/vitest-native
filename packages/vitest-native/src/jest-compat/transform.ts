@@ -26,7 +26,8 @@ const TRANSFORMABLE = /\.(?:[cm]?[jt]sx?)$/;
 // jest.doMock`).
 const HAS_JEST_MOCK = /\bjest\s*\.\s*(?:mock|unmock|doMock|doUnmock)\s*\(/;
 const NAMES_JEST = /\bjest\b/;
-const NAMES_MOCK_METHOD = /\b(?:mock|unmock|doMock|doUnmock)\b/;
+// Not `.mock.calls` and the like: a mock function's record, not a call to the method.
+const NAMES_MOCK_METHOD = /\b(?:mock|unmock|doMock|doUnmock)\b(?!\s*\.)/;
 // The modules whose `jest` export is the `jest` object: Jest's own, and the shim
 // jestCompatAliases() serves for it.
 const JEST_SOURCES = new Set(["@jest/globals", "vitest-native/jest-compat/jest-globals"]);
