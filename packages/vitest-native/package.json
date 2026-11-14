@@ -195,7 +195,7 @@
     "test:native:hot:diagnostics": "node scripts/test-hot-diagnostics.mjs"
   },
   "dependencies": {
-    "flow-remove-types": "^2.337.0",
+    "flow-remove-types": "^2.339.0",
     "magic-string": "^1.4.5"
   },
   "devDependencies": {
