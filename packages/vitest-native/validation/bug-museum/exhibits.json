@@ -2261,6 +2261,15 @@
       "fixedBy": "open",
       "fixRef": "origin/fix/screens-preset-transition-progress",
       "bugSignature": "^fade\\.test\\.tsx: TypeError: progress\\.interpolate is not a function"
+    },
+    {
+      "id": "pre-828-native-stack-animated-header-height",
+      "class": "presets",
+      "title": "useAnimatedHeaderHeight is missing from the native-stack preset",
+      "source": "#828",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/navigation-preset-gaps",
+      "bugSignature": "^header\\.test\\.tsx: TypeError: .*useAnimatedHeaderHeight\\) is not a function"
     }
   ]
 }

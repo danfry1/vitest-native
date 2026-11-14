@@ -199,17 +199,39 @@ describe("preset: navigation", () => {
       expect(render()).toBeNull();
     });
 
-    it("useNavigationBuilder's navigation is useNavigation()'s, the same on every render", async () => {
+    it("useNavigationBuilder's navigation is a navigator's helpers, with emit, the same on every render", async () => {
       const { result, rerender } = await renderHook(() => ({
         builder: mock.useNavigationBuilder(),
         navigation: mock.useNavigation(),
       }));
       // A screen's navigation has no emit; React Navigation's core strips it.
       expect(result.current.navigation).not.toHaveProperty("emit");
-      const first = result.current.builder.navigation;
-      expect(first).toBe(result.current.navigation);
+      const helpers = result.current.builder.navigation;
+      expect(typeof helpers.emit).toBe("function");
+      // The same mocks as the screen's, so a call through either is seen on both.
+      expect(helpers.navigate).toBe(result.current.navigation.navigate);
       await rerender({});
-      expect(result.current.builder.navigation).toBe(first);
+      expect(result.current.builder.navigation).toBe(helpers);
+    });
+
+    it("useNavigationBuilder's emit returns React Navigation's event", async () => {
+      const { result } = await renderHook(() => mock.useNavigationBuilder());
+      const { emit } = result.current.navigation;
+      expect(emit({ type: "focus", target: "a" })).toEqual({ type: "focus", target: "a" });
+      const event = emit({ type: "beforeRemove", data: { x: 1 }, canPreventDefault: true });
+      expect(event).toMatchObject({
+        type: "beforeRemove",
+        data: { x: 1 },
+        defaultPrevented: false,
+      });
+      event.preventDefault();
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it("useLinkProps gives the role React Navigation 7 gives", async () => {
+      const { result } = await renderHook(() => mock.useLinkProps({ href: "/a" }));
+      expect(result.current).toMatchObject({ href: "/a", role: "link" });
+      expect(result.current).not.toHaveProperty("accessibilityRole");
     });
 
     it("navigateDeprecated with an object needs a name, as React Navigation's does", () => {
@@ -369,8 +391,17 @@ describe("preset: navigation", () => {
     expect(() => mock.usePreventRemove()).not.toThrow();
   });
 
-  it("usePreventRemoveContext returns null", () => {
-    expect(mock.usePreventRemoveContext()).toBeNull();
+  it("usePreventRemoveContext gives an empty context outside a navigator, or the one provided", async () => {
+    const empty = (await renderHook(() => mock.usePreventRemoveContext())).result.current;
+    expect(empty.preventedRoutes).toEqual({});
+    expect(typeof empty.setPreventRemove).toBe("function");
+    expect(typeof empty.notifyPreventRemove).toBe("function");
+    const provided = { preventedRoutes: { a: { preventRemove: true } } };
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(mock.PreventRemoveContext.Provider, { value: provided }, children);
+    expect(
+      (await renderHook(() => mock.usePreventRemoveContext(), { wrapper })).result.current,
+    ).toBe(provided);
   });
 
   it("createComponentForStaticNavigation returns a component", () => {
@@ -391,6 +422,15 @@ describe("preset: navigation", () => {
       const config = { screen: () => null };
       expect(stackMock.createNativeStackScreen(config)).toBe(config);
       expect((stackMock.NativeStackView as any).displayName).toBe("NativeStackView");
+    });
+
+    it("useAnimatedHeaderHeight gives the engine's Animated value, kept across renders", async () => {
+      const { result, rerender } = await renderHook(() => stackMock.useAnimatedHeaderHeight());
+      const first = result.current;
+      expect(typeof first.interpolate).toBe("function");
+      expect(first.__getValue()).toBe(64);
+      await rerender({});
+      expect(result.current).toBe(first);
     });
 
     it("createNativeStackNavigator returns Navigator, Screen, Group", () => {

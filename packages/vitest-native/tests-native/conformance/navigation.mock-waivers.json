@@ -1,27 +1,9 @@
 [
   {
-    "export": "useLinkProps",
-    "path": "useLinkProps().role",
-    "reason": "the navigation preset's value lacks this member",
-    "issue": "#828"
-  },
-  {
     "export": "NavigationMetaContext",
     "path": "NavigationMetaContext",
     "reason": "documented as not intended for application code: metadata for child navigators",
     "issue": "n/a (internal)"
-  },
-  {
-    "export": "useNavigationBuilder",
-    "path": "useNavigationBuilder().navigation.emit",
-    "reason": "the navigation preset's value lacks this member",
-    "issue": "#828"
-  },
-  {
-    "export": "usePreventRemoveContext",
-    "path": "usePreventRemoveContext()",
-    "reason": "the navigation preset returns a different kind: is null, declared object",
-    "issue": "#828"
   },
   {
     "export": "PrivateValueStore",

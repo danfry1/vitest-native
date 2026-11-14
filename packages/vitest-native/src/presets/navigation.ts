@@ -3,7 +3,30 @@ import { vi } from "vitest";
 import { hosts } from "../mocks/host-classes.js";
 import { perReact } from "./per-react.js";
 import { builtInPreset } from "./built-in.js";
+import { activeReactNative } from "./active-react-native.js";
 import { projectContext } from "../context.mjs";
+
+/**
+ * A navigator's `emit` (core's useEventEmitter): the event object it builds, with
+ * `defaultPrevented` and `preventDefault` only when the event can be prevented. The
+ * preset's navigation has no listeners to call, so emitting only returns the event.
+ */
+function emitEvent({ type, data, target, canPreventDefault }: any) {
+  const descriptors: PropertyDescriptorMap = { type: { enumerable: true, value: type } };
+  if (target !== undefined) descriptors.target = { enumerable: true, value: target };
+  if (data !== undefined) descriptors.data = { enumerable: true, value: data };
+  if (canPreventDefault) {
+    let defaultPrevented = false;
+    descriptors.defaultPrevented = { enumerable: true, get: () => defaultPrevented };
+    descriptors.preventDefault = {
+      enumerable: true,
+      value: () => {
+        defaultPrevented = true;
+      },
+    };
+  }
+  return Object.defineProperties({}, descriptors);
+}
 
 /** Builds a minimal navigation prop matching useNavigation()'s shape. */
 function createMockNavigation() {
@@ -262,6 +285,12 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             ThemeContext,
             Screen,
           } = shared(React);
+          // usePreventRemoveContext's value when no navigator provides one: nothing prevented.
+          const emptyPreventRemove = {
+            preventedRoutes: {},
+            setPreventRemove: vi.fn(),
+            notifyPreventRemove: vi.fn(),
+          };
           const NavigationContainer = React.forwardRef((props: any, ref: any) =>
             React.createElement(
               hostClass("NavigationContainer"),
@@ -542,20 +571,29 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
                 React.createElement(hostClass("Group"), { ...props, ref }, props.children),
               ),
             })),
-            useNavigationBuilder: vi.fn(() => ({
-              state: getState(),
-              // The navigation object useNavigation() gives, the same one on every render.
-              navigation: useNavigation(),
-              descriptors: {},
-              describe: vi.fn((route: any) => ({
-                route,
-                navigation: useNavigation(),
-                options: {},
-                render: () => null,
-              })),
-              render: vi.fn(() => null),
-              NavigationContent: ({ children }: any) => children,
-            })),
+            useNavigationBuilder: vi.fn(function useNavigationBuilder() {
+              // A navigator's helpers: useNavigation()'s functions plus `emit`, which
+              // React Navigation's core gives a navigator but strips from a screen's
+              // navigation. One object, kept across renders.
+              const screenNavigation = useNavigation();
+              const helpers = React.useMemo(
+                () => ({ ...screenNavigation, emit: vi.fn(emitEvent) }),
+                [screenNavigation],
+              );
+              return {
+                state: getState(),
+                navigation: helpers,
+                descriptors: {},
+                describe: vi.fn((route: any) => ({
+                  route,
+                  navigation: useNavigation(),
+                  options: {},
+                  render: () => null,
+                })),
+                render: vi.fn(() => null),
+                NavigationContent: ({ children }: any) => children,
+              };
+            }),
             NavigationContext,
             NavigationRouteContext,
             NavigationContainerRefContext,
@@ -569,7 +607,11 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             PreventRemoveContext,
             PreventRemoveProvider,
             usePreventRemove: vi.fn(),
-            usePreventRemoveContext: vi.fn(() => null),
+            // The context a navigator provides; the preset's navigators provide none, so a
+            // screen gets an empty one, where the library's hook would throw outside one.
+            usePreventRemoveContext: vi.fn(function usePreventRemoveContext() {
+              return React.useContext(PreventRemoveContext) ?? emptyPreventRemove;
+            }),
             CommonActions,
             StackActions,
             TabActions,
@@ -617,7 +659,7 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             })),
             useLinkProps: vi.fn(({ href, action }: any) => ({
               href,
-              accessibilityRole: "link",
+              role: "link",
               onPress: () => action,
             })),
             useLocale: vi.fn(() => ({ direction: "ltr" as const })),
@@ -636,7 +678,12 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
       },
 
       "@react-navigation/native-stack": {
-        exports: ["createNativeStackNavigator", "createNativeStackScreen", "NativeStackView"],
+        exports: [
+          "createNativeStackNavigator",
+          "createNativeStackScreen",
+          "NativeStackView",
+          "useAnimatedHeaderHeight",
+        ],
         factory: ({ React }) => {
           const { hostComponent: hostClass } = hosts(React);
           const { Screen } = shared(React);
@@ -661,12 +708,24 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           );
           (NativeStackView as any).displayName = "NativeStackView";
 
+          // The library's NativeStackView makes `new Animated.Value(headerHeight)` for each
+          // screen, and its hook throws outside one. The preset answers as a screen does,
+          // with the engine's Animated and @react-navigation/elements' 64, one value per
+          // component kept across renders.
+          const useAnimatedHeaderHeight = vi.fn(function useAnimatedHeaderHeight() {
+            const value = React.useRef<unknown>(null);
+            if (value.current === null)
+              value.current = new (activeReactNative().Animated.Value)(64);
+            return value.current;
+          });
+
           return {
             default: { createNativeStackNavigator },
             createNativeStackNavigator,
             // createScreenFactory's: a static screen's config, returned as is.
             createNativeStackScreen: (config: unknown) => config,
             NativeStackView,
+            useAnimatedHeaderHeight,
           };
         },
       },
