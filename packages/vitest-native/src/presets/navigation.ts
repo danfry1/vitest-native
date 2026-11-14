@@ -31,7 +31,6 @@ function createMockNavigation() {
     preload: vi.fn(),
     replaceParams: vi.fn(),
     navigateDeprecated: vi.fn(),
-    emit: vi.fn(() => ({ defaultPrevented: false })),
   };
 }
 
@@ -253,7 +252,8 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           }));
 
           // Navigation methods React Navigation 7 added beside the ones above (preloading,
-          // replacing params, the pre-7 navigate) and the event emitter of a navigator's helpers.
+          // replacing params, the pre-7 navigate), and the container ref's event emitter. A
+          // screen's navigation has no emit: React Navigation's core strips it.
           const preload = vi.fn();
           const replaceParams = vi.fn();
           const navigateDeprecated = vi.fn();
@@ -276,7 +276,6 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             preload,
             replaceParams,
             navigateDeprecated,
-            emit,
           };
 
           const defaultRoute = {

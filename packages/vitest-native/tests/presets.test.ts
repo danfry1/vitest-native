@@ -190,7 +190,6 @@ describe("preset: navigation", () => {
     it("useNavigationBuilder gives a navigator's helpers, describe and render", async () => {
       const { result } = await renderHook(() => mock.useNavigationBuilder());
       const { navigation: helpers, describe: describeRoute, render } = result.current;
-      expect(helpers.emit({ type: "tabPress" })).toEqual({ defaultPrevented: false });
       for (const name of ["preload", "replaceParams", "navigateDeprecated", "navigate"]) {
         expect(typeof helpers[name], name).toBe("function");
       }
@@ -205,6 +204,8 @@ describe("preset: navigation", () => {
         builder: mock.useNavigationBuilder(),
         navigation: mock.useNavigation(),
       }));
+      // A screen's navigation has no emit; React Navigation's core strips it.
+      expect(result.current.navigation).not.toHaveProperty("emit");
       const first = result.current.builder.navigation;
       expect(first).toBe(result.current.navigation);
       await rerender({});
@@ -418,6 +419,9 @@ describe("preset: navigation", () => {
       expect(receivedProps.route.params).toEqual({ id: 42 });
       expect(typeof receivedProps.navigation.navigate).toBe("function");
       expect(typeof receivedProps.navigation.goBack).toBe("function");
+      // React Navigation 7's screen helpers, and no emit: core strips it.
+      expect(typeof receivedProps.navigation.preload).toBe("function");
+      expect(receivedProps.navigation).not.toHaveProperty("emit");
     });
 
     it("useNavigation/useRoute inside a Screen match the Screen's props", async () => {

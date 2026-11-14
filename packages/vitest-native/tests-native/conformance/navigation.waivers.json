@@ -12,6 +12,12 @@
     "issue": "n/a (internal)"
   },
   {
+    "export": "useNavigationBuilder",
+    "path": "useNavigationBuilder().navigation.emit",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#828"
+  },
+  {
     "export": "usePreventRemoveContext",
     "path": "usePreventRemoveContext()",
     "reason": "the navigation preset returns a different kind: is null, declared object",
