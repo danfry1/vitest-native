@@ -1,0 +1,254 @@
+[
+  {
+    "export": "createStandardNavigationFactories",
+    "path": "createStandardNavigationFactories",
+    "reason": "missing from the navigation preset",
+    "issue": "#712"
+  },
+  {
+    "export": "useLinkProps",
+    "path": "useLinkProps().role",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "createNavigationContainerRef",
+    "path": "createNavigationContainerRef().navigateDeprecated",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "createNavigationContainerRef",
+    "path": "createNavigationContainerRef().preload",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "createNavigationContainerRef",
+    "path": "createNavigationContainerRef().isFocused",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "createNavigationContainerRef",
+    "path": "createNavigationContainerRef().getId",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "createNavigationContainerRef",
+    "path": "createNavigationContainerRef().getParent",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "createNavigationContainerRef",
+    "path": "createNavigationContainerRef().emit",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "createNavigationContainerRef",
+    "path": "createNavigationContainerRef().setParams",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "createNavigationContainerRef",
+    "path": "createNavigationContainerRef().replaceParams",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "createNavigationContainerRef",
+    "path": "createNavigationContainerRef().removeListener",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "createNavigationContainerRef",
+    "path": "createNavigationContainerRef().resetRoot",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "createNavigationContainerRef",
+    "path": "createNavigationContainerRef().setOptions",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "NavigationMetaContext",
+    "path": "NavigationMetaContext",
+    "reason": "documented as not intended for application code: metadata for child navigators",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "NavigationProvider",
+    "path": "NavigationProvider",
+    "reason": "missing from the navigation preset",
+    "issue": "#712"
+  },
+  {
+    "export": "createScreenFactory",
+    "path": "createScreenFactory",
+    "reason": "missing from the navigation preset",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationBuilder",
+    "path": "useNavigationBuilder().navigation.navigateDeprecated",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationBuilder",
+    "path": "useNavigationBuilder().navigation.preload",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationBuilder",
+    "path": "useNavigationBuilder().navigation.emit",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationBuilder",
+    "path": "useNavigationBuilder().navigation.replaceParams",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationBuilder",
+    "path": "useNavigationBuilder().describe",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationBuilder",
+    "path": "useNavigationBuilder().render",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationContainerRef",
+    "path": "useNavigationContainerRef().navigateDeprecated",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationContainerRef",
+    "path": "useNavigationContainerRef().preload",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationContainerRef",
+    "path": "useNavigationContainerRef().isFocused",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationContainerRef",
+    "path": "useNavigationContainerRef().getId",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationContainerRef",
+    "path": "useNavigationContainerRef().getParent",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationContainerRef",
+    "path": "useNavigationContainerRef().emit",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationContainerRef",
+    "path": "useNavigationContainerRef().setParams",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationContainerRef",
+    "path": "useNavigationContainerRef().replaceParams",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationContainerRef",
+    "path": "useNavigationContainerRef().removeListener",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationContainerRef",
+    "path": "useNavigationContainerRef().resetRoot",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "useNavigationContainerRef",
+    "path": "useNavigationContainerRef().setOptions",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "usePreventRemoveContext",
+    "path": "usePreventRemoveContext()",
+    "reason": "the navigation preset returns a different kind: is null, declared object",
+    "issue": "#712"
+  },
+  {
+    "export": "PrivateValueStore",
+    "path": "PrivateValueStore",
+    "reason": "a class the package declares only for type inference; there is no runtime value to mock",
+    "issue": "n/a (type-only)"
+  },
+  {
+    "export": "CommonActions",
+    "path": "CommonActions.navigateDeprecated",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "CommonActions",
+    "path": "CommonActions.replaceParams",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "CommonActions",
+    "path": "CommonActions.preload",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "DrawerRouter",
+    "path": "DrawerRouter",
+    "reason": "missing from the navigation preset",
+    "issue": "#712"
+  },
+  {
+    "export": "StackActions",
+    "path": "StackActions.popTo",
+    "reason": "the navigation preset's value lacks this member",
+    "issue": "#712"
+  },
+  {
+    "export": "StackRouter",
+    "path": "StackRouter",
+    "reason": "missing from the navigation preset",
+    "issue": "#712"
+  },
+  {
+    "export": "TabRouter",
+    "path": "TabRouter",
+    "reason": "missing from the navigation preset",
+    "issue": "#712"
+  }
+]

@@ -2,6 +2,7 @@
 // it, alphabetically on two hot workers, so the first and third share one (#690). The
 // hot reset put back the first file's Vitest worker state, and the third file's cleanup
 // read the first file's opt-out. package.json test:native:hot:worker-state.
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 import { reactNative } from "../dist/index.mjs";

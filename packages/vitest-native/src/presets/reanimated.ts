@@ -206,11 +206,18 @@ export function derivedValue(React: typeof import("react"), updater: () => unkno
   const state = rendering?.current ?? derivedState(updater);
   if (rendering && rendering.current === null) rendering.current = state;
   state.updater = updater;
-  state.run();
+  // A render follows nothing: React may discard it (a Suspense throw, an error boundary,
+  // an abandoned concurrent render), and no effect would then stop what it started. Its
+  // reads are followed once it commits, as Reanimated starts its mapper in an effect.
+  state.run(rendering === null);
   if (rendering) {
-    // Subscribed again on mount, as Reanimated starts its mapper in an effect (a
-    // StrictMode remount stops it first).
     React.useEffect(() => {
+      state.followRendered();
+    });
+    // Run again on mount, as Reanimated's mapper runs when it starts (a StrictMode
+    // remount stops it first).
+    React.useEffect(() => {
+      state.started = true;
       state.run();
       return () => state.stop();
     }, [state]);
@@ -225,9 +232,23 @@ function derivedState(updater: () => unknown) {
     derived: sharedValue<unknown>(undefined),
     updater,
     inputs: new Set<SharedValue>(),
+    /** What the last render read, followed when it commits (followRendered). */
+    rendered: null as Set<SharedValue> | null,
+    /** Between the mount effect and unmount. */
+    started: false,
+    /** Whether the updater is running: a write it makes to its own input waits. */
+    running: false,
     ran: false,
     last: undefined as unknown,
-    run() {
+    run(follow = true) {
+      // An updater that writes a value it reads does not run again inside itself. This
+      // guard is per derived value, unlike Reanimated's: its mapperRun returns while any
+      // mapper is processing and runs one topological pass, so here the final values
+      // are the same but a chain runs nested rather than in that order. And Reanimated
+      // keeps a self-written mapper dirty, to rerun on the next pass that ANY mapper
+      // input's write starts; here it reruns only on the next write to its own inputs.
+      if (held.running) return;
+      held.running = true;
       const outer = derivedReads;
       const read = new Set<SharedValue>();
       derivedReads = read;
@@ -236,18 +257,40 @@ function derivedState(updater: () => unknown) {
         next = held.updater();
       } finally {
         derivedReads = outer;
+        held.running = false;
       }
       read.delete(held.derived);
-      for (const input of held.inputs) if (!read.has(input)) input.removeListener(held);
-      for (const input of read) if (!held.inputs.has(input)) input.addListener(held, held.run);
-      held.inputs = read;
+      if (follow) held.follow(read);
+      else held.rendered = read;
       if (!held.ran || !Object.is(held.last, next)) {
         held.ran = true;
         held.last = next;
         held.derived.value = next;
       }
     },
+    /** Listen to `read`, and to nothing else. */
+    follow(read: Set<SharedValue>) {
+      for (const input of held.inputs) if (!read.has(input)) input.removeListener(held);
+      for (const input of read)
+        if (!held.inputs.has(input)) input.addListener(held, () => held.run());
+      held.inputs = read;
+    },
+    /**
+     * After a commit: follow what its render read. On an update that reads an input not
+     * followed before, run again, as Reanimated restarts a mapper whose closure changed:
+     * a child's effects run before this one, and a write they made to that input in this
+     * commit was not heard. The first commit's run is the mount effect's.
+     */
+    followRendered() {
+      const rendered = held.rendered;
+      held.rendered = null;
+      if (!rendered) return;
+      const added = [...rendered].some((input) => !held.inputs.has(input));
+      held.follow(rendered);
+      if (held.started && added) held.run();
+    },
     stop() {
+      held.started = false;
       for (const input of held.inputs) input.removeListener(held);
       held.inputs.clear();
     },

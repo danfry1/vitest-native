@@ -1,5 +1,6 @@
 // A module that does not compile fails its file naming the file, line and column
 // (scripts/test-compile-error-location.mjs). `--mode`: native, hot or mock.
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 

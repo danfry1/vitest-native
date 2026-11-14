@@ -3,7 +3,8 @@
 #
 # The site builds only when something it is built from changed: website/, and the files the
 # build reads from outside it. tests/site-inputs.test.ts derives that set from the build's
-# own imports and fails when this list misses one.
+# own imports and the data files it reads (website/.vitepress/proof.ts), and fails when
+# this list misses one.
 set -u
 
 SITE_INPUTS=(
@@ -15,6 +16,8 @@ SITE_INPUTS=(
   packages/vitest-native/src/errors.mjs
   packages/vitest-native/src/node-range.ts
   packages/vitest-native/src/peer-requirements.ts
+  packages/vitest-native/tests/rn-conformance
+  packages/vitest-native/validation/bug-museum/exhibits.json
 )
 
 head="${VERCEL_GIT_COMMIT_SHA:-HEAD}"

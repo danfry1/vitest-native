@@ -152,7 +152,7 @@
 - e37eaf7: **A Reanimated mock that spreads `jest.requireActual('react-native-reanimated')` works on Reanimated 4.5 and 4.6.** On those versions the engine dropped the project's `react-native-worklets/plugin` (and the one `babel-preset-expo` adds), so the real `useAnimatedStyle` threw "used without a dependency array or Babel plugin" where Jest passed. The plugin is now applied whenever Reanimated or Worklets is installed. No action needed.
 
 - f8d18c2: **`presets: { gestureHandler: false }` no longer turns off Gesture Handler's own Jest setup under the native engine.** A project that kept the setting from older mocks lost the setup too, so Gesture Handler's native module was the engine's generic stub and it warned `Failed to install UI runtime bindings`. `flashList: false` behaves the same. No action needed.
-- e88bbd0: **Under the hot runtime, RNTL's auto-cleanup works in every file again.** The hot reset put back Vitest's own worker state from the first file on a worker, so later files read that file's module graph. When the first file opted out with `dont-cleanup-after-each`, every later file on the worker lost auto-cleanup, and a test's components stayed mounted into the next. The reset now leaves Vitest's globals alone, and fails a file by name if Vitest's worker state names another file. No action needed.
+- 1c2171a, e88bbd0: **Under the hot runtime, RNTL's auto-cleanup and its `dont-cleanup-after-each` opt-out apply in every file on a worker, not just the first.** The hot reset put back Vitest's own worker state from the first file on a worker, so later files read that file's module graph. After a file that opted out, every later file on the worker lost auto-cleanup, and a test's components stayed mounted into the next. A file that shares one render across its tests found it unmounted after the first test when it was not the first file its worker ran. The reset now leaves Vitest's globals alone, and fails a file by name if Vitest's worker state names another file (#534, #698; reported in #527). Delete any `vi.stubEnv('RNTL_SKIP_AUTO_CLEANUP', 'true')` added as a workaround.
 - 6d8ec6a: **Every Reanimated hook that gives a shared value now gives one with Reanimated 4's shape under the native engine.** Reanimated's test mock gave plain values from `useTimestamp`, the scroll offsets, `useAnimatedKeyboard` and `useAnimatedSensor`, and shared values without `modify()`, listeners or the `isSharedValue()` mark, so app code calling `.get()` failed. No action needed.
 
   - Covers `useSharedValue`, `useDerivedValue`, `useScrollOffset`, `useScrollViewOffset`, `useTimestamp`, `useAnimatedKeyboard`, `useAnimatedSensor` and `makeMutable`.
@@ -204,7 +204,6 @@
 
   Code that narrows `error.code` can now name them. No action needed. Every code is described in the new [error-code reference](https://danfry1.github.io/vitest-native/guide/errors).
 
-- 1c2171a: **Under the hot runtime, `@testing-library/react-native/dont-cleanup-after-each` now keeps a file's render in every file, not just the first on a worker.** A file that shares one render across its tests found it unmounted after the first test when it was not the first file its worker ran. Delete any `vi.stubEnv('RNTL_SKIP_AUTO_CLEANUP', 'true')` added as a workaround.
 - ad5d90c: **`init` and `migrate --write` say when the new config takes over from a `vite.config.*`.** Vitest reads a `vite.config.*` only when there is no `vitest.config.*`, so its plugins, `resolve` options and aliases silently stopped applying to tests. The CLI now names the file Vitest loads instead and shows how to extend it with `mergeConfig`. Under Vite+, a project with both files is told about the `vitest.config.*` that Vitest loads.
 
   To keep the Vite config's plugins and aliases in tests, use `mergeConfig` as the CLI shows.
@@ -241,6 +240,10 @@
   - Other packages keep `main`, and `require.resolve` with `paths` is unchanged.
 
 - 499f888: **JSX in your project's own `.js` files now compiles, as Metro and babel-jest compile it.** A `jest.setup.js` that renders a provider, a `.js` test, or a `.js` component imported by a test used to fail with `Failed to parse source for import analysis`. Remove any rename to `.jsx` or `oxc.include` override added as a workaround. Files in `node_modules` are unchanged; packages that ship JSX in `.js` still go in [`transform`](https://danfry1.github.io/vitest-native/guide/plugin-options#transform).
+
+### Thank you
+
+Thank you to [@believer](https://github.com/believer) for the issues and pull requests in this release.
 
 ## 0.14.1
 

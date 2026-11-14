@@ -28,14 +28,11 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
+import { BUILD_FILES, SOURCE_DIR } from "./build-inputs.mjs";
 
 const PACKAGE = "packages/vitest-native/";
-const SHIPPED = `${PACKAGE}src/`;
-const SHIPPED_BUILD_FILES = [
-  `${PACKAGE}tsdown.config.ts`,
-  `${PACKAGE}scripts/copy-static-types.mjs`,
-  `${PACKAGE}scripts/verbatim-runtime.mjs`,
-];
+const SHIPPED = `${PACKAGE}${SOURCE_DIR}`;
+const SHIPPED_BUILD_FILES = BUILD_FILES.map((file) => `${PACKAGE}${file}`);
 export const MANIFEST = `${PACKAGE}package.json`;
 
 /** package.json fields that reach consumers: how the package installs, resolves and runs. */
