@@ -1802,7 +1802,7 @@
       "class": "config",
       "title": "jestMockTransform without globals: vi is not defined",
       "source": "config-axis matrix (feat/config-axis-matrix), 2026-10-27",
-      "fixedBy": "open",
+      "fixedBy": "open (#818)",
       "bugSignature": "^outer\\.test\\.ts: AssertionError: jest\\.mock under globals: false works or names the setting: expected 'fails: vi is not defined' to match",
       "control": {
         "why": "globals: true defines the global vi the hoisted call uses.",
