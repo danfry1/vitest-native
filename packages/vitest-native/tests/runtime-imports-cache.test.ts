@@ -12,6 +12,7 @@ import { detectEcosystemPackages } from "../src/native/ecosystem.js";
 import {
   RUNTIME_IMPORTS_CACHE_FILE,
   openRuntimeImportsCache,
+  patchPackageTarget,
   patchedPackages,
 } from "../src/native/runtime-imports-cache.js";
 
@@ -108,6 +109,53 @@ describe("the runtime-imports cache", () => {
     expect(cache.flush()).toBe(false);
     expect(cache.stats.uncacheable).toBe(0);
     expect(cache.get(scoped)).toBe(undefined);
+    expect(cache.stats.uncacheable).toBe(1);
+  });
+
+  it("reads patch-package's names: scopes, sequences, dev patches and nested packages", () => {
+    const cases: Array<[string, string | null]> = [
+      ["lib+1.0.0.patch", "lib@1.0.0"],
+      ["@scope+lib+1.0.0.patch", "@scope/lib@1.0.0"],
+      ["lib+1.2.3+001.patch", "lib@1.2.3"],
+      ["lib+1.2.3+001+fix-crash.patch", "lib@1.2.3"],
+      ["lib+1.0.0.dev.patch", "lib@1.0.0"],
+      // A package nested in another's node_modules: the last name is the patched one.
+      ["parent++child+1.2.3.patch", "child@1.2.3"],
+      ["@a+parent++@b+child+2.0.0+002+desc.patch", "@b/child@2.0.0"],
+      ["README.md", null],
+    ];
+    for (const [file, target] of cases)
+      expect([file, patchPackageTarget(file)]).toEqual([file, target]);
+  });
+
+  it("never caches a package patched by a patch-package sequence file", () => {
+    const root = tmp();
+    const dir = install(root, "lib", "", "1.2.3");
+    write(path.join(root, "package.json"), JSON.stringify({ name: "app" }));
+    write(path.join(root, "patches", "lib+1.2.3+001+fix-crash.patch"), "");
+    const cache = openRuntimeImportsCache(null, patchedPackages([root]));
+    cache.set(dir, new Set(["react-native"]));
+    expect(cache.get(dir)).toBe(undefined);
+    expect(cache.stats.uncacheable).toBe(1);
+  });
+
+  it("reads Yarn's patch: protocol in dependencies and resolutions, by name", () => {
+    const root = tmp();
+    write(
+      path.join(root, "package.json"),
+      JSON.stringify({
+        dependencies: { lib: "patch:lib@npm%3A1.0.0#./.yarn/patches/lib-npm-1.0.0-abc.patch" },
+        resolutions: {
+          "@s/x@npm:2.0.0": "patch:@s/x@npm%3A2.0.0#~/.yarn/patches/@s-x-npm-2.0.0-def.patch",
+        },
+        devDependencies: { other: "^1.0.0" },
+      }),
+    );
+    expect(patchedPackages([root])).toEqual(new Set(["lib", "@s/x"]));
+    const dir = install(root, "lib", "", "1.0.0");
+    const cache = openRuntimeImportsCache(null, patchedPackages([root]));
+    cache.set(dir, new Set());
+    expect(cache.get(dir)).toBe(undefined);
     expect(cache.stats.uncacheable).toBe(1);
   });
 

@@ -12,8 +12,8 @@
  *   entry and no other: a lockfile change re-walks only the packages it changed.
  * - **Never cached:** a package outside node_modules (a workspace member, a `file:` or
  *   `link:` dependency), whose source is edited in place, and a package the project
- *   patches (a `patches/<name>+<version>.patch` file, or `patchedDependencies` in pnpm's
- *   or bun's manifest field), because a patch changes files without touching
+ *   patches (a patch-package file in `patches/`, `patchedDependencies` in pnpm's or
+ *   bun's manifest field, or a Yarn `patch:` dependency or resolution), because a patch changes files without touching
  *   package.json.
  * - **Where:** one JSON file in the project's cache root (`cacheRootFor`,
  *   node_modules/.cache/vitest-native), so it travels with the install that produced it
@@ -77,19 +77,65 @@ function stampOf(dir: string, patched: ReadonlySet<string>): string | null {
   return `${id}:${stat.size}:${Math.trunc(stat.mtimeMs)}`;
 }
 
+/** A URI-encoded part of a patch name, decoded (as given when it is not valid encoding). */
+function decoded(part: string): string {
+  try {
+    return decodeURIComponent(part);
+  } catch {
+    return part;
+  }
+}
+
+/**
+ * The package a patch-package file patches, as `name@version`, or `name` alone when the
+ * file name carries no version. patch-package's format:
+ * `<name>+<version>[+<sequence>[+<description>]][.dev].patch`, a scope's slash written
+ * `+`, and a package nested in another's node_modules written as the path of names
+ * joined by `++` (`parent++child+1.0.0.patch`), the last name being the patched one.
+ */
+export function patchPackageTarget(file: string): string | null {
+  const match = /^(.+?)(\.dev)?\.patch$/.exec(file);
+  if (!match) return null;
+  const segments = match[1].split("++");
+  const parts = segments[segments.length - 1].split("+").map(decoded);
+  const scoped = parts[0].startsWith("@");
+  const name = scoped ? `${parts[0]}/${parts[1] ?? ""}` : parts[0];
+  const version = scoped ? parts[2] : parts[1];
+  if (!name || name.endsWith("/")) return null;
+  return version ? `${name}@${version}` : name;
+}
+
+/**
+ * The package a Yarn `patch:` descriptor patches (`patch:name@npm%3A1.0.0#./x.patch`), by
+ * name: every version of it counts as patched. Null for any other specifier.
+ */
+function yarnPatchTarget(spec: unknown): string | null {
+  if (typeof spec !== "string" || !spec.startsWith("patch:")) return null;
+  const match = /^(@[^@/]+\/[^@]+|[^@]+)@/.exec(decoded(spec.slice("patch:".length)));
+  return match ? match[1] : null;
+}
+
+const YARN_PATCH_FIELDS = [
+  "dependencies",
+  "devDependencies",
+  "optionalDependencies",
+  "resolutions",
+] as const;
+
 /**
  * Packages the project patches, as `name@version` (or `name` when the patch does not
- * say), read from the roots' `patches/` directories and manifests.
+ * say), read from the roots' `patches/` directories and manifests: patch-package files,
+ * pnpm's and bun's `patchedDependencies`, and Yarn's `patch:` protocol.
  */
 export function patchedPackages(roots: readonly string[]): Set<string> {
   const patched = new Set<string>();
   for (const root of new Set(roots)) {
-    // patch-package: patches/<name>+<version>.patch, a scope's slash written as "+".
+    // patch-package: patches/*.patch, named as patchPackageTarget reads them.
     const dir = path.join(root, "patches");
     const files = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
     for (const file of files) {
-      const match = /^(.+)\+([^+]+)\.patch$/.exec(file);
-      if (match) patched.add(`${match[1].replace("+", "/")}@${match[2]}`);
+      const target = patchPackageTarget(file);
+      if (target) patched.add(target);
     }
     // pnpm (`pnpm.patchedDependencies`) and bun (`patchedDependencies`): "name@version".
     const manifest = readJson(path.join(root, "package.json")) ?? {};
@@ -99,6 +145,15 @@ export function patchedPackages(roots: readonly string[]): Set<string> {
       for (const key of Object.keys(field)) {
         // A key without a version ("name") patches every version of it.
         patched.add(key);
+      }
+    }
+    // Yarn: `"name": "patch:name@npm%3A1.0.0#./.yarn/patches/…"`, in dependencies or resolutions.
+    for (const field of YARN_PATCH_FIELDS) {
+      const specs = manifest[field];
+      if (!specs || typeof specs !== "object") continue;
+      for (const spec of Object.values(specs)) {
+        const target = yarnPatchTarget(spec);
+        if (target) patched.add(target);
       }
     }
   }
