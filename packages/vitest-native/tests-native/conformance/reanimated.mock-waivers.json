@@ -1000,11 +1000,5 @@
     "path": "css",
     "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
     "issue": "#783"
-  },
-  {
-    "export": "interpolateColor",
-    "path": "interpolateColor(): threw:",
-    "reason": "its file imports React Native, which the mock engine does not transform, so the preset serves a function that throws",
-    "issue": "#857"
   }
 ]
