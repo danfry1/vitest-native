@@ -259,11 +259,42 @@ describe("native engine: the registry builds in the background on a cold cache",
       path.join(p.root, "fail.test.mjs"),
       `test("fails", () => { throw new Error("x"); });\n`,
     );
-    const begun = Date.now();
+    // The run records when it ended, how, and when its process exited: close is the time
+    // between. Timed inside the run, so a slow start on a loaded machine does not count.
+    const timeline = path.join(p.root, "timeline.jsonl");
+    const config = path.join(p.root, "vitest.config.mjs");
+    fs.writeFileSync(
+      config,
+      fs
+        .readFileSync(config, "utf8")
+        .replace(
+          "export default {",
+          `const mark = (entry) => fs.appendFileSync(${JSON.stringify(timeline)}, JSON.stringify({ at: performance.now(), ...entry }) + "\\n");\n` +
+            `process.on("exit", () => mark({ event: "exit" }));\n` +
+            "export default {",
+        )
+        .replace(/^/, 'import fs from "node:fs";\n')
+        .replace(
+          '"maxWorkers"',
+          'reporters: ["default", { onTestRunEnd: (_m, _e, reason) => mark({ event: "end", reason }) }], "maxWorkers"',
+        ),
+    );
     const run = await start(p, { [DELAY]: "60000" }, ["--bail=1"]).done;
     expect(run.output).toMatch(/fails/);
+    const events = fs.existsSync(timeline)
+      ? fs
+          .readFileSync(timeline, "utf8")
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as { at: number; event: string; reason?: string })
+      : [];
+    const end = events.find((entry) => entry.event === "end");
+    const exit = events.find((entry) => entry.event === "exit");
+    const detail = `${JSON.stringify(events)}\n${run.output}`;
+    expect(end?.reason, detail).toBe("interrupted");
+    expect(exit, detail).toBeDefined();
     // Without the cancel, close would wait 15 s (half the fixture's teardownTimeout).
-    expect(Date.now() - begun).toBeLessThan(12_000);
+    expect(exit!.at - end!.at, detail).toBeLessThan(5_000);
     if (posix) expect(await settled(run.pid)).toEqual([]);
     expect(published(p.root)).toBe(false);
   }, 120_000);
