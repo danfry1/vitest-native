@@ -2221,6 +2221,15 @@
       "fixedBy": "open",
       "fixRef": "origin/fix/screens-preset-transition-progress",
       "bugSignature": "^fade\\.test\\.tsx: TypeError: progress\\.interpolate is not a function"
+    },
+    {
+      "id": "pre-714-bottom-sheet-scrollable-creator",
+      "class": "presets",
+      "title": "bottom-sheet's useBottomSheetScrollableCreator is missing",
+      "source": "#714",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/bottom-sheet-mock-gaps",
+      "bugSignature": "^sheet\\.test\\.tsx: TypeError: \\(0 , [\\w$]+\\.useBottomSheetScrollableCreator\\) is not a function"
     }
   ]
 }
