@@ -1,0 +1,8 @@
+{
+  "name": "museum-pre-717-screens-transition-progress",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "react-native-screens": "*"
+  }
+}
