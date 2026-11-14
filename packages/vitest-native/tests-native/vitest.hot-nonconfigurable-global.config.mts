@@ -3,6 +3,7 @@
 // file. package.json test:native:hot:nonconfigurable-global. `--mode diagnostics` turns
 // diagnostics on for scripts/test-hot-diagnostics.mjs, which requires the reset's lines
 // to appear (#775).
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 

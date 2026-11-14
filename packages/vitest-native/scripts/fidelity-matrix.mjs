@@ -18,16 +18,17 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { cliArguments } from "./support/arguments.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.resolve(root, "..", "..");
 
-function argValue(flag) {
-  const i = process.argv.indexOf(flag);
-  return i !== -1 ? process.argv[i + 1] : undefined;
-}
-const reportsDir = argValue("--reports");
-const outPath = argValue("--out") ?? path.join(repoRoot, "website", "guide", "fidelity-matrix.md");
+const options = cliArguments(
+  { script: "fidelity-matrix.mjs", valued: ["reports", "out"], flags: ["check"] },
+  "fidelity-matrix.mjs [--reports <dir>] [--out <file>] [--check]",
+).values;
+const reportsDir = options.reports;
+const outPath = options.out ?? path.join(repoRoot, "website", "guide", "fidelity-matrix.md");
 
 // Same VitePress hazards as fidelity-report.mjs — bare tags, table pipes, and
 // Vue interpolation in free text break the site build — plus backticks, which
@@ -213,7 +214,7 @@ ${
 
 const content = `${HEADER}${body}`;
 
-if (process.argv.includes("--check")) {
+if (options.check) {
   // Drift gate for the COMMITTED page: it must be exactly the placeholder
   // render — real matrix data belongs only in the deploy workspace, never in
   // the repository.

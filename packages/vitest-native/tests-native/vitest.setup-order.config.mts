@@ -5,6 +5,7 @@
 //   --mode list             plain test.setupFiles, Vitest's default sequence
 //   --mode parallel         sequence.setupFiles: 'parallel'
 //   --mode compat-parallel  jest-compat's setup listed first, then the project's, in parallel
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
