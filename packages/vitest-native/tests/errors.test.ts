@@ -160,7 +160,10 @@ describe("every message this package throws is attributable", () => {
     const offenders: string[] = [];
     let converted = 0;
     for (const file of sourceFiles(srcRoot)) {
-      if (EXEMPT.some((frag) => file.includes(frag))) continue;
+      // Relative to the package: the checkout's own path can contain a fragment (a
+      // worktree named after matchers skipped every file).
+      const relative = path.relative(path.dirname(srcRoot), file);
+      if (EXEMPT.some((frag) => relative.includes(frag))) continue;
       const text = fs.readFileSync(file, "utf8");
       // Matches CONSTRUCTION, not just `throw new`. The first version of this scan
       // looked for `throw new` and so never saw explain.mjs, which builds its errors and
