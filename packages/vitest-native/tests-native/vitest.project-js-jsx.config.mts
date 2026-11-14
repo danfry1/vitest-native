@@ -1,6 +1,7 @@
 // JSX in a project's own .js files (setup, test and source), under the engine and
 // runtime `--mode` names: `native`, `hot` (the native engine's hot runtime), `mock`, or
 // `projects` (ios and android projects sharing the same .js setup file, run together).
+import "./support/fresh-dist.mts";
 import flowRemoveTypes from "flow-remove-types";
 import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";

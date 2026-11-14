@@ -2,6 +2,7 @@
 // worker in name order (#670). Under hot, RNTL first loaded in the mocking file kept that
 // mock as its react-native for the worker's life, and fireEvent read StyleSheet.flatten
 // from it. `--mode hot` and `--mode perfile` (package.json test:native:hot:resident-mock).
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 import { reactNative } from "../dist/index.mjs";

@@ -2,6 +2,7 @@
 // package's declared API. Under the native engine with jest-compat (`--mode compat`) and
 // without (`--mode plain`); under the mock engine, whose presets stand in for the
 // libraries (`--mode mock`), as its own job so a failure says which engine it is.
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 import { jestCompatAliases, jestCompatSetup, jestMockTransform } from "../dist/jest-compat.mjs";

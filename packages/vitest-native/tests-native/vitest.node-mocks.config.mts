@@ -4,6 +4,7 @@
 // run after the files that mock what they leave unmocked); jest-compat (with
 // jest-compat's setup and transform, whose jest.mock is matched before a vi.mock).
 // Rooted at node-mocks/, so the suite's own files are its project.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
