@@ -2243,6 +2243,33 @@
         ]
       },
       "fixRef": "964c6c664c6032c6f0a908f9747977e57dae2f96"
+    },
+    {
+      "id": "pre-712-navigation-ref-reset-root",
+      "class": "presets",
+      "title": "A navigation container ref has no resetRoot",
+      "source": "#712",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/navigation-preset-missing-api",
+      "bugSignature": "^app\\.test\\.tsx: TypeError: navigationRef\\.resetRoot is not a function"
+    },
+    {
+      "id": "pre-717-screens-transition-progress",
+      "class": "presets",
+      "title": "useTransitionProgress returns numbers, not Animated values",
+      "source": "#717",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/screens-preset-transition-progress",
+      "bugSignature": "^fade\\.test\\.tsx: TypeError: progress\\.interpolate is not a function"
+    },
+    {
+      "id": "pre-828-native-stack-animated-header-height",
+      "class": "presets",
+      "title": "useAnimatedHeaderHeight is missing from the native-stack preset",
+      "source": "#828",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/navigation-preset-gaps",
+      "bugSignature": "^header\\.test\\.tsx: TypeError: .*useAnimatedHeaderHeight\\) is not a function"
     }
   ]
 }
