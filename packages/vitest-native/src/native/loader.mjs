@@ -431,6 +431,12 @@ function resolveAfter(resolved, context) {
   if (versionable(resolved.url)) {
     const gen = generationOf();
     if (gen > 0 && !isStamped(resolved.url)) {
+      // A module Vite's runner evaluates is never Node's importer: the runner imports a
+      // file's externalized modules from Vitest's module evaluator. Its import.meta.resolve
+      // does reach this hook, through Vite's own hook, which names the module as parent.
+      // That answer is a string for the module's code, so it names the real file: a
+      // stamped one would be a path that does not exist, or a query in it.
+      if (evaluatedByRunner(context.parentURL)) return resolved;
       // An ES module as published gets its generation in its file name, the spelling a
       // require of it gets too (resolveRequire), so one file reaches one instance.
       if (servedAsModule(resolved.url)) {
@@ -442,6 +448,20 @@ function resolveAfter(resolved, context) {
     }
   }
   return resolved;
+}
+
+/** Whether `parentURL` names a module Vite's module runner has evaluated in this worker. */
+function evaluatedByRunner(parentURL) {
+  if (typeof parentURL !== "string" || !parentURL.startsWith("file:") || isStamped(parentURL)) {
+    return false;
+  }
+  const modules = globalThis.__vitest_worker__?.evaluatedModules;
+  if (typeof modules?.getModulesByFile !== "function") return false;
+  const file = fileURLToPath(parentURL).replace(/\\/g, "/");
+  for (const node of modules.getModulesByFile(file) ?? []) {
+    if (!node.id?.startsWith("mock:")) return true;
+  }
+  return false;
 }
 
 // One spelling per generation for an ES module as published, imported or required

@@ -22,23 +22,34 @@ export function stampOf(url) {
   return query ? Number(query[1]) : null;
 }
 
+// unstamped's three steps, also written into a sibling's prologue (siblingPrologue).
+const UNSTAMP = [
+  [/[?&]vnhot=\d+/, ""],
+  [/\?(?=#|$)/, ""],
+  [/\.vnhot-\d+(\.[cm]?js)(?=[?#]|$)/, "$1"],
+];
+
 /** `url` (or a path) without its generation, in either spelling. */
 export function unstamped(url) {
-  return String(url)
-    .replace(/[?&]vnhot=\d+/, "")
-    .replace(/\?(?=#|$)/, "")
-    .replace(/\.vnhot-\d+(\.[cm]?js)(?=[?#]|$)/, "$1");
+  return UNSTAMP.reduce((text, [pattern, to]) => text.replace(pattern, to), String(url));
 }
 
 /**
  * What the loader puts before a sibling's source, on its first line (so line numbers
- * hold): import.meta naming the real file. Its length is what a frame on line 1 is off by.
+ * hold): import.meta naming the real file, and import.meta.resolve answering with real
+ * files. The loader's resolve hook stamps what the module resolves, and it cannot tell
+ * import.meta.resolve from an import, so a sibling name (a path that does not exist)
+ * would reach the module's code. An unstamped answer is still safe to import: the hook
+ * stamps it again. Its length is what a frame on line 1 is off by.
  */
 export function siblingPrologue(realUrl, file, dirname) {
+  const steps = UNSTAMP.map(([pattern, to]) => `.replace(${pattern}, ${JSON.stringify(to)})`);
   return (
     `import.meta.url = ${JSON.stringify(realUrl)}; ` +
     `import.meta.filename = ${JSON.stringify(file)}; ` +
-    `import.meta.dirname = ${JSON.stringify(dirname)}; `
+    `import.meta.dirname = ${JSON.stringify(dirname)}; ` +
+    `import.meta.resolve = ((resolve) => (specifier, parent) => ` +
+    `resolve(specifier, parent)${steps.join("")})(import.meta.resolve); `
   );
 }
 

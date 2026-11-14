@@ -31,7 +31,7 @@ it.each([
   (_, edits) => {
     const { status, output } = runApp("esm-one-spelling", { from: APP, edits });
     expect(status, output).toBe(0);
-    expect(output).toMatch(/Tests\s+4 passed/);
+    expect(output).toMatch(/Tests\s+6 passed/);
   },
   150_000,
 );
