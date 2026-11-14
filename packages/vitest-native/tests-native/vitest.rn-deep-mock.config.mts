@@ -2,6 +2,7 @@
 // Modes: stock (per-file workers), hot (one reused hot worker, files in name order, so a
 // mock that outlived its file would reach the next), node-mocks (vi.mock with
 // experimental.nodeMocks).
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

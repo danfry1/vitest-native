@@ -101,7 +101,7 @@ Columns: **main** is origin/main. **With fix** is the exhibit against the build 
 | [pre-rntl13-native-stack-header](exhibits/pre-rntl13-native-stack-header/README.md) | harness | #341 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
 | [cfg-explicit-max-workers](exhibits/cfg-explicit-max-workers/README.md) | config | #347 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
 | [cfg-group-conflict-fallback](exhibits/cfg-group-conflict-fallback/README.md) | config | #347 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
-| [cfg-jest-mock-transform-globals-off](exhibits/cfg-jest-mock-transform-globals-off/README.md) | config | open | FAIL (bug) | - | PASS | open (control passes) |
+| [cfg-jest-mock-transform-globals-off](exhibits/cfg-jest-mock-transform-globals-off/README.md) | config | open (#818) | FAIL (bug) | - | PASS | open (control passes) |
 
 ## By class
 

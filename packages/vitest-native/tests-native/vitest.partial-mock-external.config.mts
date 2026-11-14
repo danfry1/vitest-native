@@ -3,6 +3,7 @@
 // directories to Vite before Vitest's external patterns are consulted, so the
 // factory's jest.requireActual still loads through Vite and shares the app's store
 // (jest-compat/transform.ts, isViteOwnedSource).
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

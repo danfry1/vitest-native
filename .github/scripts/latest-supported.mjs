@@ -6,7 +6,14 @@
 // releases fail to load. bunfig's minimumReleaseAge still applies to what this resolves.
 //
 //   node .github/scripts/latest-supported.mjs   →   vitest@^5 vite@^8 …
+//
+// With --libraries: the libraries whose presets and mocks the conformance probes check,
+// each at the newest release inside its supported range (SUPPORTED_LIBRARY_VERSIONS in
+// src/preset-map.ts), one spec per line, since a range can hold spaces:
+//
+//   node .github/scripts/latest-supported.mjs --libraries   →   react-native-reanimated@>=4.5.0 <5 …
 import { PEER_REQUIREMENTS } from "../../packages/vitest-native/src/peer-requirements.ts";
+import { SUPPORTED_LIBRARY_VERSIONS } from "../../packages/vitest-native/src/preset-map.ts";
 
 export function latestSupportedSpecs(peers = PEER_REQUIREMENTS) {
   const specs = [];
@@ -19,6 +26,12 @@ export function latestSupportedSpecs(peers = PEER_REQUIREMENTS) {
   return specs;
 }
 
+/** The library install specs: each library at its supported range, newest release wins. */
+export function latestLibrarySpecs(ranges = SUPPORTED_LIBRARY_VERSIONS) {
+  return Object.entries(ranges).map(([name, range]) => `${name}@${range}`);
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
-  console.log(latestSupportedSpecs().join(" "));
+  if (process.argv.includes("--libraries")) console.log(latestLibrarySpecs().join("\n"));
+  else console.log(latestSupportedSpecs().join(" "));
 }
