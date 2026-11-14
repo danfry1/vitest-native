@@ -1,3 +1,4 @@
+import { placeSetupFiles } from "../setup-files.js";
 import type { Plugin } from "vite";
 import fs from "node:fs";
 import { createRequire, isBuiltin } from "node:module";
@@ -287,20 +288,8 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
       if (found.mocks.length === 0 && found.duplicates.length === 0) return;
       const id = viteId(path.join(root, ROOT_MOCKS_FILE));
       rootMockModules.set(id, { root, ...found });
-      // Vite documents mutating the config here where merging cannot place a value: a
-      // returned setupFiles array would be appended after the project's own.
-      const setupFiles = Array.isArray(test.setupFiles)
-        ? [...(test.setupFiles as string[])]
-        : test.setupFiles
-          ? [test.setupFiles as string]
-          : [];
-      if (setupFiles.includes(id)) return;
-      let compat = -1;
-      setupFiles.forEach((file, index) => {
-        if (JEST_COMPAT_SETUP.test(file)) compat = index;
-      });
-      setupFiles.splice(compat + 1, 0, id);
-      test.setupFiles = setupFiles;
+      // In the project's own list, straight after jest-compat's setup (placeSetupFiles).
+      placeSetupFiles(test, [id], (file) => JEST_COMPAT_SETUP.test(file));
     },
     configResolved(config) {
       const native = config.plugins.find((plugin) => plugin.name === "vitest-native") as

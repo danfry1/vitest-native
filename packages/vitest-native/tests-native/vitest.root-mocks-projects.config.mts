@@ -2,6 +2,7 @@
 // plugins of an `extends: true` project, so a shared instance is one a config passes to
 // several projects): each gets the manual mocks of its own root only, though
 // root-mocks-projects/a and b mock the same package differently.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

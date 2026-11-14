@@ -1,0 +1,5 @@
+{
+  "$comment": "The tests in this folder as Vitest counts them, for the site's landing page. tests/site-proof.e2e.test.ts runs them and fails when these differ.",
+  "tests": 118,
+  "skipped": 3
+}

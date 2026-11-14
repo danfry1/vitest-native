@@ -3,6 +3,7 @@
 //   node-options          test.env.NODE_OPTIONS carries it (forks)
 //   esm-on, esm-off       the hot runtime with ESM generation on and off
 // test:native:context runs them all, then `threads` under `node --conditions=vn-probe`.
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 

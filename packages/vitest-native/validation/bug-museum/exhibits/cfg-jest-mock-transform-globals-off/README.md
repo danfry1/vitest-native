@@ -2,7 +2,7 @@
 
 - **Class:** config
 - **Source:** config-axis matrix (feat/config-axis-matrix), 2026-10-27
-- **Fixed by:** open
+- **Fixed by:** open (#818)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

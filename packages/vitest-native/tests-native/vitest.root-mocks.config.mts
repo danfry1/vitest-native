@@ -3,6 +3,7 @@
 // fixture app whose __mocks__ also holds mocks that must not apply. `--mode hot` runs
 // the files in one reused worker; `--mode user-setup` has the project's setup file load
 // jest-compat itself, so a file's unmock must not leak into the next.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
