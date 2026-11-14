@@ -20,6 +20,7 @@ import {
 } from "../src/native/ownership-ledger.mjs";
 import {
   OwnershipSummaryReporter,
+  installedPackageOf,
   ownershipGuardConfig,
   reactNative,
   withOwnershipMarker,
@@ -802,4 +803,185 @@ describe("the plugin's side of the guard", () => {
     reporter.onTestRunEnd();
     expect(written).toEqual([]);
   });
+});
+
+describe("the end-of-run summary groups by installed package and lists files under diagnostics (#638)", () => {
+  // An installed package's TypeScript source: each file is its own cause, since no file of
+  // it has a parent outside node_modules (a pnpm install, as on the app that showed it).
+  const SDK = "/repo/node_modules/.pnpm/@rocket.chat+sdk@1.3.3/node_modules/@rocket.chat/sdk";
+  const sdkFiles = [
+    `${SDK}/index.ts`,
+    ...Array.from({ length: 13 }, (_, i) => `${SDK}/lib/m${i}.ts`),
+  ];
+  const own = (file: string, route = "installed-typescript", via = "cjs") => ({
+    file,
+    second: "vite",
+    route,
+    via,
+    cause: { route, file },
+  });
+  const summary = (
+    conflicts: ReturnType<typeof own>[],
+    { diagnostics = false, test = "/repo/src/a.test.ts" } = {},
+  ) => {
+    const written: string[] = [];
+    const reporter = new OwnershipSummaryReporter(
+      () => [],
+      (text) => written.push(text),
+      () => diagnostics,
+    );
+    reporter.onTestRunStart();
+    reporter.onTestModuleEnd({
+      moduleId: test,
+      meta: () => ({ vitestNativeOwnership: { mode: "warn", conflicts, allowUsed: [] } }),
+    });
+    reporter.onTestRunEnd();
+    return written.join("");
+  };
+
+  it("prints one installed package's 14 causes as one line, its files truncated, one fix", () => {
+    const text = summary(sdkFiles.map((file) => own(file)));
+    expect(text).toContain("14 file(s) were evaluated by both Node and Vite");
+    // The cause count stays (corpus tracking reads it); the grouped count follows.
+    expect(text).toContain("from 14 cause(s), 1 after grouping by installed package:");
+    expect(text).toMatch(
+      /\n {2}@rocket\.chat\/sdk \(installed package, .*node_modules\/@rocket\.chat\/sdk\), loaded by Node through an installed package's TypeScript source, required and imported: 14 cause\(s\), 14 file\(s\), in .*a\.test\.ts\n/,
+    );
+    expect(text).toContain(
+      "    files: index.ts, lib/m0.ts, lib/m1.ts, +11 more (reactNative({ diagnostics: true }) lists them all)",
+    );
+    expect(text.match(/ {4}fix: /g)).toHaveLength(1);
+    expect(text).not.toContain("file: ");
+    expect(text.trimEnd().split("\n")).toHaveLength(5);
+  });
+
+  it("keeps different packages, different routes and project causes apart", () => {
+    const other = "/repo/node_modules/other-lib";
+    const text = summary([
+      ...sdkFiles.slice(0, 2).map((file) => own(file)),
+      // Same package, another route: another fix, so another line.
+      own(`${SDK}/dist/x.js`, "vite-inline"),
+      own(`${SDK}/dist/y.js`, "vite-inline"),
+      ...[`${other}/a.ts`, `${other}/b.ts`].map((file) => own(file)),
+      // Project files are one cause each, by origin, as before.
+      own("/repo/src/store.ts", "require-from-vite"),
+      own("/repo/src/cache.ts", "require-from-vite"),
+    ]);
+    expect(text).toContain("from 8 cause(s), 5 after grouping by installed package:");
+    expect(text).toMatch(
+      /@rocket\.chat\/sdk .*TypeScript source, required and imported: 2 cause\(s\), 2 file\(s\)/,
+    );
+    expect(text).toMatch(
+      /@rocket\.chat\/sdk .*an installed file that Vite also evaluates: 2 cause\(s\), 2 file\(s\)/,
+    );
+    expect(text).toMatch(
+      /other-lib \(installed package, .*node_modules\/other-lib\).*: 2 cause\(s\), 2 file\(s\)/,
+    );
+    expect(text).toMatch(
+      /\n {2}.*src\/store\.ts, loaded by Node through require\(\) in a file Vite evaluated: 1 file\(s\)/,
+    );
+    expect(text).toMatch(
+      /\n {2}.*src\/cache\.ts, loaded by Node through require\(\) in a file Vite evaluated: 1 file\(s\)/,
+    );
+  });
+
+  it("prints the header as before when grouping merges nothing", () => {
+    const text = summary([own(sdkFiles[0]), own("/repo/src/store.ts", "require-from-vite")]);
+    expect(text).toContain("from 2 cause(s):");
+    expect(text).not.toContain("after grouping");
+    // A package with one cause keeps the per-cause line.
+    expect(text).toMatch(/\n {2}.*@rocket\.chat\/sdk\/index\.ts, loaded by Node through/);
+  });
+
+  it("with diagnostics, lists every file of every cause with how Node reached it", () => {
+    const chain = ["/repo/src/schema.ts", "/repo/src/a.ts", "/repo/src/b.ts"];
+    const chainCause = { route: "require-from-vite", file: chain[0] };
+    const text = summary(
+      [
+        ...sdkFiles.map((file) => own(file, "installed-typescript", "require-esm")),
+        {
+          file: chain[0],
+          second: "vite",
+          route: "require-from-vite",
+          via: "cjs",
+          cause: chainCause,
+        },
+        {
+          file: chain[1],
+          second: "vite",
+          route: "node-owned-source",
+          via: "cjs",
+          cause: chainCause,
+        },
+        { file: chain[2], second: "vite", route: "node-esm", via: "esm", cause: chainCause },
+      ],
+      { diagnostics: true },
+    );
+    for (const file of sdkFiles) {
+      expect(text).toContain(
+        `    file: ${path.relative(process.cwd(), file).split(path.sep).join("/")}, through an installed package's TypeScript source, required and imported (require() of an ES module)`,
+      );
+    }
+    expect(text).toMatch(
+      / {4}file: .*src\/schema\.ts, through require\(\) in a file Vite evaluated \(CommonJS\)/,
+    );
+    expect(text).toMatch(
+      / {4}file: .*src\/a\.ts, through an import from source Node evaluated \(CommonJS\)/,
+    );
+    expect(text).toMatch(
+      / {4}file: .*src\/b\.ts, through Node's ESM loader imported it \(ESM loader\)/,
+    );
+    expect(text.match(/ {4}file: /g)).toHaveLength(17);
+    // The full list replaces the truncated one.
+    expect(text).not.toContain("    files: ");
+    expect(text).not.toContain("+11 more");
+  });
+
+  it("names the installed package of a path, after its last node_modules", () => {
+    expect(installedPackageOf(`${SDK}/lib/m0.ts`)).toEqual({ name: "@rocket.chat/sdk", dir: SDK });
+    expect(installedPackageOf("/r/node_modules/lodash/fp/map.js")).toEqual({
+      name: "lodash",
+      dir: "/r/node_modules/lodash",
+    });
+    expect(installedPackageOf("C:\\r\\node_modules\\@s\\p\\i.ts")).toEqual({
+      name: "@s/p",
+      dir: "C:\\r\\node_modules\\@s\\p",
+    });
+    expect(installedPackageOf("/repo/src/store.ts")).toBeNull();
+    expect(installedPackageOf("/r/node_modules/lodash")).toBeNull();
+    expect(installedPackageOf("/r/node_modules/@s/p")).toBeNull();
+  });
+
+  it("turns the listing on from reactNative({ diagnostics: true }) in any project of the run", async () => {
+    const listed = async (diagnostics: boolean[]) => {
+      const vitest = { reporters: [{}], config: { cliOptions: {} } };
+      for (const d of diagnostics) {
+        const plugin = reactNative({ engine: "native", diagnostics: d }) as any;
+        const config = await runPluginConfig(plugin, { root: process.cwd() });
+        await plugin.configResolved?.({ root: process.cwd() });
+        const project = {
+          config: { root: process.cwd(), setupFiles: config.test.setupFiles, env: config.test.env },
+        };
+        try {
+          await plugin.configureVitest({ vitest, project });
+        } catch {
+          // Only the reporter registration, which runs first, is under test here.
+        }
+      }
+      const reporter = vitest.reporters.find((r) => r instanceof OwnershipSummaryReporter) as any;
+      const written: string[] = [];
+      reporter.write = (text: string) => written.push(text);
+      reporter.onTestRunStart();
+      reporter.onTestModuleEnd({
+        moduleId: "/repo/src/a.test.ts",
+        meta: () => ({
+          vitestNativeOwnership: { mode: "warn", conflicts: [own(sdkFiles[0])], allowUsed: [] },
+        }),
+      });
+      reporter.onTestRunEnd();
+      return written.join("").includes("    file: ");
+    };
+    expect(await listed([false])).toBe(false);
+    expect(await listed([false, true])).toBe(true);
+  }, 60_000);
 });
