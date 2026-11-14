@@ -53,6 +53,7 @@ import {
 } from "./manifest.js";
 import { STAR, tryExpand } from "./regex-subset.js";
 import { untranspiledFile } from "./untranspiled.js";
+import { babelParser, type Parse } from "../native/plain-javascript.js";
 
 export { extractAllowlistPackages } from "./allowlist.js";
 
@@ -388,27 +389,22 @@ export function analyzeJestConfig(root: string): MigrationReport {
   };
   // The lines of a project setup file that mock or set up a library a preset covers:
   // `jest.mock('react-native-reanimated', …)`, a `require()` or `import` of a library's own
-  // Jest setup. Only statements at the start of a line and outside comments and strings, so
-  // a `require()` inside a mock's factory is part of that mock, not a line of its own. A
-  // file named in both setupFiles and setupFilesAfterEnv is read once.
+  // Jest setup. Read with the project's own Babel parser, top-level statements only, so a
+  // `require()` inside a mock's factory is part of that mock and nothing in a comment or a
+  // string counts. A file that does not parse lists nothing. A file named in both
+  // setupFiles and setupFilesAfterEnv is read once.
   const scannedSetupFiles = new Set<string>();
+  let parseSetup: Parse | null | undefined;
   const coveredSetupLines = (file: string): string[] => {
     const resolved = path.resolve(root, file.replace(/^<rootDir>\/?/, ""));
     if (scannedSetupFiles.has(resolved)) return [];
     scannedSetupFiles.add(resolved);
     const code = projectSource(file);
     if (code === null) return [];
+    parseSetup ??= babelParser(root);
+    const statements = parseSetup ? setupStatements(parseSetup, code) : [];
     const lines: string[] = [];
-    const statement =
-      /^[ \t]*(?:jest\.mock(\()\s*(['"])([^'"]+)\2|require\(\s*(['"])([^'"]+)\4\s*\)|import\s+(['"])([^'"]+)\6)/dgm;
-    const depth = codeDepths(code);
-    for (const match of code.matchAll(statement)) {
-      const at = match.index + match[0].length - match[0].trimStart().length;
-      // Inside another call (a mock's factory written over several lines), a comment or a
-      // string: not a statement of its own.
-      if (depth[at] !== 0) continue;
-      const mocked = match[3];
-      const request = match[5] ?? match[7];
+    for (const { mocked, request, imported, factory } of statements) {
       const pkg = /^(@[^/]+\/[^/]+|[^@./][^/]*)/.exec(mocked ?? request ?? "")?.[1];
       // A mock replaces the module it names, and a preset only the ids it provides: a deep
       // `jest.mock('react-native-reanimated/lib/…')` is not covered. A setup module is
@@ -418,23 +414,18 @@ export function analyzeJestConfig(root: string): MigrationReport {
       if (!active.includes(preset) && !runsWithOwnSetup(preset)) continue;
       const shown = mocked
         ? `jest.mock('${mocked}')`
-        : match[7]
+        : imported
           ? `import '${request}'`
           : `require('${request}')`;
-      if (mocked && match.indices?.[1]) {
-        // A factory that keeps part of the library (`jest.requireActual`, a spread) and
-        // changes the rest is more than the preset gives: the reader decides what stays.
-        const open = match.indices[1][0];
-        let close = open + 1;
-        while (close < code.length && depth[close] !== 0) close++;
-        if (/requireActual|\.\.\./.test(code.slice(open, close))) {
-          attention.push(
-            `${file}: ${shown} — the ${preset} preset provides ${pkg}, but this mock changes ` +
-              `part of it (jest.requireActual or a spread); keep only the changes the tests ` +
-              `rely on.`,
-          );
-          continue;
-        }
+      // A factory that keeps part of the library (`jest.requireActual`, a spread) and
+      // changes the rest is more than the preset gives: the reader decides what stays.
+      if (factory && keepsPartOfModule(factory)) {
+        attention.push(
+          `${file}: ${shown} — the ${preset} preset provides ${pkg}, but this mock changes ` +
+            `part of it (jest.requireActual or a spread); keep only the changes the tests ` +
+            `rely on.`,
+        );
+        continue;
       }
       const ownSetup = LIBRARY_SETUP_FILES[preset];
       if (active.includes(preset)) {
@@ -1256,58 +1247,94 @@ export default defineConfig({
   };
 }
 
+type AstNode = { type: string; [key: string]: unknown };
+const isAstNode = (v: unknown): v is AstNode =>
+  !!v && typeof v === "object" && typeof (v as AstNode).type === "string";
+const stringValue = (n: unknown): string | undefined =>
+  isAstNode(n) && n.type === "StringLiteral" ? (n.value as string) : undefined;
+
+interface SetupStatement {
+  /** `jest.mock('<id>', …)` */
+  mocked?: string;
+  /** `require('<id>')` or `import '<id>'` */
+  request?: string;
+  imported?: boolean;
+  /** The mock's factory, when it has one. */
+  factory?: AstNode;
+}
+
 /**
- * The parenthesis depth at each offset of a JavaScript source: 0 outside every call, and
- * -1 inside a comment, a string, a template literal or a regular expression literal. A `/`
- * starts a regular expression where a value is expected (after `(`, `,`, `=`, an operator,
- * `return`, or at the start of a line), and divides anywhere else; close enough for a
- * setup file.
+ * A setup file's top-level `jest.mock('<id>', …)`, `require('<id>')` and `import '<id>'`
+ * statements. Nothing when the file does not parse.
  */
-function codeDepths(code: string): number[] {
-  const depths: number[] = Array.from({ length: code.length + 1 }, () => 0);
-  let depth = 0;
-  const skip = (from: number, to: number) => {
-    for (let at = from; at <= to && at < code.length; at++) depths[at] = -1;
-    return to;
-  };
-  for (let i = 0; i < code.length; i++) {
-    depths[i] = depth;
-    const c = code[i];
-    if (c === "/" && code[i + 1] === "/") {
-      const end = code.indexOf("\n", i);
-      i = skip(i, (end === -1 ? code.length : end) - 1);
-    } else if (c === "/" && code[i + 1] === "*") {
-      const end = code.indexOf("*/", i + 2);
-      i = skip(i, end === -1 ? code.length : end + 1);
-    } else if (c === "'" || c === '"' || c === "`") {
-      let end = i + 1;
-      while (end < code.length && code[end] !== c) end += code[end] === "\\" ? 2 : 1;
-      i = skip(i, end);
-    } else if (
-      c === "/" &&
-      /(?:^|[(,=:[!&|?{};+\-*%<>~^]|\breturn|\btypeof)\s*$/.test(
-        code
-          .slice(Math.max(0, i - 12), i)
-          .split("\n")
-          .pop() ?? "",
-      )
-    ) {
-      let end = i + 1;
-      for (let inClass = false; end < code.length && code[end] !== "\n"; end++) {
-        if (code[end] === "\\") end++;
-        else if (code[end] === "[") inClass = true;
-        else if (code[end] === "]") inClass = false;
-        else if (code[end] === "/" && !inClass) break;
-      }
-      i = skip(i, end);
-    } else if (c === "(") {
-      depth++;
-    } else if (c === ")") {
-      depth = Math.max(0, depth - 1);
-    }
+function setupStatements(parse: Parse, code: string): SetupStatement[] {
+  let ast: AstNode;
+  try {
+    ast = parse(code, {
+      sourceType: "unambiguous",
+      plugins: ["typescript", "jsx"],
+      allowReturnOutsideFunction: true,
+      allowAwaitOutsideFunction: true,
+    }) as AstNode;
+  } catch {
+    return [];
   }
-  depths[code.length] = depth;
-  return depths;
+  const body = ((ast.program as AstNode | undefined)?.body ?? []) as AstNode[];
+  return body.flatMap((statement): SetupStatement[] => {
+    if (statement.type === "ImportDeclaration") {
+      const request = stringValue(statement.source);
+      const named = (statement.specifiers as unknown[] | undefined)?.length ?? 0;
+      return request !== undefined && named === 0 ? [{ request, imported: true }] : [];
+    }
+    if (statement.type !== "ExpressionStatement") return [];
+    const call = statement.expression;
+    if (!isAstNode(call) || call.type !== "CallExpression") return [];
+    const callee = call.callee as AstNode;
+    const args = call.arguments as AstNode[];
+    const id = stringValue(args[0]);
+    if (id === undefined) return [];
+    if (
+      callee.type === "MemberExpression" &&
+      !callee.computed &&
+      (callee.object as AstNode).type === "Identifier" &&
+      (callee.object as AstNode).name === "jest" &&
+      (callee.property as AstNode).name === "mock"
+    ) {
+      return [{ mocked: id, factory: args[1] }];
+    }
+    if (callee.type === "Identifier" && callee.name === "require" && args.length === 1) {
+      return [{ request: id }];
+    }
+    return [];
+  });
+}
+
+/** Whether a mock factory keeps part of the real module: `jest.requireActual`, a spread. */
+function keepsPartOfModule(node: unknown): boolean {
+  if (Array.isArray(node)) return node.some(keepsPartOfModule);
+  if (!isAstNode(node)) return false;
+  if (node.type === "SpreadElement") return true;
+  if (
+    node.type === "MemberExpression" &&
+    !node.computed &&
+    (node.property as AstNode).name === "requireActual"
+  ) {
+    return true;
+  }
+  return Object.entries(node).some(
+    ([key, value]) =>
+      ![
+        "loc",
+        "start",
+        "end",
+        "leadingComments",
+        "trailingComments",
+        "innerComments",
+        "extra",
+      ].includes(key) &&
+      typeof value === "object" &&
+      keepsPartOfModule(value),
+  );
 }
 
 /**

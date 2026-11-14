@@ -530,12 +530,16 @@ describe("migrate", () => {
         "`;",
         "const quote = /'/g;",
         "const paren = /\\(/;",
-        "jest.mock('react-native-safe-area-context');",
+        "jest.mock('react-native-safe-area-context', () =>",
+        "  jest.requireActual('react-native-safe-area-context'),",
+        ");",
+        // Imports names: the project uses the library, it does not set it up.
+        "import { Swipeable } from 'react-native-gesture-handler';",
         // A deep import is a module the preset does not provide.
         "jest.mock('react-native-reanimated/lib/module/animation', () => ({}));",
         // Keeps part of the library: for review, not deletion.
         "jest.mock('react-native-reanimated', () => ({",
-        "  ...jest.requireActual('react-native-reanimated/mock'),",
+        "  ...require('react-native-reanimated/mock'),",
         "  useReducedMotion: () => true,",
         "}));",
         "",
@@ -554,11 +558,25 @@ describe("migrate", () => {
       "./jest.setup.js: import 'react-native-gesture-handler/jestSetup' — react-native-gesture-handler's own test setup, which the native engine runs before the setup files; delete the line.",
       "./jest.setup.js: require('react-native-reanimated/mock') — the auto-detected reanimated preset shadows react-native-reanimated; delete the line.",
       "./jest.setup.js: jest.mock('react-native-gesture-handler') — the native engine runs react-native-gesture-handler with its own Jest setup (react-native-gesture-handler/jestSetup.js), which replaces its native layer; delete the line.",
-      "./jest.setup.js: jest.mock('react-native-safe-area-context') — the auto-detected safeAreaContext preset shadows react-native-safe-area-context; delete the line.",
     ]);
     expect(fromSetup(report.attention)).toEqual([
+      "./jest.setup.js: jest.mock('react-native-safe-area-context') — the safeAreaContext preset provides react-native-safe-area-context, but this mock changes part of it (jest.requireActual or a spread); keep only the changes the tests rely on.",
       "./jest.setup.js: jest.mock('react-native-reanimated') — the reanimated preset provides react-native-reanimated, but this mock changes part of it (jest.requireActual or a spread); keep only the changes the tests rely on.",
     ]);
+  });
+
+  it("lists nothing from a setup file its parser cannot read (#796)", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { setupFiles: ["./jest.setup.js"] },
+      "jest.setup.js": "jest.mock('react-native-reanimated');\nconst = ;\n",
+      ...installedLibraries("react-native-reanimated"),
+    });
+    withBabelParser(root);
+    const report = analyzeJestConfig(root);
+    const all = [...report.presetCovered, ...report.attention].join("\n");
+    expect(all).not.toContain("./jest.setup.js: ");
+    expect(report.suggestedConfig).toContain(`"./jest.setup.js"`);
   });
 
   it("lists a preset-shadowed allowlist entry with the others that need nothing (#797)", () => {
