@@ -1,5 +1,4 @@
 import type { Preset } from "../types.js";
-import React from "react";
 import { builtInPreset } from "./built-in.js";
 
 // @react-native-vector-icons v10+ split each icon set into its own package
@@ -28,7 +27,7 @@ export function vectorIcons(): Preset {
           "setDynamicLoadingEnabled",
           "setDynamicLoadingErrorCallback",
         ],
-        factory: () => {
+        factory: ({ React }) => {
           const createIconSet = (_glyphMap?: any, _options?: any) => {
             const Icon = React.forwardRef((props: any, ref: any) => {
               const {

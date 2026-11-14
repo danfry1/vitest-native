@@ -1,6 +1,5 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
-import React from "react";
 import { createTextInputMock } from "../mocks/components/TextInput.js";
 import { createScrollViewMock } from "../mocks/components/ScrollView.js";
 import { createFlatListMock } from "../mocks/components/FlatList.js";
@@ -73,7 +72,7 @@ export function bottomSheet(): Preset {
           "KEYBOARD_STATUS",
           "GESTURE_SOURCE",
         ],
-        factory: () => {
+        factory: ({ React }) => {
           function container(name: string, methods: Record<string, () => void> = {}) {
             const Component = React.forwardRef((props: any, ref: any) => {
               React.useImperativeHandle(ref, () => methods);
@@ -137,15 +136,15 @@ export function bottomSheet(): Preset {
             // Scrollable/input/touchable members are the real RN components (the
             // library's own mock does the same), so their content renders and they
             // behave under test.
-            BottomSheetScrollView: createScrollViewMock(),
-            BottomSheetFlatList: createFlatListMock(),
-            BottomSheetSectionList: createSectionListMock(),
-            BottomSheetVirtualizedList: createVirtualizedListMock(),
-            BottomSheetFlashList: createFlatListMock(),
-            BottomSheetTextInput: createTextInputMock(),
-            TouchableOpacity: createTouchableOpacityMock(),
-            TouchableHighlight: createTouchableHighlightMock(),
-            TouchableWithoutFeedback: createTouchableWithoutFeedbackMock(),
+            BottomSheetScrollView: createScrollViewMock(React),
+            BottomSheetFlatList: createFlatListMock(React),
+            BottomSheetSectionList: createSectionListMock(React),
+            BottomSheetVirtualizedList: createVirtualizedListMock(React),
+            BottomSheetFlashList: createFlatListMock(React),
+            BottomSheetTextInput: createTextInputMock(React),
+            TouchableOpacity: createTouchableOpacityMock(React),
+            TouchableHighlight: createTouchableHighlightMock(React),
+            TouchableWithoutFeedback: createTouchableWithoutFeedbackMock(React),
             useBottomSheet: () => ({
               ...sheetMethods,
               animatedIndex: { value: 0 },
@@ -164,7 +163,7 @@ export function bottomSheet(): Preset {
               animatedContentHeight: { value: 0 },
               handleContentLayout: vi.fn(),
             }),
-            createBottomSheetScrollableComponent: vi.fn(() => createScrollViewMock()),
+            createBottomSheetScrollableComponent: vi.fn(() => createScrollViewMock(React)),
             enableLogging: vi.fn(),
             ...constants,
           };

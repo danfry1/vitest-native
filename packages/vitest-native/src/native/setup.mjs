@@ -20,6 +20,7 @@ import {
   requireProjectContext,
 } from "../context.mjs";
 import { importPresetModule, presetModulePaths } from "../preset-modules.mjs";
+import { presetFactoryContext } from "../preset-react.mjs";
 import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
 import { beginTestFile, installLibraryJest, libraryJestFor } from "./library-jest.mjs";
@@ -406,7 +407,10 @@ for (const { pkg, mod, presetName } of presetDefs) {
     enumerable: true,
     get() {
       if (!builtPresetMocks.has(pkg)) {
-        builtPresetMocks.set(pkg, mod.factory());
+        builtPresetMocks.set(
+          pkg,
+          mod.factory(presetFactoryContext(pkg, projectRoot, { check: true })),
+        );
         if (diagnostics) {
           console.log(`[vitest-native] (native) built preset mock: ${pkg} (${presetName})`);
         }

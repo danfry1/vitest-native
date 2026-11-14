@@ -1,7 +1,6 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
-import React from "react";
-import { hostComponent as hostClass } from "../mocks/host.js";
+import { hosts } from "../mocks/host-classes.js";
 import { builtInPreset } from "./built-in.js";
 
 export function expo(): Preset {
@@ -210,7 +209,8 @@ export function expo(): Preset {
           "setStatusBarTranslucent",
           "setStatusBarNetworkActivityIndicatorVisible",
         ],
-        factory: () => {
+        factory: ({ React }) => {
+          const { hostComponent: hostClass } = hosts(React);
           const StatusBar = React.forwardRef((props: any, ref: any) =>
             React.createElement(hostClass("StatusBar"), { ...props, ref }, props.children),
           );
