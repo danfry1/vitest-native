@@ -1282,7 +1282,7 @@
       "class": "presets",
       "title": "A derived value stays at its first result between renders",
       "source": "#351 (rc.4 report)",
-      "fixedBy": "open",
+      "fixedBy": "#753",
       "fixRef": "origin/fix/reanimated-derived-value-follows",
       "bugSignature": "^app\\.test\\.tsx: AssertionError: expected 10 to be 60"
     },
