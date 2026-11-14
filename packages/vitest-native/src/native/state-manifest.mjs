@@ -141,4 +141,7 @@ export const HOT_STATE_MANIFEST_ENTRIES = Object.freeze([
   "expo.runtime",
   "jest-compat.node-mocks",
   "expo.sdk-warnings",
+  "rntl.config",
+  "vitest.expect-matchers",
+  "vitest.worker-state",
 ]);

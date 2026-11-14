@@ -12,6 +12,7 @@ import { installRegistry } from "./registry.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 import * as presetFactories from "../presets.mjs";
 import { animatedMatchers } from "../matchers.mjs";
+import { captureMatchers, matcherDifference, restoreMatchers } from "./expect-matchers.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import {
   CONTEXT_ENV,
@@ -57,6 +58,18 @@ if (globalThis.__vitest_native_hot_reset) {
       if (vi.isFakeTimers()) {
         throw new VitestNativeError("HOT_STATE_RESTORE_FAILED", "fake timers remain enabled");
       }
+    },
+  });
+  // Matchers and equality testers a test file adds to `expect` (#808): see
+  // native/expect-matchers.mjs. Captured when this first registers, so after the first
+  // file's own setup files, which every later file runs again.
+  globalThis.__vitest_native_register_state?.({
+    id: "vitest.expect-matchers",
+    capture: () => captureMatchers(expect),
+    restore: (snapshot) => restoreMatchers(snapshot),
+    verify: (snapshot) => {
+      const difference = matcherDifference(snapshot);
+      if (difference) throw new VitestNativeError("HOT_STATE_RESTORE_FAILED", difference);
     },
   });
   // RNTL's per-file hooks (cleanup, act environment) for a resident RNTL are
