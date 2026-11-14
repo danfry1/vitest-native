@@ -1,14 +1,12 @@
-// Under the hot runtime, ESM generation must not add entries to Node's V8 compile
-// cache.
+// No test worker writes Node's V8 compile cache (#831).
 //
-// Hot ESM generation re-evaluates each externalized ES module a test file imports
-// under a new URL (`?vnhot=N`), and Node keys compile-cache entries by URL. With the
-// cache on, every file added entries for the modules it re-evaluated, all written when
-// the worker exits, inside Vitest's teardownTimeout. This gate runs a project whose
-// test files import an ES package of many modules, on one worker, from a cold cache.
-// With ESM generation on, the worker must write no entries at all. With it off (by
-// config and by the environment escape hatch) and under per-file isolation, the cache
-// must still fill, so the gate cannot pass by turning the cache off everywhere.
+// Workers wrote the cache when they exited, inside the pool's close: on a loaded Windows
+// runner the writes held close for up to 14 s, and a warm cache saved nothing measurable
+// once React Native loads from the precompiled registry. vitest-native leaves the cache
+// off. This gate runs a project whose test files import an ES package of many modules,
+// on one worker, under per-file isolation and under the hot runtime with ESM generation
+// on and off, and counts the entries each run leaves: any entry means a worker turned
+// the cache on.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -98,7 +96,7 @@ function countEntries(dir) {
   return n;
 }
 
-// The gate counts only the entries vitest-native's own decision writes. A developer's
+// The gate counts only the entries vitest-native writes. A developer's
 // NODE_COMPILE_CACHE turns Node's cache on in every worker before our code runs (and
 // NODE_DISABLE_COMPILE_CACHE turns it off), so neither is passed to the runs.
 const inheritedEnv = { ...process.env };
@@ -108,7 +106,7 @@ delete inheritedEnv.NODE_DISABLE_COMPILE_CACHE;
 function run(label, files, hotRuntime, extraEnv = {}) {
   setFiles(files);
   // Clear the transform cache too, so every run is equally cold: Babel then loads in
-  // each run, and its modules land in the compile cache every time.
+  // each run, and a cache turned on anywhere would receive its modules.
   fs.rmSync(path.dirname(cacheDir()), { recursive: true, force: true });
   const result = spawnSync(
     process.execPath,
@@ -146,32 +144,18 @@ const check = (ok, message) => {
 
 try {
   setUp();
-  console.log("hot compile cache:");
+  console.log("compile cache:");
   const hot = { allowUnboundedMemory: true };
-  // ESM generation off through the config option, the documented opt-out: every module
-  // has one URL, and the cache stays on.
-  const noGen = run("hot, esmGeneration: false", FILES, { ...hot, esmGeneration: false });
-  check(
-    noGen > 0,
-    `the hot runtime with esmGeneration: false still fills the cache (${noGen} entries)`,
-  );
-  // The same through the environment escape hatch.
-  const noGenEnv = run("hot, VITEST_NATIVE_HOT_ESM_GEN=0", FILES, hot, {
-    VITEST_NATIVE_HOT_ESM_GEN: "0",
-  });
-  check(
-    noGenEnv > 0,
-    `the hot runtime with VITEST_NATIVE_HOT_ESM_GEN=0 still fills the cache (${noGenEnv} entries)`,
-  );
-  // With ESM generation on, the cache stays off in the worker, so a run writes nothing:
-  // any entry means some copy of the decision turned it back on.
-  const withGen = run("hot with ESM generation", FILES, hot);
-  check(
-    withGen === 0,
-    `ESM generation leaves the compile cache off (${withGen} entries, expected 0)`,
-  );
-  const stock = run("per-file isolation", FILES, false);
-  check(stock > 0, `per-file isolation still fills the cache (${stock} entries)`);
+  const runs = [
+    ["per-file isolation", false, {}],
+    ["hot with ESM generation", hot, {}],
+    ["hot, esmGeneration: false", { ...hot, esmGeneration: false }, {}],
+    ["hot, VITEST_NATIVE_HOT_ESM_GEN=0", hot, { VITEST_NATIVE_HOT_ESM_GEN: "0" }],
+  ];
+  for (const [label, hotRuntime, env] of runs) {
+    const entries = run(label, FILES, hotRuntime, env);
+    check(entries === 0, `${label} writes no compile-cache entries (${entries})`);
+  }
 } finally {
   fs.rmSync(fixture, { recursive: true, force: true });
 }

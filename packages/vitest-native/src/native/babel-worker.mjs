@@ -12,12 +12,14 @@ import { workerData } from "node:worker_threads";
 const { port, signal, compileCache } = workerData;
 
 // Node's compile cache, on here exactly when it is on in the thread that started this
-// one (compile-cache.mjs decides), so Babel's modules load from it as they did there.
+// one, so Babel's modules load from it as they did there. vitest-native never turns it
+// on (#831); a NODE_COMPILE_CACHE the developer sets does, in every thread, and every
+// test worker then writes its entries when it exits, inside the pool's close.
 if (compileCache) {
   try {
     (await import("node:module")).default.enableCompileCache?.(compileCache);
   } catch {
-    // A pure optimization, as in compile-cache.mjs.
+    // A pure optimization.
   }
 }
 

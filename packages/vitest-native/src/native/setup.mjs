@@ -9,7 +9,6 @@ import { installGlobals, installErrorUtils, installExpoRuntime } from "./globals
 import { installRequireHooks } from "./hooks.mjs";
 import { installRntlJest } from "./rntl-hooks.mjs";
 import { installRegistry } from "./registry.mjs";
-import { enableV8CompileCache } from "./compile-cache.mjs";
 import * as presetFactories from "../presets.mjs";
 import { animatedMatchers } from "../matchers.mjs";
 import { VitestNativeError } from "../errors.mjs";
@@ -169,10 +168,6 @@ await globalThis.__vitest_native_presets_ready;
 // pass-through Node can already run is served untouched.
 const nodeTransformPkgs = [...new Set([...transformPkgs, ...Object.keys(presetExports)])];
 
-// Enable the V8 compile cache before RN is compiled (it loads when the test file
-// imports react-native, after this setup runs) so its bytecode is cached to disk
-// and reused on the next file/worker/run. Covers the stock (non-hot) path.
-enableV8CompileCache(projectRoot);
 // Before anything else loads through Node: the guard records every evaluation from here
 // on, on both sides (docs/ownership-guard.md). Once per worker; the hot worker installs
 // it at boot instead.

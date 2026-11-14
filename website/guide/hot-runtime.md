@@ -65,9 +65,9 @@ The hot runtime plans its workers from the lower of the host's and the container
 
 ## Caches
 
-Under the native engine, vitest-native turns on Node's on-disk compile cache (`node_modules/.cache/vitest-native/v8`), so React Native's compiled code is reused by later workers and runs. Hot workers leave it off while `esmGeneration` is on, which is the default: each test file re-runs the packages Node loads for its `import`s, and the cache would keep one entry per package per file. Leaving it off costs about 15–20 ms per hot worker start, including each recycle, in one measured project. With `hotRuntime: { esmGeneration: false }` hot workers keep the cache, and packages loaded that way keep their state across files.
+vitest-native leaves Node's on-disk compile cache off in test workers. Each worker wrote its entries when it exited, inside the pool's close, which held runs open for seconds on loaded Windows machines, and with React Native loading from its precompiled modules a warm cache saved no measurable time.
 
-If you set `NODE_COMPILE_CACHE` yourself, Node turns the cache on in every worker before vitest-native runs, and hot workers then write those per-file entries again; unset it for hot runs, or set `esmGeneration: false`.
+If you set `NODE_COMPILE_CACHE` yourself, Node turns the cache on in every worker, and every worker writes it when it exits; under the hot runtime with `esmGeneration` on, each file adds an entry per package it re-runs. Unset it for hot runs.
 
 React Native's own compiled modules are cached separately; [troubleshooting](/guide/troubleshooting#when-react-native-s-precompiled-modules-are-reused-or-rebuilt) says where and when they are rebuilt.
 

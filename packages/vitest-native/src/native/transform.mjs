@@ -671,8 +671,8 @@ function startToolchain() {
   const workerUrl = String(toolchainOptions.workerUrl ?? BABEL_WORKER);
   const worker = new Worker(TOOLCHAIN_BOOTSTRAP, {
     eval: true,
-    // Node's compile cache as the calling thread has it (compile-cache.mjs decides per
-    // thread, and leaves it off where it would only grow), so Babel loads from it too.
+    // Node's compile cache as the calling thread has it (on only when the developer sets
+    // NODE_COMPILE_CACHE), so Babel loads from it too.
     workerData: {
       port: port2,
       signal,

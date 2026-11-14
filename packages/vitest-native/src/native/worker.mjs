@@ -27,7 +27,6 @@ import {
 import { isFreshRuntime } from "./ownership.mjs";
 import { registerRntlHooksOnImport } from "./rntl-hooks.mjs";
 import { residentProblems } from "./resident-health.mjs";
-import { enableV8CompileCache } from "./compile-cache.mjs";
 import { installOwnershipLedger } from "./ownership-ledger.mjs";
 import { VitestNativeError } from "../errors.mjs";
 import { activeRegistry, markBootContext, requireProjectContext } from "../context.mjs";
@@ -58,13 +57,6 @@ if (diagnostics) {
 // guarded; doing them at boot lets RN preload BEFORE the globals baseline and
 // listener tracking in reset.mjs, so RN's own boot state is preserved across
 // per-file resets rather than wrongly torn down with test pollution.
-// Enable the V8 compile cache before any RN module compiles, so the resident
-// graph's bytecode is cached to disk for the next worker/run. Not while hot ESM
-// generation is on (the same test setup.mjs makes): every file would add an entry
-// per re-evaluated ES module (compile-cache.mjs).
-const hotEsmGeneration =
-  context.hotEsmGeneration !== false && process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0";
-enableV8CompileCache(projectRoot, { skip: hotEsmGeneration });
 // First, so the resident graph is in the ledger: a later Vite evaluation of a file this
 // worker keeps resident is the dual evaluation that outlives every per-file reset.
 installOwnershipLedger({ projectRoot });
