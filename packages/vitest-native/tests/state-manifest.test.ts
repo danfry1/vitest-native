@@ -162,6 +162,31 @@ describe("hot-runtime state manifest", () => {
     );
   });
 
+  // The resident-state audit's mutation leg: with the restore and the verify both off,
+  // the state reaches the next file and only a test that observes it can tell.
+  it("leaves an `:unverified` mutation unrestored and unverified, and only that entry", () => {
+    const state = { target: "boot", other: "boot" };
+    const manifest = createStateManifest({ mutation: "target:unverified" });
+    for (const key of ["target", "other"] as const) {
+      manifest.register({
+        id: key,
+        capture: () => state[key],
+        restore: (snapshot) => {
+          state[key] = snapshot;
+        },
+        verify: (snapshot) => {
+          if (state[key] !== snapshot) throw new Error(`observed ${state[key]}`);
+        },
+      });
+    }
+    manifest.beginFile();
+    state.target = "polluted";
+    state.other = "polluted";
+
+    expect(() => manifest.beginFile()).not.toThrow();
+    expect(state).toEqual({ target: "polluted", other: "boot" });
+  });
+
   it("attributes capture failures to the responsible entry", () => {
     const cause = new Error("capture exploded");
     const manifest = createStateManifest();

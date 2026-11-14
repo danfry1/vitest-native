@@ -1,0 +1,134 @@
+{
+  "$comment": "The resident-state audit's declarations (scripts/test-hot-residents.mjs, held in step with the source and docs by a unit test). probes: each probe pair and the resident it covers. carryOver: the accepted differences from per-file isolation, each with the exact value the probe sees under hot and freshRuntime ('reset' = the isolation value), and either the 'Known differences' bullet it documents (website/guide/hot-runtime.md) with its bug-museum exhibit, or the open issue that tracks it. unprobed: residents with no probe pair here, and why. inventory: globals and console properties a hot worker may keep besides RESIDENT_GLOBALS (src/native/resident-globals.mjs).",
+  "probes": {
+    "vitest-runtime": { "resident": "vitest-runtime", "group": "batch" },
+    "native-boundary-mocks": { "resident": "native-boundary-mocks", "group": "batch" },
+    "native-module-mocks": { "resident": "native-module-mocks", "group": "batch" },
+    "react-native.dimensions": { "resident": "react-native.dimensions", "group": "batch" },
+    "react-native.appearance": { "resident": "react-native.appearance", "group": "batch" },
+    "react-native.event-listeners": {
+      "resident": "react-native.event-listeners",
+      "group": "batch"
+    },
+    "process.env": { "resident": "process.env", "group": "batch" },
+    "process.listeners": { "resident": "process.listeners", "group": "batch" },
+    "global.descriptors": { "resident": "global.descriptors", "group": "batch" },
+    "console.descriptors": { "resident": "console.descriptors", "group": "batch" },
+    "react-native.error-utils": { "resident": "react-native.error-utils", "group": "batch" },
+    "expo.runtime": { "resident": "expo.runtime", "group": "batch" },
+    "react.use-id": { "resident": "react", "group": "batch" },
+    "react.warning-dedupe": { "resident": "react", "group": "batch" },
+    "rntl.configure": { "resident": "@testing-library/react-native", "group": "batch" },
+    "vitest.expect-extend": { "resident": "chai", "group": "batch" },
+    "react-native.app-registry": { "resident": "react-native", "group": "batch" },
+    "react.scheduler-timers": { "resident": "scheduler", "group": "solo-scheduler" },
+    "react.act-scope": { "resident": "react.act-scope", "group": "solo-act-scope" }
+  },
+  "carryOver": {
+    "react.use-id": {
+      "hot": { "startsOver": false },
+      "fresh": "reset",
+      "doc": "generated `useId` values continue from the previous file",
+      "exhibit": "pfs-hot-use-id"
+    },
+    "react.warning-dedupe": {
+      "hot": { "warned": false },
+      "fresh": "reset",
+      "doc": "React shows a development warning once per worker, not once per file",
+      "exhibit": "pfs-hot-warning-dedupe"
+    },
+    "react.scheduler-timers": {
+      "hot": { "realTimerUpdateRendered": false },
+      "fresh": "reset",
+      "doc": "fake timers active when React first loads stay captured by React's scheduler",
+      "exhibit": "pfs-hot-scheduler-fake-timers"
+    },
+    "react.act-scope": {
+      "hot": { "refusedFor": "react.act-scope" },
+      "fresh": "reset",
+      "doc": "an `act()` scope left open stays open for the worker",
+      "exhibit": "pfs-hot-unawaited-act"
+    },
+    "rntl.configure": {
+      "hot": { "findsHidden": true },
+      "fresh": "reset",
+      "issue": 807
+    },
+    "vitest.expect-extend": {
+      "hot": { "matcher": "present" },
+      "fresh": { "matcher": "present" },
+      "issue": 808
+    }
+  },
+  "unprobed": [
+    {
+      "resident": "jest-compat.node-mocks",
+      "reason": "registered only by the jest-compat setup",
+      "coveredBy": "test:native:hot:isolation (hot-jest-compat, --mode stock and --mode hot)"
+    },
+    {
+      "resident": "expo.sdk-warnings",
+      "reason": "needs an installed expo-modules-core from SDK 54 or older",
+      "coveredBy": "tests-native/hot-isolation/19-expo-sdk-warning-a and 20-expo-sdk-warning-b"
+    },
+    {
+      "resident": "vitest.worker-state",
+      "reason": "verify-only: it restores nothing, and fails a file whose Vitest worker state names another",
+      "coveredBy": "test:native:hot:worker-state"
+    },
+    {
+      "resident": "@testing-library/react-native",
+      "doc": "RNTL reinstalls fake timers only in the first file that loads it",
+      "reason": "the reinstall happens at RNTL's first import, which a probe file cannot repeat on demand"
+    },
+    {
+      "resident": "process.env",
+      "doc": "an environment variable a module sets when it is imported is set only in the first file on a worker that imports it",
+      "reason": "only resident packages are imported once per worker, and none of them sets one (RNTL's is handled)"
+    },
+    {
+      "resident": "react",
+      "doc": "a `jest.mock` or `vi.mock` does not reach the requires React, its renderers, `scheduler` and RNTL make themselves",
+      "reason": "a difference within one file, not a carry-over between files",
+      "coveredBy": "test:native:hot:resident-mock"
+    },
+    {
+      "resident": "react-is",
+      "reason": "no state a test can change"
+    },
+    {
+      "resident": "react-dom",
+      "reason": "React Native tests do not load it"
+    },
+    {
+      "resident": "react-reconciler",
+      "reason": "its state is the renderer's: the useId, warning and act-scope probes observe it"
+    },
+    {
+      "resident": "react-test-renderer",
+      "reason": "its state is the renderer's: the useId, warning and act-scope probes observe it"
+    },
+    {
+      "resident": "test-renderer",
+      "reason": "its state is the renderer's: the useId, warning and act-scope probes observe it"
+    },
+    {
+      "resident": "vitest",
+      "reason": "the runner itself: its per-file state is the vitest-runtime entry",
+      "coveredBy": "the vitest-runtime probe"
+    },
+    {
+      "resident": "@vitest/*",
+      "reason": "the runner itself: its per-file state is the vitest-runtime entry",
+      "coveredBy": "the vitest-runtime probe"
+    },
+    {
+      "resident": "vitest-native",
+      "reason": "its worker-lifetime globals are RESIDENT_GLOBALS, which the inventory checks"
+    }
+  ],
+  "inventory": {
+    "globals": ["__VN_RESIDENT_AUDIT__"],
+    "console": []
+  }
+}
