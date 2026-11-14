@@ -58,9 +58,9 @@ Reanimated has two ways to run under Jest, and a suite is written against one of
 | Your Jest setup | What it runs | Under vitest-native |
 |---|---|---|
 | `jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'))`, or no Reanimated setup | Reanimated's mock: animations land at once, and `getAnimatedStyle` finds no animated style | The default. The `reanimated` preset serves the same mock; delete the `jest.mock` line. |
-| `setUpTests()` from `react-native-reanimated`, and no mock of it | The real library: mappers run, timed animations need timers advanced, and `getAnimatedStyle` reads the style the animated components set | `presets: { reanimated: false }` under the native engine, with Reanimated 4.7 or later. The real library runs through its own Jest resolver; keep the setup file that calls `setUpTests()`. |
+| `setUpTests()` from `react-native-reanimated`, and no mock of it | The real library: mappers run, timed animations need timers advanced, and `getAnimatedStyle` reads the style the animated components set | `presets: { reanimated: false }` under the native engine, with Reanimated 4.7 or later declared in your `package.json`. The real library runs through its own Jest resolver; keep the setup file that calls `setUpTests()`. |
 
-`vitest-native migrate` reads your Jest setup and writes the matching option. The mock engine has no real React Native for the library to run on, so keep the preset there.
+`vitest-native migrate` reads your Jest setup and writes the matching option. Reanimated's own matchers come with `setUpTests()` in the real-library mode, and vitest-native's with the preset. The mock engine has no real React Native for the library to run on, so keep the preset there.
 
 ## Available presets
 

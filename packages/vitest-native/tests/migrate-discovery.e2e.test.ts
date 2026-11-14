@@ -109,12 +109,20 @@ test('import-time mock calls survive', () => { expect(loaded).toHaveBeenCalledTi
       // react-native-paper's shape: Reanimated's resolver, and a setup file that only calls
       // setUpTests(). Its tests read what the real library's animated components set.
       const root = fixture({
-        "package.json": { name: "app", dependencies: { "react-native": "*" } },
+        // Declared, as an app declares it: the engine runs a declared package as itself.
+        "package.json": {
+          name: "app",
+          dependencies: { "react-native": "*", "react-native-reanimated": "*" },
+        },
         "jest.config.json": {
           preset: "react-native",
           resolver: "react-native-reanimated/jest/resolver",
           setupFilesAfterEnv: ["<rootDir>/jest/jestSetupAfterEnv.js"],
         },
+        // As a Reanimated app's Babel config has it: the worklets plugin compiles the
+        // hooks' worklets.
+        "babel.config.js":
+          "module.exports = {\n  presets: ['module:@react-native/babel-preset'],\n  plugins: ['react-native-worklets/plugin'],\n};\n",
         "jest/jestSetupAfterEnv.js": `import { setUpTests } from 'react-native-reanimated';\n\nsetUpTests();\n`,
         "src/Box.test.tsx": `import React from 'react';
 import { render, screen } from '@testing-library/react-native';

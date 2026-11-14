@@ -396,11 +396,16 @@ export function analyzeJestConfig(root: string): MigrationReport {
         }
       },
     );
-  const reanimatedReal =
+  const ranRealReanimated =
     realReanimatedSetup !== undefined &&
     !reanimatedMocked &&
     activePresets(root).includes("reanimated") &&
     libraryMockUsable(root);
+  // The engine runs a package as itself only when the project declares it: an
+  // undeclared one is compiled by Vite, where Reanimated's own Jest resolver does not
+  // apply (#688). Such a suite keeps its setup and the preset, with a note.
+  const reanimatedReal =
+    ranRealReanimated && declaredDependencies(root).includes("react-native-reanimated");
 
   // jest-expo mocks Expo's native modules but not React Navigation, so its suites
   // render real navigators. The navigation preset would mock them, so it is switched
@@ -587,7 +592,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
             `${key}: '${f}' — ${setupPackage}'s own test setup, which the native engine runs ` +
               `before the setup files (${LIBRARY_SETUP_FILES[setupPreset]}); delete.`,
           );
-        } else if (reanimatedActive && onlyCallsSetUpTests(projectSource(f) ?? "")) {
+        } else if (
+          reanimatedActive &&
+          !ranRealReanimated &&
+          onlyCallsSetUpTests(projectSource(f) ?? "")
+        ) {
           presetCovered.push(
             `${key}: '${f}' — only calls Reanimated's setUpTests(), whose matchers cannot see the ` +
               `rendered style here; vitest-native registers toHaveAnimatedStyle and ` +
@@ -1103,6 +1112,14 @@ export function analyzeJestConfig(root: string): MigrationReport {
 
   if (presetsOff.length) {
     pluginOptions.push(`presets: { ${presetsOff.map((p) => `${p}: false`).join(", ")} }`);
+  }
+  if (ranRealReanimated && !reanimatedReal) {
+    attention.push(
+      `${realReanimatedSetup!.file} runs Reanimated's setUpTests() and the suite mocks Reanimated ` +
+        `nowhere, so under Jest it ran the real library; here the reanimated preset serves its ` +
+        `mock. To run the real library, declare react-native-reanimated in package.json and add ` +
+        `presets: { reanimated: false }.`,
+    );
   }
   if (reanimatedReal) {
     automatic.push(

@@ -892,6 +892,7 @@ module.exports = {
     // Reanimated 4.7+ with its own Jest resolver, and Worklets with its own: the real
     // library can run under the native engine.
     const REAL_REANIMATED = {
+      "package.json": { name: "x", dependencies: { "react-native-reanimated": "4.7.1" } },
       "node_modules/react-native-reanimated/jest/resolver.js": "module.exports = () => {};",
       "node_modules/react-native-worklets/package.json": {
         name: "react-native-worklets",
@@ -939,6 +940,16 @@ module.exports = {
           "// jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));\n",
       });
       expect(commented.suggestedConfig).toContain("presets: { reanimated: false }");
+    });
+
+    it("keeps the setup and the preset, with a note, when Reanimated is not declared (#834)", () => {
+      const report = paperLike({ ...REAL_REANIMATED, "package.json": { name: "x" } });
+      expect(report.suggestedConfig).not.toContain("reanimated: false");
+      expect(report.suggestedConfig).toContain("jestSetupAfterEnv");
+      expect(report.presetCovered.join("\n")).not.toContain("setUpTests");
+      expect(report.attention.join("\n")).toContain(
+        "To run the real library, declare react-native-reanimated in package.json and add presets: { reanimated: false }.",
+      );
     });
 
     it("keeps the mock for a suite that also mocks Reanimated, however it does (#834)", () => {
