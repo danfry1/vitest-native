@@ -595,8 +595,20 @@ describe("preset: navigation", () => {
       expect(elementsMock.HeaderTitle.displayName).toBe("HeaderTitle");
     });
 
-    it("useHeaderHeight returns a number", () => {
-      expect(elementsMock.useHeaderHeight()).toBe(64);
+    it("useHeaderHeight is the height native-stack's animated header height starts at", async () => {
+      const stackMock = preset.modules["@react-navigation/native-stack"].factory({ React });
+      const animated = (await renderHook(() => stackMock.useAnimatedHeaderHeight())).result.current;
+      expect(elementsMock.useHeaderHeight()).toBe(44);
+      expect(elementsMock.useHeaderHeight()).toBe(animated.__getValue());
+      const context = (await renderHook(() => React.useContext(elementsMock.HeaderHeightContext)))
+        .result.current;
+      expect(context).toBe(44);
+      setPlatform("android");
+      try {
+        expect(elementsMock.useHeaderHeight()).toBe(56);
+      } finally {
+        setPlatform("ios");
+      }
     });
 
     it("getDefaultHeaderHeight is the library's: per platform, orientation and modal, plus the status bar", () => {

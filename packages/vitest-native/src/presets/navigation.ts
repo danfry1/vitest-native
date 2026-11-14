@@ -51,7 +51,8 @@ function getDefaultHeaderHeight(
  * The height a native stack screen's header starts at (NativeStackView.native, 7.21):
  * 56 on Android, which native-stack fixes until react-native-screens moves to Material 3,
  * and getDefaultHeaderHeight's elsewhere. A card screen on the window's frame, with no
- * top inset, as safe-area-context's own Jest mock reports none outside a provider.
+ * top inset, as safe-area-context's own Jest mock reports none outside a provider. The
+ * mock engine's safe-area fallback reports a top inset of 47, which this does not add.
  */
 function nativeStackHeaderHeight(): number {
   const { Dimensions, Platform } = activeReactNative();
@@ -860,8 +861,9 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             HeaderTitle,
             HeaderBackContext: React.createContext(undefined as any),
             HeaderShownContext: React.createContext(true),
-            HeaderHeightContext: React.createContext(64),
-            useHeaderHeight: () => 64,
+            // A native stack screen's header height, the one useAnimatedHeaderHeight starts at.
+            HeaderHeightContext: React.createContext(nativeStackHeaderHeight()),
+            useHeaderHeight: () => nativeStackHeaderHeight(),
             getDefaultHeaderHeight: vi.fn(getDefaultHeaderHeight),
             getHeaderTitle: vi.fn(
               (options: any, fallback: string) =>
