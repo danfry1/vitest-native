@@ -28,9 +28,10 @@ env:
 
 jobs:
   # A pull request runs the gate jobs its changed files need: a docs-only change runs
-  # none, a test-only change skips the packed cells, and code runs everything. The
-  # rules live in .github/scripts/classify-change.mjs, shared with native-rn-matrix.yml
-  # and config-axis-matrix.yml. The gate jobs skip by condition, which GitHub reports as
+  # none, a change to unit tests or the site skips the packed cells and the Full gate's
+  # native steps, and code runs everything. The rules live in
+  # .github/scripts/classify-change.mjs, shared with native-rn-matrix.yml and
+  # config-axis-matrix.yml. The gate jobs skip by condition, which GitHub reports as
   # success, and `CI verdict` below is the single required check either way.
   classify:
     name: Classify change
@@ -40,6 +41,7 @@ jobs:
       docs-only: ${{ steps.docs.outputs.docs-only }}
       full: ${{ steps.docs.outputs.full }}
       packed: ${{ steps.docs.outputs.packed }}
+      native: ${{ steps.docs.outputs.native }}
       unit: ${{ steps.docs.outputs.unit }}
       snippets: ${{ steps.docs.outputs.snippets }}
     steps:
@@ -310,7 +312,7 @@ jobs:
         run: bun run --filter vitest-native test:docs
 
       - name: Native engine tests
-        if: matrix.part != 'suite'
+        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false'
         # Each script under its own deadline (scripts/run-scripts.mjs): a hung one fails
         # with the test files it was running, not at the job's timeout.
         env:
@@ -320,12 +322,12 @@ jobs:
       - name: Native engine tests (cold-cache background registry build)
         # Starts real Vitest runs against scratch projects (signals, cancel, CI, a
         # concurrent cold build), so it takes minutes: one leg per OS, not every leg.
-        if: matrix.part != 'suite' && ((runner.os == 'Linux' && matrix.node-version == '24.12.0') || runner.os != 'Linux')
+        if: matrix.part != 'suite' && ((runner.os == 'Linux' && matrix.node-version == '24.12.0') || runner.os != 'Linux') && needs.classify.outputs.native != 'false'
         shell: bash
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run test:native:background
 
       - name: Native engine tests (forks pool)
-        if: matrix.part != 'suite'
+        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false'
         # When a project configures a VM pool the plugin throws and points at 'threads'
         # or 'forks'. Nothing ran the forks pool, so that advice was untested — and the
         # engine's module hooks have to install in a child process just as they do in a
@@ -335,17 +337,17 @@ jobs:
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run test:native:forks
 
       - name: Native engine tests (navigation preset)
-        if: matrix.part != 'suite'
+        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false'
         shell: bash
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 180 -- bun run test:native:navigation
 
       - name: Native engine tests (Android)
-        if: matrix.part != 'suite'
+        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false'
         shell: bash
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 180 -- bun run test:native:android
 
       - name: Native engine remediation advice
-        if: matrix.part != 'suite'
+        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false'
         # The explainer tells users to add a package to `transform: [...]` when Node
         # cannot parse its source — the most common migration blocker. That advice was
         # only ever asserted as a substring of the error message; this applies it.
@@ -353,7 +355,7 @@ jobs:
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 180 -- bun run test:native:advice
 
       - name: Native engine tests (hot runtime)
-        if: matrix.part != 'suite'
+        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false'
         # The hot runtime rides @experimental Vitest internals (vitest/worker,
         # ThreadsPoolWorker, poolRunner) — the most churn-prone surface we depend
         # on, so gate it on every PR, not just the weekly matrix.
@@ -370,12 +372,12 @@ jobs:
         # @vitest/coverage-v8 over source Node compiles (a React Native workspace
         # package) must match coverage of the same source loaded by Vite, default and
         # hot, with nothing failing to parse.
-        if: ${{ !matrix.rntl }}
+        if: ${{ !matrix.rntl && needs.classify.outputs.native != 'false' }}
         shell: bash
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run test:native:coverage
 
       - name: Native engine hot-runtime isolation
-        if: ${{ !matrix.rntl && matrix.part != 'native' }}
+        if: ${{ !matrix.rntl && matrix.part != 'native' && needs.classify.outputs.native != 'false' }}
         shell: bash
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 900 -- bun run test:native:hot:isolation
 
@@ -400,12 +402,12 @@ jobs:
         # Omits each per-file restore in turn and requires the isolation suite to fail
         # naming it, so a restore that stops being checked is caught. Fourteen suite
         # runs, so one Linux leg on the newest Node line carries it.
-        if: runner.os == 'Linux' && matrix.node-version == '26.13.0'
+        if: runner.os == 'Linux' && matrix.node-version == '26.13.0' && needs.classify.outputs.native != 'false'
         shell: bash
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run --filter vitest-native test:native:hot:state-manifest
 
       - name: Native engine hot-runtime soak and recycling
-        if: ${{ !matrix.rntl && matrix.part != 'suite' }}
+        if: ${{ !matrix.rntl && matrix.part != 'suite' && needs.classify.outputs.native != 'false' }}
         shell: bash
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run test:native:hot:soak
 
@@ -414,7 +416,7 @@ jobs:
         # RNTL-version-specific real-RN behavior, so it runs only on the RNTL 14 legs.
         # fidelity:check runs the cross-check AND fails if the published fidelity
         # page/badge no longer match the live corpus (run `bun run fidelity:report`).
-        if: ${{ !matrix.rntl && matrix.part != 'native' }}
+        if: ${{ !matrix.rntl && matrix.part != 'native' && needs.classify.outputs.native != 'false' }}
         run: bun run fidelity:check
 
       - name: Test example app
@@ -597,9 +599,33 @@ jobs:
           node .github/scripts/install-global.mjs corepack 0.35.0
           test "$(corepack --version)" = 0.35.0
 
+  # The library conformance probes under engine: 'mock', with the mock's own waivers
+  # (test:native:conformance runs them under the native engine inside test:native). Its
+  # own small job, on one leg: the mock engine does not depend on the OS or Node line.
+  mock-conformance:
+    name: Mock conformance
+    needs: classify
+    if: needs.classify.outputs.docs-only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        with:
+          node-version: 22.22.3
+
+      - name: Build
+        run: bun run build
+
+      - name: Conformance probes under the mock engine
+        run: node packages/vitest-native/scripts/ci/with-deadline.mjs 600 -- bun run --filter vitest-native test:native:conformance-mock
+
   verdict:
     name: CI verdict
-    needs: [classify, docs, snippets, changeset, unit, check, packed, release-tools]
+    needs: [classify, docs, snippets, changeset, unit, check, packed, release-tools, mock-conformance]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2
