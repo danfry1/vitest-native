@@ -616,9 +616,44 @@ jobs:
       - name: Conformance probes under the mock engine
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 600 -- bun run --filter vitest-native test:native:conformance-mock
 
+  # The latest-supported axis for Expo (docs/upstream-policy.md): the packed consumer
+  # fixtures for each supported SDK with `expo` at that SDK's newest patch and `expo
+  # install --fix` aligning the rest, as an app on a supported SDK installs today.
+  # React Native, Vitest, Vite and RNTL take their newest supported releases in the RN
+  # matrix's latest-supported column; this is Expo's. It ran only in the weekly
+  # compat-check, so a new SDK patch could reach users a week before it was tested.
+  # On every push to main, not on pull requests: what it catches is a new upstream
+  # release, not a change in the pull request. Red here on a commit that changed no
+  # Expo code is upstream drift: re-run the last green commit to confirm before
+  # blaming the merge. Nothing installed is younger than seven days
+  # (scripts/release-age.mjs).
+  expo-latest:
+    name: Packed gate (Expo SDKs at their newest patch)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+        with:
+          node-version: 22.22.3
+          # npm 10.9's arborist crashes on these fixtures (see the packed job).
+          npm-version: 11.20.0
+
+      - name: Build
+        run: bun run build
+
+      - name: Expo SDKs at their newest patch
+        env:
+          VN_CONSUMERS: expo-latest
+        run: bun run test:consumers
+
   verdict:
     name: CI verdict
-    needs: [classify, docs, snippets, changeset, unit, check, packed, release-tools, mock-conformance]
+    needs: [classify, docs, snippets, changeset, unit, check, packed, release-tools, mock-conformance, expo-latest]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2

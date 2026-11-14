@@ -66,7 +66,7 @@ When an upstream bug reaches vitest-native users, take these steps in order. Sto
 | axis | what it runs | today | proposed |
 |---|---|---|---|
 | **locked** | The repository's exact pins (the lockfile). Every pull request. | yes | unchanged |
-| **latest-supported** | The newest release inside each supported range. | Vitest only (`.github/rn-matrix.json`) | also Vite, RNTL and Expo |
+| **latest-supported** | The newest release inside each supported range. | Vitest, Vite and RNTL in the RN matrix's latest-supported column (`.github/rn-matrix.json`, `.github/scripts/latest-supported.mjs`) on every push to main and pull request; each supported Expo SDK at its newest patch on every push to main (ci.yml `expo-latest`) and weekly | unchanged |
 | **canary** | Upstream's next or beta channels: Vitest's next major or beta, React Native's release candidate, Expo's next SDK beta, Node's next line. A scheduled job. | partly: the weekly compat-check builds against `react-native@latest` and checks the Expo module table | extends compat-check |
 
 **More on the canary:**
@@ -91,6 +91,6 @@ Unchanged from versioning.md:
 1. **Recommended floors** (done, #611): `RECOMMENDED_FLOORS` in `peer-requirements.ts`, with one startup warning per run and a doctor entry. Its first entry is Vitest 5.1.0.
 2. **Upstream workarounds** (#614): `docs/upstream-workarounds.md`, and the need and expiry test pattern.
 3. **Generated tables** (#615): the README and versioning.md requirement tables generated from (or tested against) the single source.
-4. **More latest-supported axes** (#616): add Vite, RNTL and Expo.
+4. **More latest-supported axes** (done, #620 and #616): Vite and RNTL in the RN matrix's latest-supported column, Expo's supported SDKs at their newest patch on every push to main.
 5. **Canary job** (#617): extend compat-check to Vitest beta and next, React Native rc, Expo's next SDK beta and Node's next line, with issues filed on failure.
 6. **Monthly upstream review** (#618): an issue template for it.
