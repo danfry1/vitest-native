@@ -219,6 +219,7 @@
     "dispatch-target-lib": "file:./tests-native/fixtures/dispatch-target-lib",
     "expo": "58.0.21",
     "expo-constants": "58.0.14",
+    "expo-image": "57.0.5",
     "expo-status-bar": "58.0.4",
     "ext-platform-lib": "file:./tests-native/fixtures/ext-platform-lib",
     "ext-rn-named-lib": "file:./tests-native/fixtures/ext-rn-named-lib",
