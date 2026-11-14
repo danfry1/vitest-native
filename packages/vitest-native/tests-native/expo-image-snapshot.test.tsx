@@ -39,6 +39,7 @@ it("a snapshot of expo-image's Image prints its refs as jest-expo's do", async (
         ]
       }
       style={{}}
+      svgVariables={null}
       symbolSize={null}
       symbolWeight={null}
       testID="image"
