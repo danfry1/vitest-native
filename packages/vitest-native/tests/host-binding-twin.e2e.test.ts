@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { stripVTControlCharacters } from "node:util";
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 // End to end: a project whose own `vitest` is one physical copy while vitest-native's
 // resolves another, as a peer-variant install lays out two copies of one version. With
@@ -25,11 +25,9 @@ const INSTALLED = fs.realpathSync(
 );
 const built = fs.existsSync(path.join(PACKAGE_ROOT, "dist/index.mjs"));
 const ready = built && fs.existsSync(EXAMPLE);
-const temps: string[] = [];
-
-afterAll(() => {
-  for (const dir of temps) fs.rmSync(dir, { recursive: true, force: true });
-});
+// Scratch projects are left to the run's temporary root (vitest.e2e.config.ts), which
+// global teardown removes: deleting them here ran under the 10 s hook timeout and failed
+// Windows runs after every test had passed (#870).
 
 /** A directory link: a junction on Windows, which needs no symlink privilege. */
 function linkDir(target: string, dest: string): void {
@@ -64,7 +62,6 @@ function twinProject(pluginOptions: string): string {
   // The long spelling of the temp directory: Windows runners report an 8.3 short name
   // (RUNNER~1), and two spellings of one file are two module instances to Vite.
   const root = fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), "vn-twin-"));
-  temps.push(root);
   for (const entry of ["__tests__", "src", "package.json"]) {
     fs.cpSync(path.join(EXAMPLE, entry), path.join(root, entry), { recursive: true });
   }
