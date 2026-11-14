@@ -566,9 +566,16 @@ const compiledSources = new Map<string, string>();
  * its React Native as it does every other. Each load has its own module cache, outside
  * Node's, so a file imported twice runs once. Throws when the project has no Babel.
  */
-function loadCompiledGraph(entry: string, version: string, babelRoot: string): Record<string, any> {
+function loadCompiledGraph(dir: string, entry: string, babelRoot: string): Record<string, any> {
   const babel = projectBabel(babelRoot);
-  if (!babel) throw new Error("no @babel/core and @babel/plugin-transform-modules-commonjs");
+  if (!babel) {
+    throw new VitestNativeError(
+      "PRESET_UNAVAILABLE",
+      `no @babel/core and @babel/plugin-transform-modules-commonjs resolve from ${babelRoot}`,
+    );
+  }
+  // Read, not required: under the native engine nothing of reanimated's loads through Node.
+  const { version } = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
   const loaded = new Map<string, Module>();
   const compiled = (file: string) => {
     const key = `${file}\0${version}\0${babel.version}`;
@@ -604,7 +611,7 @@ function loadCompiledGraph(entry: string, version: string, babelRoot: string): R
     mod.loaded = true;
     return mod.exports;
   };
-  return load(entry);
+  return load(path.join(dir, entry));
 }
 
 /**
@@ -661,7 +668,6 @@ export function ownHelpers(dir: string, fromRegistry = false, babelRoot = worker
   // Beside reanimated's own mock the files are already modules of its graph, which the
   // library registry holds: a require by path is served from there, at no Node load.
   const required = createRequire(path.join(dir, "package.json"));
-  const version = optional(() => required("./package.json").version as string) ?? "";
   const files: Record<string, (keyof Helpers)[]> = {
     "lib/module/interpolation.js": ["interpolate", "clamp"],
     "lib/module/interpolateColor.js": ["interpolateColor"],
@@ -686,9 +692,9 @@ export function ownHelpers(dir: string, fromRegistry = false, babelRoot = worker
       let graph: Record<string, any> | null | undefined;
       for (const name of names) {
         helpers[name] = (...args: unknown[]) => {
-          graph ??= loadOrNull(() => loadCompiledGraph(path.join(dir, file), version, babelRoot));
-          const own = graph?.[name];
-          return typeof own === "function" ? own(...args) : unavailableHelper(name, dir)();
+          graph ??= loadOrNull(() => loadCompiledGraph(dir, file, babelRoot));
+          const helper = graph?.[name];
+          return typeof helper === "function" ? helper(...args) : unavailableHelper(name, dir)();
         };
       }
     }
