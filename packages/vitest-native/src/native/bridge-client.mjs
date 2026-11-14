@@ -3,6 +3,7 @@
 // the Babel toolchain call waits for its thread (transform.mjs): the helper thread
 // (bridge-thread.mjs) starts on the first request, so a worker that never takes the
 // bridge starts nothing.
+import { residentGlobal } from "./resident-globals.mjs";
 import fs from "node:fs";
 import { MessageChannel, receiveMessageOnPort, Worker } from "node:worker_threads";
 import { VitestNativeError } from "../errors.mjs";
@@ -25,11 +26,11 @@ let seq = 0;
 let options = {};
 
 /** Counters for tests and the count gate: starts, fetches, and time spent waiting. */
-export const bridgeStats = (globalThis[Symbol.for("vitest-native.bridge")] ??= {
+export const bridgeStats = residentGlobal("bridge", () => ({
   threadStarts: 0,
   fetches: 0,
   fetchMs: 0,
-});
+}));
 
 /** Internal test seam: the helper thread now running, or null. */
 export function _bridgeThread() {

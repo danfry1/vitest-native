@@ -1,5 +1,6 @@
 // Patches Node's CJS loader so RN's internal require() chains are Flow-stripped and
 // native-boundary modules are mocked. The companion loader.mjs handles the import() path.
+import { residentGlobal } from "./resident-globals.mjs";
 import { compileSupport, loadSupport } from "./library-jest.mjs";
 import Module from "node:module";
 import { nodeDispatch } from "../node-dispatch.mjs";
@@ -585,11 +586,11 @@ export function installRequireHooks(
   // file was gone (each also a miss). Requests the memo does not key are in none of
   // them. All only grow.
   const resolutions = new Map();
-  const resolutionStats = (globalThis[Symbol.for("vitest-native.resolutionMemo")] ??= {
+  const resolutionStats = residentGlobal("resolutionMemo", () => ({
     hits: 0,
     misses: 0,
     stale: 0,
-  });
+  }));
   // Node's in-thread module hooks resolve a require with `{ conditions }` (Node 26 adds
   // `paths: undefined` to it); any other option that is set (`require.resolve`'s
   // `paths`) is Node's to answer.
