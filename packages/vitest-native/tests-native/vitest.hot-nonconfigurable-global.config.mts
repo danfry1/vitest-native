@@ -1,6 +1,7 @@
 // Five files that define one non-configurable global on first load, on ONE hot worker
 // (#773). The reset before the second file could not delete it and failed every later
 // file. package.json test:native:hot:nonconfigurable-global.
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 
