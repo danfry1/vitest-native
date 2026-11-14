@@ -95,6 +95,30 @@ function project(files = ["a.test.mjs"], test: Record<string, unknown> = {}) {
   return { root, out: path.join(root, "out.jsonl") };
 }
 
+/**
+ * Config source that records, inside the run, when it ended and how, when the close hooks
+ * started, when the Vite server closed, when close resolved, what held the process open
+ * until it exited (with each handle's owner), and when it exited.
+ */
+function timingPrelude(timeline: string): string {
+  return (
+    `const mark = (event, extra) => fs.appendFileSync(${JSON.stringify(timeline)}, JSON.stringify({ event, at: Math.round(performance.now()), ...extra }) + "\\n");\n` +
+    `process.on("exit", () => mark("exit"));\n` +
+    // After close resolves the process exits once nothing holds its event loop:
+    // what still does is sampled until then. Vitest's removal of its temporary
+    // directory, the last step of close, is timed when it exists (internal).
+    // Each sample names the owner of every handle and request still active: this
+    // process's stdout, stderr or stdin, or a child's stdio[n].
+    `const owners = () => { const handles = process._getActiveHandles(); const children = handles.filter((h) => h?.constructor?.name === "ChildProcess"); ` +
+    `const owner = (s) => s === process.stdout ? "stdout" : s === process.stderr ? "stderr" : s === process.stdin ? "stdin" : children.map((c) => [c, c.stdio?.indexOf(s) ?? -1]).filter(([, i]) => i >= 0).map(([c, i]) => "child " + c.spawnfile + " " + (c.spawnargs ?? []).slice(1).join(" ").slice(-80) + " stdio[" + i + "]")[0] ?? null; ` +
+    `return { handles: handles.map((h) => ({ type: h?.constructor?.name, owner: owner(h), pid: h?.pid, fd: h?._handle?.fd, destroyed: h?.destroyed, pending: h?.writableLength })), ` +
+    `requests: process._getActiveRequests().map((r) => { const s = handles.find((h) => h?._handle && h._handle === r.handle); return { type: r?.constructor?.name, owner: s ? owner(s) ?? s.constructor?.name : r.handle?.constructor?.name ?? null }; }) }; };\n` +
+    `const held = () => { mark("held", { resources: process.getActiveResourcesInfo(), ...owners() }); setTimeout(held, 500).unref(); };\n` +
+    `const timed = (vitest, key, start, end) => { const original = vitest[key]; if (typeof original === "function") vitest[key] = async (...args) => { if (start) mark(start); try { return await original.apply(vitest, args); } finally { mark(end); if (end === "closed") held(); } }; };\n` +
+    `const timing = { name: "timing", closeBundle: () => mark("viteClosed"), configureVitest: ({ vitest }) => { vitest.onClose(() => mark("hooks")); timed(vitest, "close", null, "closed"); timed(vitest, "_clearTmpDir", "tmpStart", "tmpEnd"); } };\n`
+  );
+}
+
 /** Whether a complete registry is in `root`'s cache: its metadata is published last. */
 function published(root: string): boolean {
   const dir = registryDir(root);
@@ -175,6 +199,7 @@ function start(
 
 /** Processes left in the run's process group (POSIX), other than none expected. */
 function survivors(pid: number): string[] {
+  if (!posix) return windowsDescendants(pid);
   const listing = execFileSync("ps", ["-A", "-o", "pgid=,pid=,command="], { encoding: "utf8" });
   return listing
     .split("\n")
@@ -182,12 +207,53 @@ function survivors(pid: number): string[] {
     .filter((line) => line.split(/\s+/)[0] === String(pid));
 }
 
+/**
+ * Processes descended from `pid` (Windows has no process groups). A process keeps its
+ * parent's id after the parent exits, so the run's children are found by it.
+ */
+function windowsDescendants(pid: number): string[] {
+  const listing = execFileSync(
+    "powershell",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.CommandLine)" }',
+    ],
+    { encoding: "utf8" },
+  );
+  const processes = listing
+    .split(/\r?\n/)
+    .map((line) => line.trim().match(/^(\d+) (\d+) ?(.*)$/))
+    .filter((match) => match !== null)
+    .map(([, child, parent, command]) => ({
+      child: Number(child),
+      parent: Number(parent),
+      command,
+    }));
+  const found: string[] = [];
+  const parents = new Set([pid]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const { child, parent, command } of processes) {
+      if (parents.has(parent) && !parents.has(child)) {
+        parents.add(child);
+        found.push(`${child} ${command}`);
+        grew = true;
+      }
+    }
+  }
+  return found;
+}
+
 async function settled(pid: number): Promise<string[]> {
-  // A killed child is reaped asynchronously; give the OS a moment.
-  for (let i = 0; i < 20; i++) {
+  // A killed child is reaped asynchronously; give the OS a moment (listing processes
+  // is slower on Windows, so fewer, longer waits there).
+  const [tries, waitMs] = posix ? [20, 50] : [5, 400];
+  for (let i = 0; i < tries; i++) {
     const left = survivors(pid);
     if (left.length === 0) return left;
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, waitMs));
   }
   return survivors(pid);
 }
@@ -254,19 +320,103 @@ describe("native engine: the registry builds in the background on a cold cache",
   it("keeps building after a cancelled run, and close then stops it", async () => {
     // --bail cancels the run after the first failure; the build goes on (in watch mode
     // the session continues and later reruns use it), but close does not wait for it.
-    const p = project(["a.test.mjs", "fail.test.mjs"]);
+    // Without the cancel, close waits half of teardownTimeout for the build: set to 60 s
+    // here, far above how long close takes on a loaded CI machine (up to ~18 s on
+    // Windows), so the two cannot be mistaken for each other.
+    const p = project(["a.test.mjs", "fail.test.mjs"], { teardownTimeout: 120_000 });
     fs.writeFileSync(
       path.join(p.root, "fail.test.mjs"),
       `test("fails", () => { throw new Error("x"); });\n`,
     );
-    const begun = Date.now();
+    // The run records, inside the process, when it ended and how, when the close hooks
+    // started (after global teardown and the pool's close), when its Vite server closed,
+    // when close resolved, and when it exited, with what held it open meanwhile. So a
+    // slow start on a loaded machine does not count, and a failure shows which step
+    // took the time.
+    const timeline = path.join(p.root, "timeline.jsonl");
+    const config = path.join(p.root, "vitest.config.mjs");
+    fs.writeFileSync(
+      config,
+      `import fs from "node:fs";\n` +
+        fs
+          .readFileSync(config, "utf8")
+          .replace("export default {", timingPrelude(timeline) + "export default {")
+          .replace('reactNative({ engine: "native" })', 'reactNative({ engine: "native" }), timing')
+          .replace(
+            '"maxWorkers"',
+            'reporters: ["default", { onTestRunEnd: (_m, _e, reason) => mark("end", { reason }) }], "maxWorkers"',
+          ),
+    );
     const run = await start(p, { [DELAY]: "60000" }, ["--bail=1"]).done;
     expect(run.output).toMatch(/fails/);
-    // Without the cancel, close would wait 15 s (half the fixture's teardownTimeout).
-    expect(Date.now() - begun).toBeLessThan(12_000);
-    if (posix) expect(await settled(run.pid)).toEqual([]);
+    const events = fs.existsSync(timeline)
+      ? fs
+          .readFileSync(timeline, "utf8")
+          .trim()
+          .split("\n")
+          .map(
+            (line) =>
+              JSON.parse(line) as {
+                event: string;
+                at: number;
+                reason?: string;
+                resources?: string[];
+                handles?: unknown[];
+                requests?: unknown[];
+              },
+          )
+      : [];
+    const at = (event: string) => events.find((entry) => entry.event === event);
+    const detail = `${JSON.stringify(events)}\n${run.output}`;
+    // A repro collects every run's timeline, passing or not, in this file.
+    const collect = process.env.VN_REGISTRY_BG_TIMELINES;
+    if (collect) fs.appendFileSync(collect, `${JSON.stringify(events)}\n`);
+    expect(at("end")?.reason, detail).toBe("interrupted");
+    expect(at("exit"), detail).toBeDefined();
+    // Half the 60 s a missed cancel would take.
+    expect(at("exit")!.at - at("end")!.at, detail).toBeLessThan(30_000);
+    expect(await settled(run.pid)).toEqual([]);
     expect(published(p.root)).toBe(false);
-  }, 120_000);
+  }, 180_000);
+
+  // Upstream control (VN_REGISTRY_BG_CONTROL=1): the same cancelled run in a project
+  // without this plugin, timed the same way. A close→exit tail here too is not ours.
+  it.runIf(process.env.VN_REGISTRY_BG_CONTROL === "1")(
+    "control: plain Vitest, cancelled and timed the same way",
+    async () => {
+      const root = path.join(scratch, `control${count++}`);
+      fs.mkdirSync(root, { recursive: true });
+      fs.writeFileSync(
+        path.join(root, "package.json"),
+        JSON.stringify({ name: "control", private: true, type: "module" }),
+      );
+      fs.writeFileSync(path.join(root, "a.test.mjs"), `test("passes", () => {});\n`);
+      fs.writeFileSync(
+        path.join(root, "fail.test.mjs"),
+        `test("fails", () => { throw new Error("x"); });\n`,
+      );
+      const timeline = path.join(root, "timeline.jsonl");
+      fs.writeFileSync(
+        path.join(root, "vitest.config.mjs"),
+        `import fs from "node:fs";\n` +
+          timingPrelude(timeline) +
+          `export default { plugins: [timing], test: { globals: true, include: ["*.test.mjs"], maxWorkers: 1, fileParallelism: false, teardownTimeout: 120000, ` +
+          `reporters: ["default", { onTestRunEnd: (_m, _e, reason) => mark("end", { reason }) }] } };\n`,
+      );
+      const run = await start({ root, out: path.join(root, "out.jsonl") }, {}, ["--bail=1"]).done;
+      expect(run.output).toMatch(/fails/);
+      const events = fs
+        .readFileSync(timeline, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      const collect = process.env.VN_REGISTRY_BG_TIMELINES;
+      if (collect)
+        fs.appendFileSync(collect, `${JSON.stringify([{ event: "control" }, ...events])}\n`);
+      expect(events.find((entry) => entry.event === "end")?.reason).toBe("interrupted");
+    },
+    180_000,
+  );
 
   it.skipIf(!posix)(
     "keeps building when a watch session cancels a run",
