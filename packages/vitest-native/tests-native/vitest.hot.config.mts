@@ -2,6 +2,7 @@
 // workers + per-file module-runner isolation via the custom pool). M0 smoke /
 // M2 gate config — same suite as vitest.config.mts, hotRuntime flipped on.
 // Run: bun vitest run --config tests-native/vitest.hot.config.mts
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

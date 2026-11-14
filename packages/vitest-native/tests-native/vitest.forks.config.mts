@@ -8,6 +8,7 @@
 // Forks matter beyond the error message: they are how a project isolates native
 // addons or works around thread-unsafe dependencies, and the native engine's module
 // hooks have to install in a child process just as they do in a worker thread.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

@@ -18,11 +18,6 @@ import { createStateManifest } from "./state-manifest.mjs";
 // is defined anew for every file. Matched case-sensitively as `__vitest_native_` once,
 // which missed it, so every later file got the first file's worker state back (#690).
 const HARNESS_GLOBALS = /^(?:__vitest|__VITEST|__VITE|__coverage__)/;
-// Node's bundled undici installs these non-configurable symbols lazily. Their
-// lifecycle belongs to the host runtime, not to the test file that happens to
-// trigger initialization, and attempting to delete them poisons every later
-// file. Keep the allowlist narrow and description-based across Node releases.
-const NODE_LAZY_GLOBAL_SYMBOLS = /^undici\.(?:globalDispatcher|globalOrigin)(?:\.|$)/;
 // Vitest updates these scheduler-owned values between tasks.
 const ENV_PRESERVED = new Set(["VITEST_POOL_ID", "VITEST_WORKER_ID"]);
 const RESET_FILE = fileURLToPath(import.meta.url).replaceAll("\\", "/");
@@ -58,7 +53,7 @@ export function isResidentImportListener(stack, projectRoot) {
   return sawExternalFrame;
 }
 
-function captureDescriptors(target) {
+export function captureDescriptors(target) {
   return new Map(
     Reflect.ownKeys(target).map((key) => [key, Object.getOwnPropertyDescriptor(target, key)]),
   );
@@ -76,22 +71,39 @@ function sameDescriptor(left, right) {
   );
 }
 
-function restoreDescriptors(target, baseline, skip = () => false) {
+// A non-configurable property can't be deleted or redefined, so no reset can give the
+// next file the worker's baseline for it, and per-file isolation has nothing to put
+// back. Such a property is worker state, as Node's own process-wide registries are
+// (undici's global dispatcher, or a library's `Symbol.for` registry defined once per
+// process, #773): it joins the baseline, and later files restore and verify against
+// it. Failing the restore instead failed every later file in the worker.
+export function restoreDescriptors(target, baseline, { skip = () => false, onResident } = {}) {
+  const keepResident = (key) => {
+    const current = Object.getOwnPropertyDescriptor(target, key);
+    baseline.set(key, current);
+    onResident?.(key, current);
+  };
   for (const key of Reflect.ownKeys(target)) {
     if (skip(key) || baseline.has(key)) continue;
-    if (!Reflect.deleteProperty(target, key)) {
+    if (Reflect.deleteProperty(target, key)) continue;
+    if (Object.getOwnPropertyDescriptor(target, key)?.configurable !== false) {
       throw stateFailure(`could not delete ${String(key)}`);
     }
+    keepResident(key);
   }
   for (const [key, descriptor] of baseline) {
     if (skip(key)) continue;
-    if (!sameDescriptor(Object.getOwnPropertyDescriptor(target, key), descriptor)) {
-      Object.defineProperty(target, key, descriptor);
+    const current = Object.getOwnPropertyDescriptor(target, key);
+    if (sameDescriptor(current, descriptor)) continue;
+    if (Reflect.defineProperty(target, key, descriptor)) continue;
+    if (current?.configurable !== false) {
+      throw stateFailure(`could not restore ${String(key)}`);
     }
+    keepResident(key);
   }
 }
 
-function verifyDescriptors(target, baseline, skip = () => false) {
+export function verifyDescriptors(target, baseline, skip = () => false) {
   for (const key of Reflect.ownKeys(target)) {
     if (!skip(key) && !baseline.has(key)) throw stateFailure(`unexpected ${String(key)}`);
   }
@@ -335,23 +347,36 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
     },
   });
 
+  // Each worker-resident property is recorded once, with the file that was running
+  // when it appeared: the property's name usually names its library, and the file is
+  // where to look when it does not. It goes to stderr because Vitest drops console
+  // output made while it starts a file, which is when the reset runs.
+  let previousFile = null;
+  const residentNotice = (where) => (key) => {
+    if (!diagnostics) return;
+    const by = previousFile ? `; it appeared while ${previousFile} ran` : "";
+    process.stderr.write(
+      `[vitest-native] hot reset: kept ${where}${String(key)} for the worker's life: ` +
+        `it is non-configurable, so no reset can remove or replace it${by}\n`,
+    );
+  };
+
   manifest.register({
     id: "global.descriptors",
     capture: () => captureDescriptors(globalThis),
     restore: (baseline) => {
       const deleted = [];
       const skip = (key) =>
-        globallyPreserved.has(key) ||
-        (typeof key === "string" && HARNESS_GLOBALS.test(key)) ||
-        (typeof key === "symbol" &&
-          !baseline.has(key) &&
-          NODE_LAZY_GLOBAL_SYMBOLS.test(key.description ?? ""));
+        globallyPreserved.has(key) || (typeof key === "string" && HARNESS_GLOBALS.test(key));
       if (diagnostics) {
         for (const key of Reflect.ownKeys(globalThis)) {
-          if (!skip(key) && !baseline.has(key)) deleted.push(String(key));
+          const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
+          if (!skip(key) && !baseline.has(key) && descriptor.configurable) {
+            deleted.push(String(key));
+          }
         }
       }
-      restoreDescriptors(globalThis, baseline, skip);
+      restoreDescriptors(globalThis, baseline, { skip, onResident: residentNotice("globalThis.") });
       if (diagnostics && deleted.length) {
         console.log(`[vitest-native] hot reset: deleted test-phase globals: ${deleted.join(", ")}`);
       }
@@ -361,18 +386,15 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
         globalThis,
         baseline,
         (key) =>
-          globallyPreserved.has(key) ||
-          (typeof key === "string" && HARNESS_GLOBALS.test(key)) ||
-          (typeof key === "symbol" &&
-            !baseline.has(key) &&
-            NODE_LAZY_GLOBAL_SYMBOLS.test(key.description ?? "")),
+          globallyPreserved.has(key) || (typeof key === "string" && HARNESS_GLOBALS.test(key)),
       ),
   });
 
   manifest.register({
     id: "console.descriptors",
     capture: () => captureDescriptors(console),
-    restore: (baseline) => restoreDescriptors(console, baseline),
+    restore: (baseline) =>
+      restoreDescriptors(console, baseline, { onResident: residentNotice("console.") }),
     verify: (baseline) => verifyDescriptors(console, baseline),
   });
 
@@ -394,7 +416,9 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
     capture: () => captureDescriptors(globalThis.expo ?? {}),
     restore: (baseline) => {
       globalThis.expo?.[Symbol.for("vitest-native.expo.reset")]?.();
-      if (globalThis.expo) restoreDescriptors(globalThis.expo, baseline);
+      if (globalThis.expo) {
+        restoreDescriptors(globalThis.expo, baseline, { onResident: residentNotice("expo.") });
+      }
     },
     verify: (baseline) => {
       if (globalThis.expo) {
@@ -427,6 +451,7 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
 
   return {
     hotReset: (file = null) => {
+      previousFile = startingFile;
       startingFile = file;
       manifest.beginFile();
     },

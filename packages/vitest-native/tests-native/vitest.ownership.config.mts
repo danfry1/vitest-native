@@ -9,6 +9,7 @@
 // `--mode shadow` runs only the shadow probe, with `diagnostics` on: the shadow is
 // written under diagnostics only. `--mode resolution` and `resolution-hot` run the
 // stock and hot sets with 'resolution' (the require bridge).
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
