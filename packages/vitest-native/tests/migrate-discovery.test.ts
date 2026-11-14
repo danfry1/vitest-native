@@ -448,13 +448,20 @@ describe("a jest-expo app's package.json#jest", () => {
       ["react-native-worklets/plugin", "unneeded"],
       ["babel-plugin-some-inline-env-plugin", "unknown"],
     ]);
-    // React Compiler is not needed to run, but where `'auto'` compiles a file it applies,
+    // React Compiler is not needed to run, but where projectBabel compiles a file it applies,
     // and memoized children keep values React does not track (#755).
     const compiler = classified.find((p) => p.name === "babel-plugin-react-compiler")!.reason;
     expect(compiler).not.toMatch(/render the same/);
     expect(compiler).toMatch(/^tests run without it\. /);
-    expect(compiler).toContain("projectBabel: 'auto'");
-    expect(compiler).toContain("memoized child");
+    for (const claim of [
+      "'auto'",
+      "'always'",
+      "memoized child",
+      "keep its earlier value",
+      "counts renders",
+    ]) {
+      expect(compiler).toContain(claim);
+    }
     expect(report.dropped.join("\n")).toContain(`babel-plugin-react-compiler — ${compiler}`);
     // The migration guide's table says the same.
     const guide = fs.readFileSync(
@@ -464,8 +471,15 @@ describe("a jest-expo app's package.json#jest", () => {
     const row = guide
       .split("\n")
       .find((line) => line.startsWith("| `babel-plugin-react-compiler`"));
-    expect(row).toContain("`projectBabel: 'auto'`");
-    expect(row).toContain("memoized child");
+    for (const claim of [
+      "`'auto'`",
+      "`'always'`",
+      "memoized child",
+      "keep its earlier value",
+      "counts renders",
+    ]) {
+      expect(row).toContain(claim);
+    }
     expect(row).not.toMatch(/render the same/);
 
     const doctor = runDoctor(root).lines.join("\n");
@@ -474,6 +488,7 @@ describe("a jest-expo app's package.json#jest", () => {
       "· @lingui/babel-plugin-lingui-macro: applied by the engine where needed",
     );
     expect(doctor).not.toContain("⚠ @lingui/babel-plugin-lingui-macro");
+    expect(doctor).toContain(`· babel-plugin-react-compiler: ${compiler}`);
   });
 
   it("says @babel/core is needed when the engine would apply plugins but cannot", () => {
