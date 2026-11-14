@@ -3,6 +3,7 @@
 // own, under the stock runtime (--mode stock) and the hot runtime (--mode hot).
 // test:native:shared-root also runs the extends: true pair
 // (vitest.shared-root-extends.config.mts).
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 

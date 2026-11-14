@@ -3,6 +3,7 @@
 // runtime: `--mode stock` and `--mode hot`. `--mode early` adds a preset that creates the
 // registry before the setup installs the sharing; `--mode jest-compat` adds jest-compat's
 // setup, which must give the same answers.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

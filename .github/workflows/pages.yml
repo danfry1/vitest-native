@@ -19,6 +19,8 @@ on:
       - 'packages/vitest-native/src/errors.mjs'
       - 'packages/vitest-native/src/node-range.ts'
       - 'packages/vitest-native/src/peer-requirements.ts'
+      - 'packages/vitest-native/tests/rn-conformance/**'
+      - 'packages/vitest-native/validation/bug-museum/exhibits.json'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
     inputs:
