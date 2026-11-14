@@ -209,6 +209,96 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
         run(["const j = jest;", "const fn = j.fn();", "jest.mock('./a', () => ({}));"].join("\n")),
       ).not.toThrow();
     });
+
+    // requireActual is never hoisted, so it works at run time under any name, as in Jest.
+    it.each([
+      ["a destructured requireActual", "const { requireActual } = jest;", "requireActual('./x');"],
+      ["requireActual's alias", "const actual = jest.requireActual;", "actual('./x');"],
+      ["a further name's requireActual", "const j = jest;", "j.requireActual('./x');"],
+    ])("lets %s through", (_form, alias, call) => {
+      expect(() => run([alias, call, "jest.mock('./a', () => ({}));"].join("\n"))).not.toThrow();
+    });
+
+    it("reports a Program-level alias even in a file with no jest.mock( text", () => {
+      expect(() => run(["const j = jest;", "j.mock('./a');"].join("\n"))).toThrow(
+        expect.objectContaining({ code: "JEST_BINDING_NOT_FOLLOWED" }),
+      );
+      expect(() => run(["const hoist = jest.doMock;", "hoist('./a');"].join("\n"))).toThrow(
+        expect.objectContaining({ code: "JEST_BINDING_NOT_FOLLOWED" }),
+      );
+    });
+
+    it("leaves a local mock() alone: another function's destructure, a parameter, a local", () => {
+      const local = [
+        "function a() { const { mock } = jest; return mock; }",
+        "function b(mock) { mock('./x'); }",
+        "function c() { const j = jest; }",
+        "function d(j) { j.mock('./y'); }",
+        "jest.fn();",
+        // A global helper of the same name: only a Program-level alias is followed.
+        "mock('./w');",
+      ].join("\n");
+      expect(() => run(local)).not.toThrow();
+      const shadowed = [
+        "const { mock } = jest;",
+        "function b(mock) { mock('./x'); }",
+        "{ const mock = () => {}; mock('./y'); }",
+        "try {} catch (mock) { mock('./z'); }",
+        "function g() { if (1) { var mock = () => {}; } mock('./v'); }",
+        "const j = jest;",
+        "function e(j) { j.mock('./u'); }",
+      ].join("\n");
+      expect(() => run(shadowed)).not.toThrow();
+      expect(() => run(`${shadowed}\nmock('./a');`)).toThrow(
+        expect.objectContaining({ code: "JEST_BINDING_NOT_FOLLOWED" }),
+      );
+    });
+
+    it("leaves an alias that is reassigned alone", () => {
+      expect(() =>
+        run(["let j = jest;", "j = makeOther();", "j.mock('./a');"].join("\n")),
+      ).not.toThrow();
+    });
+
+    it("does not rewrite a namespace or a renamed jest that a parameter shadows", () => {
+      const out = run(
+        [
+          "import * as g from '@jest/globals';",
+          "import { jest as mockJest } from '@jest/globals';",
+          "function f(g, mockJest) { g.jest.mock('./a', () => ({})); mockJest.mock('./c'); }",
+          "g.jest.mock('./b', () => ({}));",
+        ].join("\n"),
+      ).code;
+      expect(out).toContain("g.jest.mock('./a'");
+      expect(out).toContain("mockJest.mock('./c')");
+      expect(out).toContain("vi.mock('./b'");
+    });
+
+    it("leaves a jest imported from another module alone", () => {
+      expect(
+        run(["import { jest } from 'other';", "jest.mock('./a', () => ({}));"].join("\n")),
+      ).toBeNull();
+    });
+
+    it("parses only a file that names jest and a mock method", () => {
+      const t = plugin.transform as (this: any, c: string, i: string) => unknown;
+      let parsed = 0;
+      const counting = (code: string) => {
+        parsed += 1;
+        return parse(code);
+      };
+      const id = "/proj/src/foo.test.tsx";
+      t.call({ parse: counting, resolve }, "import { expect } from '@jest/globals';", id);
+      t.call({ parse: counting, resolve }, "api.mock('./a');", id);
+      t.call({ parse: counting, resolve }, "jest.fn(); const x = 1;", id);
+      expect(parsed).toBe(0);
+      t.call(
+        { parse: counting, resolve },
+        "import { jest as j } from '@jest/globals'; j.mock('./a');",
+        id,
+      );
+      expect(parsed).toBe(1);
+    });
   });
 
   describe("a factory's require of project source", () => {

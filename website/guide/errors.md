@@ -145,7 +145,7 @@ A test file uses `jest.mock()` factories, but the jest-compat setup is not loade
 
 ### `JEST_BINDING_NOT_FOLLOWED` {#JEST_BINDING_NOT_FOLLOWED}
 
-`jestMockTransform()` met a `jest.mock`, `unmock`, `doMock`, `doUnmock` or `requireActual` call through a name it cannot trace back to the jest object, such as `const j = jest; j.mock(…)` or `const { mock } = jest`. It would not be hoisted or registered, so the test file fails instead of running without the mock. The message names the binding and both lines. Call the method on the jest object itself: the global `jest`, or `jest` imported from `@jest/globals` under any name. Jest does not hoist such a call either.
+`jestMockTransform()` met a `jest.mock`, `unmock`, `doMock` or `doUnmock` call through a further top-level name for the jest object, such as `const j = jest; j.mock(…)` or `const { mock } = jest; mock(…)`. It would not be hoisted or registered, so the test file fails instead of running without the mock. The message names the binding and both lines. Call the method on the jest object itself: the global `jest`, or `jest` imported from `@jest/globals` under any name. Jest does not hoist such a call either.
 
 ### `JEST_MOCK_FACTORY_CYCLE` {#JEST_MOCK_FACTORY_CYCLE}
 
