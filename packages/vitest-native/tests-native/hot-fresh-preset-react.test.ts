@@ -6,11 +6,13 @@
  * caught that error, read a default instead of the value its provider gives. A preset's
  * factory now builds its mock with the test file's React.
  *
- * Two files on one hot worker each render through a preset, and check that each has its
- * own React (and, in the resident control, the first file's):
+ * Files on one hot worker each render through a preset, and check that each has its own
+ * React (and, in the resident control, the first file's). One app holds two files per
+ * preset, so the gate costs one run per mode rather than one per preset (each run takes
+ * up to a minute on Windows CI):
  * - safe-area: react-native-safe-area-context laid out as 5.7.0 publishes it (the version
  *   Expo SDK 57 pins), whose Jest mock is source only, so the preset serves its built-in
- *   module (fixtures/fresh-preset-safe-area/vendor);
+ *   module (fixtures/fresh-presets/vendor);
  * - navigation: useFocusEffect, and useTheme inside ThemeProvider;
  * - reanimated: useDerivedValue's subscription, made in an effect and stopped on unmount,
  *   and a shared value kept per component;
@@ -28,58 +30,45 @@ import { expect, it } from "vitest";
 import { runApp } from "./support/run-app";
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures");
-const FILES = {
-  "safe-area": ["frame-1.test.tsx", "frame-2.test.tsx"],
-  navigation: ["navigation-1.test.tsx", "navigation-2.test.tsx"],
-  reanimated: ["derived-1.test.tsx", "derived-2.test.tsx"],
-  unistyles: ["theme-1.test.tsx", "theme-2.test.tsx"],
-  mmkv: ["storage-1.test.tsx", "storage-2.test.tsx"],
-  webview: ["web-1.test.tsx", "web-2.test.tsx"],
-  "gesture-handler": ["pressable-1.test.tsx", "pressable-2.test.tsx"],
-};
+// Two per preset, as fixtures/fresh-presets lays them out.
+const FILES = [
+  "frame-1.test.tsx", // safe-area
+  "frame-2.test.tsx",
+  "navigation-1.test.tsx",
+  "navigation-2.test.tsx",
+  "derived-1.test.tsx", // reanimated
+  "derived-2.test.tsx",
+  "theme-1.test.tsx", // unistyles
+  "theme-2.test.tsx",
+  "storage-1.test.tsx", // mmkv
+  "storage-2.test.tsx",
+  "web-1.test.tsx", // webview
+  "web-2.test.tsx",
+  "pressable-1.test.tsx", // gesture-handler
+  "pressable-2.test.tsx",
+];
 const run = (id: string, edits: { file: string; find: string; replace: string }[] = []) =>
   runApp(id, { from: path.join(FIXTURES, id), edits });
-const resident = (files: string[]) => [
-  { file: "vitest.config.mts", find: "freshRuntime: true", replace: "freshRuntime: false" },
-  ...files.map((file) => ({ file, find: "const fresh = true;", replace: "const fresh = false;" })),
-];
 
-it.each([
-  "safe-area",
-  "navigation",
-  "reanimated",
-  "unistyles",
-  "mmkv",
-  "webview",
-  "gesture-handler",
-] as const)(
-  "%s under freshRuntime: every file renders, each with its own React",
-  (preset) => {
-    const { status, output } = run(`fresh-preset-${preset}`);
-    expect(output).not.toMatch(/Invalid hook call/);
-    expect(status, output).toBe(0);
-    expect(output).toMatch(/Test Files\s+2 passed/);
-  },
-  150_000,
-);
+it("every preset under freshRuntime: every file renders, each with its own React", () => {
+  const { status, output } = run("fresh-presets");
+  expect(output).not.toMatch(/Invalid hook call/);
+  expect(status, output).toBe(0);
+  expect(output).toMatch(new RegExp(`Test Files\\s+${FILES.length} passed`));
+}, 300_000);
 
-it.each([
-  "safe-area",
-  "navigation",
-  "reanimated",
-  "unistyles",
-  "mmkv",
-  "webview",
-  "gesture-handler",
-] as const)(
-  "%s with React resident: every file renders, with the first file's React",
-  (preset) => {
-    const { status, output } = run(`fresh-preset-${preset}`, resident(FILES[preset]));
-    expect(status, output).toBe(0);
-    expect(output).toMatch(/Test Files\s+2 passed/);
-  },
-  150_000,
-);
+it("every preset with React resident: every file renders, with the first file's React", () => {
+  const { status, output } = run("fresh-presets", [
+    { file: "vitest.config.mts", find: "freshRuntime: true", replace: "freshRuntime: false" },
+    ...FILES.map((file) => ({
+      file,
+      find: "const fresh = true;",
+      replace: "const fresh = false;",
+    })),
+  ]);
+  expect(status, output).toBe(0);
+  expect(output).toMatch(new RegExp(`Test Files\\s+${FILES.length} passed`));
+}, 300_000);
 
 it("the library's own mock under freshRuntime: each file renders with its own React", () => {
   const { status, output } = run("fresh-preset-own-mock");
