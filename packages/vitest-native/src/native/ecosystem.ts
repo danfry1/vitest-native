@@ -4,6 +4,11 @@ import { babelParser, isPlainJavaScript } from "./plain-javascript.js";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
 import { containsPath, dependencyDirOf, type PackageDirOf } from "./match.mjs";
 import { mainFieldFile } from "./shared-resolver.mjs";
+import {
+  openRuntimeImportsCache,
+  patchedPackages,
+  type RuntimeImportsCache,
+} from "./runtime-imports-cache.js";
 
 /** A path inside a node_modules directory: an installed package's, not a workspace member's. */
 const NODE_MODULES_DIR = /[\\/]node_modules[\\/]/;
@@ -103,6 +108,8 @@ const MAX_RUNTIME_FILES = 5000;
 // A bare package specifier (not a path, a URL, a builtin or a template's `${…}`).
 const PACKAGE_SPECIFIER = /^(?:@[\w.-]+\/)?[\w][\w.-]*(?:\/|$)/;
 const runtimeMemo = new Map<string, Set<string>>();
+// The on-disk answers for this detection (runtime-imports-cache.ts), or null.
+let runtimeCache: RuntimeImportsCache | null = null;
 
 /** The file a relative specifier names from `fromDir`, as Metro and Node find it, or null. */
 function runtimeFile(base: string): string | null {
@@ -142,8 +149,11 @@ function exportTargets(exportsField: unknown): string[] {
  * walk).
  */
 function runtimeImports(dir: string, manifest: Record<string, unknown>): Set<string> {
-  let names = runtimeMemo.get(dir);
-  if (names) return names;
+  let names = runtimeMemo.get(dir) ?? runtimeCache?.get(dir);
+  if (names) {
+    runtimeMemo.set(dir, names);
+    return names;
+  }
   names = new Set<string>();
   const entries = [
     typeof manifest["react-native"] === "string" ? manifest["react-native"] : null,
@@ -178,7 +188,85 @@ function runtimeImports(dir: string, manifest: Record<string, unknown>): Set<str
     }
   }
   runtimeMemo.set(dir, names);
+  runtimeCache?.set(dir, names);
   return names;
+}
+
+/**
+ * The subpaths of a package with no root (`"."`) export that are React Native entry
+ * points: `./react-native` itself, or any subpath whose target carries a `react-native`
+ * condition. None for a package with a root export or no exports map.
+ */
+export function reactNativeSubpaths(manifest: Record<string, unknown>): string[] {
+  const exportsField = manifest.exports;
+  if (!exportsField || typeof exportsField !== "object" || Array.isArray(exportsField)) return [];
+  const keys = Object.keys(exportsField);
+  // "." (and conditions at the top level, sugar for ".") fail the "./" test.
+  if (!keys.every((key) => key.startsWith("./"))) return [];
+  const hasCondition = (value: unknown): boolean =>
+    value !== null &&
+    typeof value === "object" &&
+    Object.entries(value).some(([key, inner]) => key === "react-native" || hasCondition(inner));
+  return keys.filter(
+    (key) =>
+      !key.includes("*") &&
+      (key === "./react-native" || hasCondition((exportsField as Record<string, unknown>)[key])),
+  );
+}
+
+const PROJECT_SOURCE = /\.(?:[cm]?[jt]sx?)$/;
+const PROJECT_SKIP_DIRS = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  "coverage",
+  "ios",
+  "android",
+]);
+const MAX_PROJECT_FILES = 20000;
+
+/**
+ * Which of `specifiers` the project's own source names in a require, import or
+ * export-from, read from the roots down (node_modules, build output and native project
+ * directories skipped; at most MAX_PROJECT_FILES files). Run only when a declared package
+ * has React Native subpaths and no root export, so most projects never pay for it.
+ */
+export function projectImports(
+  roots: readonly string[],
+  specifiers: readonly string[],
+): Set<string> {
+  const wanted = new Set(specifiers);
+  const found = new Set<string>();
+  const seenDirs = new Set<string>();
+  const pending = [...new Set(roots)];
+  let files = 0;
+  while (pending.length > 0 && found.size < wanted.size && files < MAX_PROJECT_FILES) {
+    const dir = pending.pop() as string;
+    if (seenDirs.has(dir)) continue;
+    seenDirs.add(dir);
+    const entries = fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }) : [];
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!PROJECT_SKIP_DIRS.has(entry.name) && !entry.name.startsWith(".")) pending.push(full);
+      } else if (
+        entry.isFile() &&
+        PROJECT_SOURCE.test(entry.name) &&
+        !entry.name.endsWith(".d.ts")
+      ) {
+        files++;
+        const code = fs.readFileSync(full, "utf8");
+        // Cheap filter first: most files name none of these packages.
+        if (![...wanted].some((spec) => code.includes(spec))) continue;
+        const bare = code.replace(COMMENT, "$1").replace(TYPE_ONLY, "");
+        for (const match of bare.matchAll(SPECIFIER)) {
+          if (wanted.has(match[1])) found.add(match[1]);
+        }
+      }
+    }
+  }
+  return found;
 }
 
 /** Manifest fields that make a package part of the React Native ecosystem. */
@@ -381,6 +469,12 @@ export interface ReachedPackages {
   reachedPaths?: readonly string[];
   /** Called once per workspace member reached through `reachedPaths` but not declared. */
   onReachedUndeclared?: (name: string, dir: string) => void;
+  /**
+   * #763, off unless passed: also detect a declared, installed package that declares no
+   * `react-native` but whose runtime graph imports it (runtimeImports). Each package's
+   * walk is cached in `cacheFile` (runtime-imports-cache.ts); null keeps it in memory.
+   */
+  undeclaredReactNative?: { cacheFile: string | null };
 }
 
 /**
@@ -419,7 +513,42 @@ export function detectEcosystemPackages(
   neverTransform: string[] = [],
   activePresets?: readonly string[],
   dirOf: PackageDirOf = dependencyDirOf,
-  { reachedPaths = [], onReachedUndeclared, compileReactNativeFieldSource }: ReachedPackages = {},
+  reached: ReachedPackages = {},
+): string[] {
+  const cacheOption = reached.undeclaredReactNative;
+  const roots = (Array.isArray(projectRoot) ? projectRoot : [projectRoot]).filter(Boolean);
+  runtimeCache = cacheOption
+    ? openRuntimeImportsCache(cacheOption.cacheFile, patchedPackages(roots))
+    : null;
+  try {
+    return detectWith(
+      projectRoot,
+      explicit,
+      testRoots,
+      neverTransform,
+      activePresets,
+      dirOf,
+      reached,
+    );
+  } finally {
+    runtimeCache?.flush();
+    runtimeCache = null;
+  }
+}
+
+function detectWith(
+  projectRoot: string | string[],
+  explicit: string[],
+  testRoots: string[],
+  neverTransform: string[],
+  activePresets: readonly string[] | undefined,
+  dirOf: PackageDirOf,
+  {
+    reachedPaths = [],
+    onReachedUndeclared,
+    compileReactNativeFieldSource,
+    undeclaredReactNative,
+  }: ReachedPackages,
 ): string[] {
   // Per detection, so a reinstall in a watch session is read afresh.
   runtimeMemo.clear();
@@ -551,10 +680,39 @@ export function detectEcosystemPackages(
   const ownsTheRun = (name: string): boolean => runOwners.has(name);
 
   const detected: string[] = [];
+  const subpathCandidates = new Map<string, string[]>();
   for (const name of candidates) {
     if (skip.has(name) || name.startsWith("@react-native/")) continue;
     const pkg = manifestOf(name);
-    if (pkg && dependsOnReactNative(pkg) && !ownsTheRun(name)) detected.push(name);
+    if (!pkg || ownsTheRun(name)) continue;
+    if (dependsOnReactNative(pkg)) {
+      detected.push(name);
+      continue;
+    }
+    // #763: a library that imports react-native without declaring it. Installed
+    // packages only: a workspace member's source stays Vite's (#427).
+    const installed = undeclaredReactNative ? installedOf(name) : null;
+    if (!installed || !NODE_MODULES_DIR.test(installed.dir + path.sep)) continue;
+    if (runtimeImports(installed.dir, installed.manifest).has("react-native")) {
+      detected.push(name);
+      continue;
+    }
+    // A package with no root export has no runtime graph to walk from. It counts
+    // when it has a React Native entry point (reactNativeSubpaths) that the project
+    // imports. Its other subpaths (`./react`, a web build) say nothing.
+    const subpaths = reactNativeSubpaths(installed.manifest);
+    if (subpaths.length > 0) subpathCandidates.set(name, subpaths);
+  }
+  if (subpathCandidates.size > 0) {
+    const imported = projectImports(
+      [...roots, ...testRoots],
+      [...subpathCandidates].flatMap(([name, subs]) =>
+        subs.map((sub) => `${name}/${sub.slice(2)}`),
+      ),
+    );
+    for (const [name, subs] of subpathCandidates) {
+      if (subs.some((sub) => imported.has(`${name}/${sub.slice(2)}`))) detected.push(name);
+    }
   }
 
   // A detected package's own runtime dependencies are React Native code too, and the

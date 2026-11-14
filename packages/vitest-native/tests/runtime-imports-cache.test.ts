@@ -1,0 +1,377 @@
+/**
+ * #763: a React Native library that declares no `react-native` dependency or peer is
+ * invisible to manifest detection. Its runtime graph says what its manifest does not, but
+ * walking every declared package's graph costs 258–671 ms per config evaluation in real
+ * apps, so each package's answer is cached on disk until its installed manifest changes.
+ */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
+import { detectEcosystemPackages } from "../src/native/ecosystem.js";
+import {
+  RUNTIME_IMPORTS_CACHE_FILE,
+  openRuntimeImportsCache,
+  patchPackageTarget,
+  patchedPackages,
+} from "../src/native/runtime-imports-cache.js";
+
+const dirs: string[] = [];
+afterAll(() => {
+  for (const d of dirs) fs.rmSync(d, { recursive: true, force: true });
+});
+
+function tmp(): string {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-rt-cache-")));
+  dirs.push(dir);
+  return dir;
+}
+
+function write(file: string, content: string): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, content);
+}
+
+/** Install `name` under root/node_modules with `source` as its index.js. */
+function install(root: string, name: string, source: string, version = "1.0.0"): string {
+  const dir = path.join(root, "node_modules", ...name.split("/"));
+  write(path.join(dir, "package.json"), JSON.stringify({ name, version, main: "index.js" }));
+  write(path.join(dir, "index.js"), source);
+  return dir;
+}
+
+/** Push package.json's mtime forward, as a reinstall would, without changing its text. */
+function touch(file: string): void {
+  const later = new Date(fs.statSync(file).mtimeMs + 5000);
+  fs.utimesSync(file, later, later);
+}
+
+describe("the runtime-imports cache", () => {
+  it("returns a stored answer while the installed manifest is unchanged", () => {
+    const root = tmp();
+    const dir = install(root, "lib", "");
+    const file = path.join(root, "cache.json");
+    const first = openRuntimeImportsCache(file);
+    expect(first.get(dir)).toBe(undefined);
+    first.set(dir, new Set(["react-native", "lodash"]));
+    expect(first.flush()).toBe(true);
+
+    const second = openRuntimeImportsCache(file);
+    expect(second.get(dir)).toEqual(new Set(["lodash", "react-native"]));
+    expect(second.stats).toEqual({ hits: 1, misses: 0, uncacheable: 0 });
+    expect(second.flush()).toBe(false);
+  });
+
+  it("drops the answer when the version changes, or a reinstall rewrites package.json", () => {
+    const root = tmp();
+    const dir = install(root, "lib", "");
+    const file = path.join(root, "cache.json");
+    const write1 = openRuntimeImportsCache(file);
+    write1.set(dir, new Set(["react-native"]));
+    write1.flush();
+
+    touch(path.join(dir, "package.json"));
+    expect(openRuntimeImportsCache(file).get(dir)).toBe(undefined);
+
+    const write2 = openRuntimeImportsCache(file);
+    write2.set(dir, new Set(["react-native"]));
+    write2.flush();
+    install(root, "lib", "", "1.0.1");
+    expect(openRuntimeImportsCache(file).get(dir)).toBe(undefined);
+  });
+
+  it("never caches a package outside node_modules", () => {
+    const root = tmp();
+    const dir = path.join(root, "packages", "lib");
+    write(path.join(dir, "package.json"), JSON.stringify({ name: "lib", version: "1.0.0" }));
+    const file = path.join(root, "cache.json");
+    const cache = openRuntimeImportsCache(file);
+    cache.set(dir, new Set(["react-native"]));
+    expect(cache.flush()).toBe(false);
+    expect(cache.get(dir)).toBe(undefined);
+    expect(cache.stats.uncacheable).toBe(1);
+  });
+
+  it("never caches a patched package", () => {
+    const root = tmp();
+    const scoped = install(root, "@scope/lib", "");
+    const plain = install(root, "plain", "");
+    write(path.join(root, "patches", "@scope+lib+1.0.0.patch"), "");
+    write(
+      path.join(root, "package.json"),
+      JSON.stringify({ name: "app", pnpm: { patchedDependencies: { "plain@1.0.0": "p.patch" } } }),
+    );
+    const patched = patchedPackages([root]);
+    expect(patched).toEqual(new Set(["@scope/lib@1.0.0", "plain@1.0.0"]));
+    const cache = openRuntimeImportsCache(path.join(root, "cache.json"), patched);
+    cache.set(scoped, new Set(["react-native"]));
+    cache.set(plain, new Set(["react-native"]));
+    expect(cache.flush()).toBe(false);
+    expect(cache.stats.uncacheable).toBe(0);
+    expect(cache.get(scoped)).toBe(undefined);
+    expect(cache.stats.uncacheable).toBe(1);
+  });
+
+  it("reads patch-package's names: scopes, sequences, dev patches and nested packages", () => {
+    const cases: Array<[string, string | null]> = [
+      ["lib+1.0.0.patch", "lib@1.0.0"],
+      ["@scope+lib+1.0.0.patch", "@scope/lib@1.0.0"],
+      ["lib+1.2.3+001.patch", "lib@1.2.3"],
+      ["lib+1.2.3+001+fix-crash.patch", "lib@1.2.3"],
+      ["lib+1.0.0.dev.patch", "lib@1.0.0"],
+      // A package nested in another's node_modules: the last name is the patched one.
+      ["parent++child+1.2.3.patch", "child@1.2.3"],
+      ["@a+parent++@b+child+2.0.0+002+desc.patch", "@b/child@2.0.0"],
+      ["README.md", null],
+    ];
+    for (const [file, target] of cases)
+      expect([file, patchPackageTarget(file)]).toEqual([file, target]);
+  });
+
+  it("never caches a package patched by a patch-package sequence file", () => {
+    const root = tmp();
+    const dir = install(root, "lib", "", "1.2.3");
+    write(path.join(root, "package.json"), JSON.stringify({ name: "app" }));
+    write(path.join(root, "patches", "lib+1.2.3+001+fix-crash.patch"), "");
+    const cache = openRuntimeImportsCache(null, patchedPackages([root]));
+    cache.set(dir, new Set(["react-native"]));
+    expect(cache.get(dir)).toBe(undefined);
+    expect(cache.stats.uncacheable).toBe(1);
+  });
+
+  it("reads Yarn's patch: protocol in dependencies and resolutions, by name", () => {
+    const root = tmp();
+    write(
+      path.join(root, "package.json"),
+      JSON.stringify({
+        dependencies: { lib: "patch:lib@npm%3A1.0.0#./.yarn/patches/lib-npm-1.0.0-abc.patch" },
+        resolutions: {
+          "@s/x@npm:2.0.0": "patch:@s/x@npm%3A2.0.0#~/.yarn/patches/@s-x-npm-2.0.0-def.patch",
+        },
+        devDependencies: { other: "^1.0.0" },
+      }),
+    );
+    expect(patchedPackages([root])).toEqual(new Set(["lib", "@s/x"]));
+    const dir = install(root, "lib", "", "1.0.0");
+    const cache = openRuntimeImportsCache(null, patchedPackages([root]));
+    cache.set(dir, new Set());
+    expect(cache.get(dir)).toBe(undefined);
+    expect(cache.stats.uncacheable).toBe(1);
+  });
+
+  it("reads bun's top-level patchedDependencies, by name and version or by name", () => {
+    const root = tmp();
+    write(
+      path.join(root, "package.json"),
+      JSON.stringify({ patchedDependencies: { "a@2.0.0": "x", b: "y" } }),
+    );
+    expect(patchedPackages([root])).toEqual(new Set(["a@2.0.0", "b"]));
+    const dir = install(root, "b", "", "3.1.4");
+    const cache = openRuntimeImportsCache(null, patchedPackages([root]));
+    cache.set(dir, new Set());
+    expect(cache.get(dir)).toBe(undefined);
+    expect(cache.stats.uncacheable).toBe(1);
+  });
+
+  it("treats a malformed or older-format file as empty", () => {
+    const root = tmp();
+    const dir = install(root, "lib", "");
+    const file = path.join(root, "cache.json");
+    write(file, "{ not json");
+    expect(openRuntimeImportsCache(file).get(dir)).toBe(undefined);
+    const good = openRuntimeImportsCache(file);
+    good.set(dir, new Set(["x"]));
+    good.flush();
+    const stored = JSON.parse(fs.readFileSync(file, "utf8"));
+    write(file, JSON.stringify({ ...stored, version: 0 }));
+    expect(openRuntimeImportsCache(file).get(dir)).toBe(undefined);
+  });
+
+  it("writes through a temporary file it renames, leaving none behind", () => {
+    const root = tmp();
+    const dir = install(root, "lib", "");
+    const file = path.join(root, "deep", "cache.json");
+    const cache = openRuntimeImportsCache(file);
+    cache.set(dir, new Set());
+    expect(cache.flush()).toBe(true);
+    expect(fs.readdirSync(path.dirname(file))).toEqual(["cache.json"]);
+  });
+});
+
+describe("detection of a library that imports react-native without declaring it (#763)", () => {
+  /** An app declaring `quiet-rn` (imports react-native, declares nothing) and `plain`. */
+  function app(): { root: string; lib: string } {
+    const root = tmp();
+    write(
+      path.join(root, "package.json"),
+      JSON.stringify({ name: "app", dependencies: { "quiet-rn": "1.0.0", plain: "1.0.0" } }),
+    );
+    const lib = install(root, "quiet-rn", 'module.exports = require("./view");');
+    write(
+      path.join(lib, "view.js"),
+      'const { View } = require("react-native"); module.exports = View;',
+    );
+    install(root, "plain", 'module.exports = require("lodash");');
+    install(root, "react-native", "", "0.86.3");
+    return { root, lib };
+  }
+  const detect = (root: string, cacheFile: string | null | undefined) =>
+    detectEcosystemPackages(root, [], [], [], [], undefined, {
+      undeclaredReactNative: cacheFile === undefined ? undefined : { cacheFile },
+    });
+
+  it("is off unless asked for", () => {
+    expect(detect(app().root, undefined)).not.toContain("quiet-rn");
+  });
+
+  it("detects it through its runtime graph, and not a package that never imports react-native", () => {
+    const detected = detect(app().root, null);
+    expect(detected).toContain("quiet-rn");
+    expect(detected).not.toContain("plain");
+  });
+
+  it("leaves a workspace member's source to Vite", () => {
+    const root = tmp();
+    write(
+      path.join(root, "package.json"),
+      JSON.stringify({ name: "app", dependencies: { member: "file:./member" } }),
+    );
+    const member = path.join(root, "member");
+    write(path.join(member, "package.json"), JSON.stringify({ name: "member", main: "index.js" }));
+    write(path.join(member, "index.js"), 'require("react-native");');
+    fs.mkdirSync(path.join(root, "node_modules"), { recursive: true });
+    fs.symlinkSync(member, path.join(root, "node_modules", "member"), "junction");
+    expect(detect(root, null)).not.toContain("member");
+  });
+
+  it("answers a second run from the cache, and walks again once package.json changes", () => {
+    const { root, lib } = app();
+    const cacheFile = path.join(
+      root,
+      "node_modules",
+      ".cache",
+      "vitest-native",
+      RUNTIME_IMPORTS_CACHE_FILE,
+    );
+    expect(detect(root, cacheFile)).toContain("quiet-rn");
+    expect(fs.existsSync(cacheFile)).toBe(true);
+
+    // The source changes but package.json does not: the stored answer stands.
+    write(path.join(lib, "view.js"), "module.exports = null;");
+    expect(detect(root, cacheFile)).toContain("quiet-rn");
+
+    // A reinstall rewrites package.json: the package is walked again.
+    touch(path.join(lib, "package.json"));
+    expect(detect(root, cacheFile)).not.toContain("quiet-rn");
+  });
+});
+
+describe("a package with only subpath exports (#763)", () => {
+  // @legendapp/list@3.3.3's exports map, trimmed to three of its seven subpaths: no
+  // root entry, a web/native split under ./react-native, and ./react for the web.
+  const conditional = (base: string) => ({
+    types: `./${base}.d.ts`,
+    import: `./${base}.mjs`,
+    require: `./${base}.js`,
+    default: `./${base}.js`,
+  });
+  const legendList = {
+    "./react-native": {
+      types: "./react-native.d.ts",
+      browser: conditional("react-native.web"),
+      "react-native": conditional("react-native"),
+      import: "./react-native.web.mjs",
+      require: "./react-native.web.js",
+      default: "./react-native.web.js",
+    },
+    "./react": conditional("react"),
+    "./keyboard": conditional("keyboard"),
+  };
+
+  /** An app declaring `name` (installed with `exports`), whose src/app.tsx is `source`. */
+  function app(name: string, exports: Record<string, unknown>, source: string): string {
+    const root = tmp();
+    write(
+      path.join(root, "package.json"),
+      JSON.stringify({ name: "app", dependencies: { [name]: "1.0.0" } }),
+    );
+    const dir = path.join(root, "node_modules", ...name.split("/"));
+    write(path.join(dir, "package.json"), JSON.stringify({ name, version: "1.0.0", exports }));
+    write(path.join(dir, "react-native.js"), 'require("react");');
+    write(path.join(root, "src", "app.tsx"), source);
+    install(root, "react-native", "", "0.86.3");
+    return root;
+  }
+  const detect = (root: string) =>
+    detectEcosystemPackages(root, [], [], [], [], undefined, {
+      undeclaredReactNative: { cacheFile: null },
+    });
+
+  it("counts when the project imports its ./react-native subpath", () => {
+    const root = app(
+      "@legendapp/list",
+      legendList,
+      'import { LegendList } from "@legendapp/list/react-native";',
+    );
+    expect(detect(root)).toContain("@legendapp/list");
+  });
+
+  it("does not count when the project imports only its other subpaths", () => {
+    const root = app(
+      "@legendapp/list",
+      legendList,
+      'import { LegendList } from "@legendapp/list/react";\nimport "@legendapp/list/keyboard";',
+    );
+    expect(detect(root)).not.toContain("@legendapp/list");
+  });
+
+  it("does not count a package whose only entry is ./react", () => {
+    const root = app("web-list", { "./react": conditional("react") }, 'import "web-list/react";');
+    expect(detect(root)).not.toContain("web-list");
+  });
+
+  it("counts a literal ./react-native subpath with no conditions", () => {
+    const root = app(
+      "plain-split",
+      { "./react-native": "./react-native.js", "./react": "./react.js" },
+      'import "plain-split/react-native";',
+    );
+    expect(detect(root)).toContain("plain-split");
+  });
+
+  it("counts a subpath of any name that carries a react-native condition", () => {
+    const root = app(
+      "split-lib",
+      { "./native": { "react-native": "./react-native.js", default: "./web.js" } },
+      'const lib = require("split-lib/native");',
+    );
+    expect(detect(root)).toContain("split-lib");
+  });
+
+  it("ignores the subpath named only in a comment or a type-only import", () => {
+    const root = app(
+      "@legendapp/list",
+      legendList,
+      '// from "@legendapp/list/react-native"\nimport type { X } from "@legendapp/list/react-native";',
+    );
+    expect(detect(root)).not.toContain("@legendapp/list");
+  });
+
+  it("leaves the rule to packages with no root export", () => {
+    const root = app(
+      "rooted",
+      { ".": "./react-native.js", "./react-native": "./react-native.js" },
+      'import "rooted/react-native";',
+    );
+    expect(detect(root)).not.toContain("rooted");
+  });
+
+  it("does not read node_modules for the project's imports", () => {
+    const root = app("@legendapp/list", legendList, "export {};");
+    write(
+      path.join(root, "node_modules", "other", "index.js"),
+      'require("@legendapp/list/react-native");',
+    );
+    expect(detect(root)).not.toContain("@legendapp/list");
+  });
+});
