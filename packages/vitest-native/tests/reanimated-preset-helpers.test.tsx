@@ -8,11 +8,12 @@
  * on whichever reanimated module they get, which the preset lacked, so they threw. A
  * scroll handler runs its handler.
  */
-import { createRequire } from "node:module";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import React from "react";
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { Platform, Text } from "react-native";
+import { Text } from "react-native";
 import Animated, {
   Extrapolation,
   interpolate,
@@ -23,7 +24,7 @@ import Animated, {
   useComposedEventHandler,
 } from "react-native-reanimated";
 import { describe, expect, it } from "vitest";
-import { withMockReactNative } from "../src/presets/reanimated.js";
+import { ownHelpers } from "../src/presets/reanimated.js";
 
 describe("reanimated preset (hand-written)", () => {
   it("interpolates with reanimated's own helpers", () => {
@@ -52,13 +53,18 @@ describe("reanimated preset (hand-written)", () => {
     );
   });
 
-  it("answers react-native with this engine's only while reanimated's files load", () => {
-    const fixture = (name: string) =>
-      path.join(import.meta.dirname, "fixtures/mock-react-native-hook", name);
-    const load = (name: string) => createRequire(fixture(name))(fixture(name));
-    expect(withMockReactNative(() => load("during.mjs")).Platform).toBe(Platform);
-    // Afterwards Node resolves it as before: to React Native's Flow source, which it cannot run.
-    expect(() => load("after.mjs")).toThrow(SyntaxError);
+  it("keeps the named error where the project has no Babel to compile interpolateColor with", () => {
+    const dir = path.dirname(require.resolve("react-native-reanimated/package.json"));
+    const noBabel = fs.mkdtempSync(path.join(os.tmpdir(), "vn-no-babel-"));
+    try {
+      const helpers = ownHelpers(dir, false, noBabel);
+      expect(helpers.interpolate?.(5, [0, 10], [0, 100])).toBe(50);
+      expect(() => helpers.interpolateColor?.(0.5, [0, 1], ["red", "blue"])).toThrow(
+        /interpolateColor did not load .*@babel\/core and @babel\/plugin-transform-modules-commonjs/,
+      );
+    } finally {
+      fs.rmSync(noBabel, { recursive: true, force: true });
+    }
   });
 
   it("tells its shared values apart", () => {
