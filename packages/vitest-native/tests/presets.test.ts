@@ -140,6 +140,101 @@ describe("preset: navigation", () => {
     expect(typeof ref.getCurrentRoute).toBe("function");
   });
 
+  // React Navigation 7's actions, container-ref methods and exports the preset lacked (#712).
+  describe("React Navigation 7 additions", () => {
+    it("the new action creators return React Navigation's action objects", () => {
+      expect(mock.CommonActions.preload("Profile", { id: 1 })).toEqual({
+        type: "PRELOAD",
+        payload: { name: "Profile", params: { id: 1 } },
+      });
+      expect(mock.CommonActions.replaceParams({ id: 2 })).toEqual({
+        type: "REPLACE_PARAMS",
+        payload: { params: { id: 2 } },
+      });
+      expect(mock.CommonActions.navigateDeprecated("Home", { tab: 1 })).toEqual({
+        type: "NAVIGATE_DEPRECATED",
+        payload: { name: "Home", params: { tab: 1 } },
+      });
+      expect(mock.CommonActions.navigateDeprecated({ name: "Home" })).toEqual({
+        type: "NAVIGATE_DEPRECATED",
+        payload: { name: "Home" },
+      });
+      expect(mock.StackActions.popTo("Home", { id: 3 }, { merge: true })).toEqual({
+        type: "POP_TO",
+        payload: { name: "Home", params: { id: 3 }, merge: true },
+      });
+    });
+
+    it("a container ref has React Navigation 7's methods, sharing the navigation spies", () => {
+      const ref = mock.createNavigationContainerRef();
+      for (const name of [
+        "resetRoot",
+        "removeListener",
+        "preload",
+        "replaceParams",
+        "navigateDeprecated",
+      ]) {
+        expect(typeof ref[name], name).toBe("function");
+      }
+      ref.setParams({ id: 4 });
+      expect(mock.useNavigation().setParams).toHaveBeenCalledWith({ id: 4 });
+      ref.setOptions({ title: "T" });
+      expect(mock.useNavigation().setOptions).toHaveBeenCalledWith({ title: "T" });
+      expect(ref.isFocused()).toBe(true);
+      expect(ref.getId()).toBeUndefined();
+      expect(ref.getParent()).toBeUndefined();
+      expect(ref.emit({ type: "focus" })).toEqual({ defaultPrevented: false });
+      expect(typeof mock.useNavigationContainerRef().resetRoot).toBe("function");
+    });
+
+    it("useNavigationBuilder gives a navigator's helpers, describe and render", async () => {
+      const { result } = await renderHook(() => mock.useNavigationBuilder());
+      const { navigation, describe: describeRoute, render } = result.current;
+      expect(navigation.emit({ type: "tabPress" })).toEqual({ defaultPrevented: false });
+      for (const name of ["preload", "replaceParams", "navigateDeprecated", "navigate"]) {
+        expect(typeof navigation[name], name).toBe("function");
+      }
+      const route = { key: "a", name: "A" };
+      expect(describeRoute(route).route).toBe(route);
+      expect(describeRoute(route).render()).toBeNull();
+      expect(render()).toBeNull();
+    });
+
+    it("NavigationProvider gives its children the route and navigation", async () => {
+      const route = { key: "r", name: "Details", params: { id: 7 } };
+      const nav = { navigate: () => {} };
+      const wrapper = ({ children }: { children: React.ReactNode }) =>
+        React.createElement(mock.NavigationProvider, { route, navigation: nav }, children);
+      const { result } = await renderHook(
+        () => ({ route: mock.useRoute(), navigation: mock.useNavigation() }),
+        { wrapper },
+      );
+      expect(result.current.route).toBe(route);
+      expect(result.current.navigation).toBe(nav);
+    });
+
+    it("the router factories return a router of their type with its action creators", () => {
+      expect(mock.StackRouter({}).type).toBe("stack");
+      expect(mock.StackRouter({}).actionCreators).toBe(mock.StackActions);
+      expect(mock.TabRouter({}).type).toBe("tab");
+      expect(mock.TabRouter({}).actionCreators).toBe(mock.TabActions);
+      expect(mock.DrawerRouter({}).type).toBe("drawer");
+      expect(mock.DrawerRouter({}).actionCreators).toBe(mock.DrawerActions);
+      expect(mock.StackRouter({}).getInitialState().type).toBe("stack");
+    });
+
+    it("static screen factories return the screen config as is", () => {
+      const config = { screen: () => null };
+      expect(mock.createScreenFactory()(config)).toBe(config);
+      const factories = mock.createStandardNavigationFactories({}, () => ({}));
+      expect(factories.createScreen(config)).toBe(config);
+      const navigator = factories.createNavigator();
+      expect(navigator.Screen).toBeDefined();
+      expect(navigator.Navigator).toBeDefined();
+      expect(navigator.Group).toBeDefined();
+    });
+  });
+
   it("useTheme returns a theme with colors", () => {
     const theme = mock.useTheme();
     expect(theme.dark).toBe(false);
@@ -258,6 +353,12 @@ describe("preset: navigation", () => {
   describe("@react-navigation/native-stack", () => {
     const stackMock = preset.modules["@react-navigation/native-stack"].factory();
     const stack = stackMock.createNativeStackNavigator();
+
+    it("createNativeStackScreen returns the screen config, and NativeStackView is a view", () => {
+      const config = { screen: () => null };
+      expect(stackMock.createNativeStackScreen(config)).toBe(config);
+      expect((stackMock.NativeStackView as any).displayName).toBe("NativeStackView");
+    });
 
     it("createNativeStackNavigator returns Navigator, Screen, Group", () => {
       expect(stack.Navigator).toBeDefined();
