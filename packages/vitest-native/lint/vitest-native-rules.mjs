@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isPerFilePackage } from "./per-file-packages.mjs";
 
 const BASELINE = JSON.parse(
   fs.readFileSync(fileURLToPath(new URL("./baseline.json", import.meta.url)), "utf8"),
@@ -368,6 +369,177 @@ const noDocUrlsInSrc = {
   },
 };
 
+// --------------------------------------------------------------------------------------
+
+/** A string literal, or a template literal without expressions: the module requested. */
+function staticSource(node) {
+  if (node?.type === "Literal" && typeof node.value === "string") return node.value;
+  if (node?.type === "TemplateLiteral" && node.expressions.length === 0) {
+    return node.quasis[0].value.cooked;
+  }
+  return null;
+}
+
+/**
+ * A preset's module loads no per-file package (per-file-packages.mjs) once per worker.
+ * vitest-native's presets load once per worker and stay resident under the hot runtime,
+ * while freshRuntime evaluates React again for each file: a copy taken once keeps the
+ * first file's, and a later file fails with "Invalid hook call" (#719). A factory takes
+ * the file's React from its context (`factory: ({ React }) => …`). Reported:
+ * - a value import or re-export (a type-only one is fine);
+ * - `import("…")`, which Node caches for the worker;
+ * - `require`, `module.require`, `createRequire(…)(…)` or a function `createRequire`
+ *   returned, where it runs once per worker: at module scope; in a function called where
+ *   it is defined, or a named one called at module scope (directly or through another
+ *   such function); or kept in a module-scope binding, by assignment (a lazy cache,
+ *   `R ??= require("react")`) or a method call (`cache.set(key, require("react"))`).
+ * A require in a function that returns it (`() => require("react-native")`) is per call
+ * and fine. Imports through vitest-native's own modules are followed by
+ * tests/presets-hold-no-react.test.ts.
+ */
+const presetReactPerFile = {
+  meta: {
+    type: "problem",
+    messages: {
+      import:
+        "A preset module imports '{{source}}' at module scope, so it keeps the first file's copy under freshRuntime: take React from the factory's context (`factory: ({ React }) => …`).",
+      require:
+        "A preset module loads '{{source}}' once per worker (at module scope, or into a module-scope cache), so it keeps the first file's copy under freshRuntime: take React from the factory's context (`factory: ({ React }) => …`).",
+    },
+  },
+  create(context) {
+    const moduleBindings = new Set();
+    const requireFunctions = new Set(["require"]);
+    const report = (node, messageId, source) => {
+      if (typeof source === "string" && isPerFilePackage(source)) {
+        context.report({ node, messageId, data: { source } });
+      }
+    };
+    const check = (node, source, typeOnly) => {
+      if (!typeOnly) report(node, "import", source);
+    };
+    // node:module's createRequire, under whatever local name it was imported.
+    const createRequireNames = new Set(["createRequire"]);
+    const isCreateRequire = (node) =>
+      node?.type === "CallExpression" &&
+      node.callee.type === "Identifier" &&
+      createRequireNames.has(node.callee.name);
+    const isRequire = (callee) =>
+      (callee.type === "Identifier" && requireFunctions.has(callee.name)) ||
+      (callee.type === "MemberExpression" &&
+        !callee.computed &&
+        callee.object.type === "Identifier" &&
+        callee.object.name === "module" &&
+        callee.property.name === "require") ||
+      isCreateRequire(callee);
+    const rootName = (node) => {
+      while (node?.type === "MemberExpression") node = node.object;
+      return node?.type === "Identifier" ? node.name : null;
+    };
+    const within = (outer, node) => node.start >= outer.start && node.end <= outer.end;
+    // Kept in a module-scope binding: assigned to one (or a property of one), or passed to
+    // a method of one, between the function and the call.
+    const keptInModuleBinding = (chain, node) =>
+      chain.some(
+        (at) =>
+          (at.type === "AssignmentExpression" && moduleBindings.has(rootName(at.left))) ||
+          (at.type === "CallExpression" &&
+            at !== node &&
+            at.callee.type === "MemberExpression" &&
+            moduleBindings.has(rootName(at.callee)) &&
+            !within(at.callee, node)),
+      );
+    // The function a call runs in, skipping ones called where they are defined: its name
+    // (a function declaration, or one assigned to a variable), MODULE at module scope, or
+    // null for an unnamed function, which runs whenever whoever holds it calls it.
+    const MODULE = Symbol("module scope");
+    const enclosing = (ancestors) => {
+      for (let i = ancestors.length - 1; i >= 0; i--) {
+        const fn = ancestors[i];
+        if (!fn.type.includes("Function")) continue;
+        const parent = ancestors[i - 1];
+        if (parent?.type === "CallExpression" && parent.callee === fn) continue;
+        const name = fn.id?.name ?? (parent?.type === "VariableDeclarator" ? parent.id.name : null);
+        return { fn: name ?? null, chain: ancestors.slice(i) };
+      }
+      return { fn: MODULE, chain: [] };
+    };
+    // Calls by name, from the function they run in, to find the functions that run once
+    // per worker at Program:exit; and the requires waiting on that answer.
+    const calls = new Map();
+    const pending = [];
+    return {
+      Program(node) {
+        for (const statement of node.body) {
+          if (
+            statement.type === "ImportDeclaration" &&
+            /^(?:node:)?module$/.test(statement.source.value)
+          ) {
+            for (const specifier of statement.specifiers) {
+              if (
+                specifier.type === "ImportSpecifier" &&
+                specifier.imported.name === "createRequire"
+              ) {
+                createRequireNames.add(specifier.local.name);
+              }
+            }
+          }
+        }
+        for (const statement of node.body) {
+          const declaration =
+            statement.type === "ExportNamedDeclaration" ? statement.declaration : statement;
+          if (declaration?.type !== "VariableDeclaration") continue;
+          for (const { id, init } of declaration.declarations) {
+            if (id.type !== "Identifier") continue;
+            moduleBindings.add(id.name);
+            if (isCreateRequire(init)) requireFunctions.add(id.name);
+          }
+        }
+      },
+      ImportDeclaration(node) {
+        const values = node.specifiers.filter((s) => s.importKind !== "type");
+        const typeOnly =
+          node.importKind === "type" || (node.specifiers.length > 0 && values.length === 0);
+        check(node, node.source.value, typeOnly);
+      },
+      ExportNamedDeclaration(node) {
+        if (node.source) check(node, node.source.value, node.exportKind === "type");
+      },
+      ExportAllDeclaration(node) {
+        check(node, node.source.value, node.exportKind === "type");
+      },
+      ImportExpression(node) {
+        report(node, "require", staticSource(node.source));
+      },
+      CallExpression(node) {
+        const { fn, chain } = enclosing(context.sourceCode.getAncestors(node));
+        if (node.callee.type === "Identifier" && fn !== null) {
+          if (!calls.has(fn)) calls.set(fn, new Set());
+          calls.get(fn).add(node.callee.name);
+        }
+        if (!isRequire(node.callee)) return;
+        const source = staticSource(node.arguments[0]);
+        if (fn === MODULE || keptInModuleBinding(chain, node)) report(node, "require", source);
+        else if (fn !== null) pending.push({ node, source, fn });
+      },
+      "Program:exit"() {
+        const reached = new Set();
+        const queue = [MODULE];
+        while (queue.length > 0) {
+          for (const callee of calls.get(queue.pop()) ?? []) {
+            if (reached.has(callee)) continue;
+            reached.add(callee);
+            queue.push(callee);
+          }
+        }
+        for (const { node, source, fn } of pending) {
+          if (reached.has(fn)) report(node, "require", source);
+        }
+      },
+    };
+  },
+};
+
 export default {
   meta: { name: "vitest-native" },
   rules: {
@@ -376,5 +548,6 @@ export default {
     "no-monkey-patching": noMonkeyPatching,
     "escaped-regexp": escapedRegExp,
     "no-doc-urls-in-src": noDocUrlsInSrc,
+    "preset-react-per-file": presetReactPerFile,
   },
 };

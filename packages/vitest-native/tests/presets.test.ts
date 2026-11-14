@@ -3,7 +3,7 @@
  * Verifies that each preset's factory produces mocks with correct shapes,
  * callable methods, and expected return values — not just that they exist.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import React from "react";
 import {
   reanimated,
@@ -29,7 +29,7 @@ import { renderHook } from "@testing-library/react-native";
 
 describe("preset: navigation", () => {
   const preset = navigation();
-  const mock = preset.modules["@react-navigation/native"].factory();
+  const mock = preset.modules["@react-navigation/native"].factory({ React });
 
   // createNavigatorFactory(Navigator) returns a factory yielding { Navigator, Screen,
   // Group } — the real shape. It returned a bare vi.fn() whose result was undefined,
@@ -138,6 +138,134 @@ describe("preset: navigation", () => {
     expect(typeof ref.goBack).toBe("function");
     expect(typeof ref.isReady).toBe("function");
     expect(typeof ref.getCurrentRoute).toBe("function");
+  });
+
+  // React Navigation 7's actions, container-ref methods and exports the preset lacked (#712).
+  describe("React Navigation 7 additions", () => {
+    it("the new action creators return React Navigation's action objects", () => {
+      expect(mock.CommonActions.preload("Profile", { id: 1 })).toEqual({
+        type: "PRELOAD",
+        payload: { name: "Profile", params: { id: 1 } },
+      });
+      expect(mock.CommonActions.replaceParams({ id: 2 })).toEqual({
+        type: "REPLACE_PARAMS",
+        payload: { params: { id: 2 } },
+      });
+      expect(mock.CommonActions.navigateDeprecated("Home", { tab: 1 })).toEqual({
+        type: "NAVIGATE_DEPRECATED",
+        payload: { name: "Home", params: { tab: 1 } },
+      });
+      expect(mock.CommonActions.navigateDeprecated({ name: "Home" })).toEqual({
+        type: "NAVIGATE_DEPRECATED",
+        payload: { name: "Home" },
+      });
+      expect(mock.StackActions.popTo("Home", { id: 3 }, { merge: true })).toEqual({
+        type: "POP_TO",
+        payload: { name: "Home", params: { id: 3 }, merge: true },
+      });
+    });
+
+    it("a container ref has React Navigation 7's methods, sharing the navigation spies", () => {
+      const ref = mock.createNavigationContainerRef();
+      for (const name of [
+        "resetRoot",
+        "removeListener",
+        "preload",
+        "replaceParams",
+        "navigateDeprecated",
+      ]) {
+        expect(typeof ref[name], name).toBe("function");
+      }
+      ref.setParams({ id: 4 });
+      expect(mock.useNavigation().setParams).toHaveBeenCalledWith({ id: 4 });
+      ref.setOptions({ title: "T" });
+      expect(mock.useNavigation().setOptions).toHaveBeenCalledWith({ title: "T" });
+      expect(ref.isFocused()).toBe(true);
+      expect(ref.getId()).toBeUndefined();
+      expect(ref.getParent()).toBeUndefined();
+      expect(ref.emit({ type: "focus" })).toEqual({ defaultPrevented: false });
+      expect(typeof mock.useNavigationContainerRef().resetRoot).toBe("function");
+    });
+
+    it("useNavigationBuilder gives a navigator's helpers, describe and render", async () => {
+      const { result } = await renderHook(() => mock.useNavigationBuilder());
+      const { navigation: helpers, describe: describeRoute, render } = result.current;
+      for (const name of ["preload", "replaceParams", "navigateDeprecated", "navigate"]) {
+        expect(typeof helpers[name], name).toBe("function");
+      }
+      const route = { key: "a", name: "A" };
+      expect(describeRoute(route).route).toBe(route);
+      expect(describeRoute(route).render()).toBeNull();
+      expect(render()).toBeNull();
+    });
+
+    it("useNavigationBuilder's navigation is useNavigation()'s, the same on every render", async () => {
+      const { result, rerender } = await renderHook(() => ({
+        builder: mock.useNavigationBuilder(),
+        navigation: mock.useNavigation(),
+      }));
+      // A screen's navigation has no emit; React Navigation's core strips it.
+      expect(result.current.navigation).not.toHaveProperty("emit");
+      const first = result.current.builder.navigation;
+      expect(first).toBe(result.current.navigation);
+      await rerender({});
+      expect(result.current.builder.navigation).toBe(first);
+    });
+
+    it("navigateDeprecated with an object needs a name, as React Navigation's does", () => {
+      expect(() => mock.CommonActions.navigateDeprecated({ params: {} })).toThrow(
+        "You need to specify a name when calling navigateDeprecated",
+      );
+    });
+
+    it("popTo's deprecated boolean merge warns and merges", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        expect(mock.StackActions.popTo("Home", undefined, true)).toEqual({
+          type: "POP_TO",
+          payload: { name: "Home", params: undefined, merge: true },
+        });
+        expect(warn).toHaveBeenCalledWith(
+          "Passing a boolean as the third argument to 'popTo' is deprecated. Pass '{ merge: true }' instead.",
+        );
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("NavigationProvider gives its children the route and navigation", async () => {
+      const route = { key: "r", name: "Details", params: { id: 7 } };
+      const nav = { navigate: () => {} };
+      const wrapper = ({ children }: { children: React.ReactNode }) =>
+        React.createElement(mock.NavigationProvider, { route, navigation: nav }, children);
+      const { result } = await renderHook(
+        () => ({ route: mock.useRoute(), navigation: mock.useNavigation() }),
+        { wrapper },
+      );
+      expect(result.current.route).toBe(route);
+      expect(result.current.navigation).toBe(nav);
+    });
+
+    it("the router factories return a router of their type with its action creators", () => {
+      expect(mock.StackRouter({}).type).toBe("stack");
+      expect(mock.StackRouter({}).actionCreators).toBe(mock.StackActions);
+      expect(mock.TabRouter({}).type).toBe("tab");
+      expect(mock.TabRouter({}).actionCreators).toBe(mock.TabActions);
+      expect(mock.DrawerRouter({}).type).toBe("drawer");
+      expect(mock.DrawerRouter({}).actionCreators).toBe(mock.DrawerActions);
+      expect(mock.StackRouter({}).getInitialState().type).toBe("stack");
+    });
+
+    it("static screen factories return the screen config as is", () => {
+      const config = { screen: () => null };
+      expect(mock.createScreenFactory()(config)).toBe(config);
+      const factories = mock.createStandardNavigationFactories({}, () => ({}));
+      expect(factories.createScreen(config)).toBe(config);
+      const navigator = factories.createNavigator();
+      expect(navigator.Screen).toBeDefined();
+      expect(navigator.Navigator).toBeDefined();
+      expect(navigator.Group).toBeDefined();
+    });
   });
 
   it("useTheme returns a theme with colors", () => {
@@ -256,8 +384,14 @@ describe("preset: navigation", () => {
   });
 
   describe("@react-navigation/native-stack", () => {
-    const stackMock = preset.modules["@react-navigation/native-stack"].factory();
+    const stackMock = preset.modules["@react-navigation/native-stack"].factory({ React });
     const stack = stackMock.createNativeStackNavigator();
+
+    it("createNativeStackScreen returns the screen config, and NativeStackView is a view", () => {
+      const config = { screen: () => null };
+      expect(stackMock.createNativeStackScreen(config)).toBe(config);
+      expect((stackMock.NativeStackView as any).displayName).toBe("NativeStackView");
+    });
 
     it("createNativeStackNavigator returns Navigator, Screen, Group", () => {
       expect(stack.Navigator).toBeDefined();
@@ -285,6 +419,9 @@ describe("preset: navigation", () => {
       expect(receivedProps.route.params).toEqual({ id: 42 });
       expect(typeof receivedProps.navigation.navigate).toBe("function");
       expect(typeof receivedProps.navigation.goBack).toBe("function");
+      // React Navigation 7's screen helpers, and no emit: core strips it.
+      expect(typeof receivedProps.navigation.preload).toBe("function");
+      expect(receivedProps.navigation).not.toHaveProperty("emit");
     });
 
     it("useNavigation/useRoute inside a Screen match the Screen's props", async () => {
@@ -345,7 +482,7 @@ describe("preset: navigation", () => {
   });
 
   describe("@react-navigation/bottom-tabs", () => {
-    const tabsMock = preset.modules["@react-navigation/bottom-tabs"].factory();
+    const tabsMock = preset.modules["@react-navigation/bottom-tabs"].factory({ React });
     const tabs = tabsMock.createBottomTabNavigator();
 
     it("createBottomTabNavigator returns Navigator, Screen, Group", () => {
@@ -386,7 +523,7 @@ describe("preset: navigation", () => {
   });
 
   describe("@react-navigation/drawer", () => {
-    const drawerMock = preset.modules["@react-navigation/drawer"].factory();
+    const drawerMock = preset.modules["@react-navigation/drawer"].factory({ React });
     const drawer = drawerMock.createDrawerNavigator();
 
     it("createDrawerNavigator returns Navigator, Screen, Group", () => {
@@ -397,7 +534,7 @@ describe("preset: navigation", () => {
   });
 
   describe("@react-navigation/elements", () => {
-    const elementsMock = preset.modules["@react-navigation/elements"].factory();
+    const elementsMock = preset.modules["@react-navigation/elements"].factory({ React });
 
     it("Header components are renderable", () => {
       expect(elementsMock.Header.displayName).toBe("Header");
@@ -422,7 +559,7 @@ describe("preset: navigation", () => {
 
 describe("preset: reanimated", () => {
   const preset = reanimated();
-  const mock = preset.modules["react-native-reanimated"].factory();
+  const mock = preset.modules["react-native-reanimated"].factory({ React });
 
   it("useSharedValue is a function (uses React.useRef internally, must be called in component)", () => {
     expect(typeof mock.useSharedValue).toBe("function");
@@ -679,7 +816,7 @@ describe("preset: reanimated", () => {
 
 describe("preset: gestureHandler", () => {
   const preset = gestureHandler();
-  const mock = preset.modules["react-native-gesture-handler"].factory();
+  const mock = preset.modules["react-native-gesture-handler"].factory({ React });
 
   it("State has expected enum values", () => {
     expect(mock.State.UNDETERMINED).toBe(0);
@@ -754,7 +891,7 @@ describe("preset: gestureHandler", () => {
 
 describe("preset: safeAreaContext", () => {
   const preset = safeAreaContext();
-  const mock = preset.modules["react-native-safe-area-context"].factory();
+  const mock = preset.modules["react-native-safe-area-context"].factory({ React });
 
   // The hooks read context, so they run inside a render.
   const insetsNow = async (wrapper?: React.ComponentType<{ children: React.ReactNode }>) =>
@@ -860,7 +997,7 @@ describe("preset: safeAreaContext", () => {
 
 describe("preset: asyncStorage", () => {
   const preset = asyncStorage();
-  const mock = preset.modules["@react-native-async-storage/async-storage"].factory();
+  const mock = preset.modules["@react-native-async-storage/async-storage"].factory({ React });
 
   it("setItem and getItem work together", async () => {
     await mock.setItem("key1", "value1");
@@ -940,7 +1077,7 @@ describe("preset: asyncStorage", () => {
 
 describe("preset: screens", () => {
   const preset = screens();
-  const mock = preset.modules["react-native-screens"].factory();
+  const mock = preset.modules["react-native-screens"].factory({ React });
 
   it("enableScreens is callable", () => {
     expect(() => mock.enableScreens()).not.toThrow();
@@ -971,7 +1108,7 @@ describe("preset: screens", () => {
 describe("preset: expo", () => {
   describe("expo-constants", () => {
     const preset = expo();
-    const mock = preset.modules["expo-constants"].factory();
+    const mock = preset.modules["expo-constants"].factory({ React });
     // Constants values live on the default export, as they do in the real package.
     const Constants = mock.default;
 
@@ -1007,7 +1144,7 @@ describe("preset: expo", () => {
 
   describe("expo-font", () => {
     const preset = expo();
-    const mock = preset.modules["expo-font"].factory();
+    const mock = preset.modules["expo-font"].factory({ React });
 
     it("useFonts returns [loaded, null]", () => {
       const [loaded, error] = mock.useFonts();
@@ -1022,7 +1159,7 @@ describe("preset: expo", () => {
 
   describe("expo-asset", () => {
     const preset = expo();
-    const mock = preset.modules["expo-asset"].factory();
+    const mock = preset.modules["expo-asset"].factory({ React });
 
     it("Asset.fromModule returns asset-like object", () => {
       const asset = mock.Asset.fromModule(42);
@@ -1035,7 +1172,7 @@ describe("preset: expo", () => {
 
   describe("expo-splash-screen", () => {
     const preset = expo();
-    const mock = preset.modules["expo-splash-screen"].factory();
+    const mock = preset.modules["expo-splash-screen"].factory({ React });
 
     it("preventAutoHideAsync resolves", async () => {
       await expect(mock.preventAutoHideAsync()).resolves.toBe(true);
@@ -1057,7 +1194,7 @@ describe("preset: expo", () => {
 
   describe("expo-linking", () => {
     const preset = expo();
-    const mock = preset.modules["expo-linking"].factory();
+    const mock = preset.modules["expo-linking"].factory({ React });
 
     it("createURL returns an expo URL", () => {
       const url = mock.createURL("home");
@@ -1093,7 +1230,7 @@ describe("preset: expo", () => {
 
   describe("expo-status-bar", () => {
     const preset = expo();
-    const mock = preset.modules["expo-status-bar"].factory();
+    const mock = preset.modules["expo-status-bar"].factory({ React });
 
     it("StatusBar is a renderable component", () => {
       expect(mock.StatusBar).toBeDefined();
@@ -1113,7 +1250,7 @@ describe("preset: expo", () => {
 // --- Device Info ---
 
 describe("preset: deviceInfo", () => {
-  const mock = deviceInfo().modules["react-native-device-info"].factory();
+  const mock = deviceInfo().modules["react-native-device-info"].factory({ React });
 
   it("default object exposes string getters that don't crash on .toLowerCase()", () => {
     expect(typeof mock.default.getBrandSync()).toBe("string");
@@ -1134,7 +1271,7 @@ describe("preset: deviceInfo", () => {
 // --- MMKV ---
 
 describe("preset: mmkv", () => {
-  const mock = mmkv().modules["react-native-mmkv"].factory();
+  const mock = mmkv().modules["react-native-mmkv"].factory({ React });
 
   it("MMKV instance round-trips values", () => {
     const m = new mock.MMKV();
@@ -1163,7 +1300,7 @@ describe("preset: mmkv", () => {
 // --- SVG ---
 
 describe("preset: svg", () => {
-  const mock = svg().modules["react-native-svg"].factory();
+  const mock = svg().modules["react-native-svg"].factory({ React });
 
   it("default is Svg; core elements are renderable host components", () => {
     expect(mock.default).toBe(mock.Svg);
@@ -1176,7 +1313,7 @@ describe("preset: svg", () => {
 // --- WebView ---
 
 describe("preset: webview", () => {
-  const mock = webview().modules["react-native-webview"].factory();
+  const mock = webview().modules["react-native-webview"].factory({ React });
 
   it("exposes WebView as both default and named, renderable", () => {
     expect(mock.default).toBe(mock.WebView);
@@ -1187,7 +1324,7 @@ describe("preset: webview", () => {
 // --- FlashList ---
 
 describe("preset: flashList", () => {
-  const mock = flashList().modules["@shopify/flash-list"].factory();
+  const mock = flashList().modules["@shopify/flash-list"].factory({ React });
 
   it("default is FlashList; list variants are renderable host components", () => {
     expect(mock.default).toBe(mock.FlashList);
@@ -1257,7 +1394,7 @@ describe("preset: flashList", () => {
 // --- Bottom Sheet ---
 
 describe("preset: bottomSheet", () => {
-  const mock = bottomSheet().modules["@gorhom/bottom-sheet"].factory();
+  const mock = bottomSheet().modules["@gorhom/bottom-sheet"].factory({ React });
 
   it("default is BottomSheet; sheet containers are renderable host components", () => {
     expect(mock.default.displayName).toBe("BottomSheet");
@@ -1340,7 +1477,7 @@ describe("preset: bottomSheet", () => {
 // --- Keyboard Controller ---
 
 describe("preset: keyboardController", () => {
-  const mock = keyboardController().modules["react-native-keyboard-controller"].factory();
+  const mock = keyboardController().modules["react-native-keyboard-controller"].factory({ React });
 
   it("provider + native views are renderable host components", () => {
     for (const name of [

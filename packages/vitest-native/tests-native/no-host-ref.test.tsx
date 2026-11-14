@@ -54,7 +54,7 @@ function presetModules(): [string, Record<string, unknown>][] {
     for (const [moduleName, module] of Object.entries(preset.modules)) {
       let exports: unknown;
       try {
-        exports = module.factory();
+        exports = module.factory({ React });
       } catch {
         continue;
       }
@@ -87,7 +87,9 @@ for (const [source, exports] of sources) {
       cases.push([
         `${source}.${key}`,
         () => {
-          const made = (value as () => { Navigator?: React.ElementType; Screen?: React.ElementType })();
+          const made = (
+            value as () => { Navigator?: React.ElementType; Screen?: React.ElementType }
+          )();
           if (!made?.Navigator || !made.Screen) return null;
           return React.createElement(
             container,
