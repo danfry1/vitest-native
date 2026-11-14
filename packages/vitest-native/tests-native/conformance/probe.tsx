@@ -22,6 +22,7 @@ import {
   type ExportContract,
   type Shape,
 } from "./shape";
+import { waiverProblems } from "./waivers";
 
 export interface Waiver {
   export: string;
@@ -176,6 +177,12 @@ export function probeModule(
         throw new Error(`differs from the declared API:\n${remaining.join("\n")}`);
     });
   }
+
+  it(`${contract.package}: every waiver names an issue or a permanent reason`, () => {
+    const problems = waiverProblems(waivers);
+    if (problems.length > 0)
+      throw new Error(`waivers without a tracked issue:\n${problems.join("\n")}`);
+  });
 
   it(`${contract.package}: every waiver still applies`, () => {
     const stale = waivers.filter((w) => !used.has(w)).map((w) => `${w.export} ${w.path ?? ""}`);
