@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -18,7 +19,7 @@ import { reactNative } from "../src/index.js";
 import { runPluginConfig } from "./plugin-config.js";
 import { contextOf } from "./project-context-helpers.js";
 // @ts-expect-error — internal runtime .mjs, intentionally not public API
-import { lowerPriority } from "../src/native/bounded-process.mjs";
+import { lowerPriority, runBoundedProcess } from "../src/native/bounded-process.mjs";
 // @ts-expect-error — internal runtime .mjs, intentionally not public API
 import { registryKey } from "../src/native/registry.mjs";
 
@@ -147,6 +148,30 @@ describe("bounded registry compiler process", () => {
       heapMb: 64,
       attempts: 2,
     });
+  });
+
+  it("closes the pipes of a compiler it stops, so none holds this process open", async () => {
+    // A pending stdin.end() (input the child has not read) holds the event loop open; on
+    // Windows until the system has torn the killed child down, seconds on a loaded
+    // machine. Stopping it must close its pipes at once.
+    const file = compiler("unread-input", `setInterval(() => {}, 1_000);`);
+    let child: ReturnType<typeof spawn> | undefined;
+    const controller = new AbortController();
+    const running = runBoundedProcess(
+      file,
+      { padding: "x".repeat(1024 * 1024) },
+      {
+        initialHeapMb: 64,
+        retryHeapMb: 64,
+        signal: controller.signal,
+        spawnProcess: (...args: Parameters<typeof spawn>) => (child = spawn(...args)),
+      },
+    );
+    await vi.waitFor(() => expect(child?.pid).toBeDefined());
+    expect(child!.stdin!.writableLength).toBeGreaterThan(0);
+    controller.abort();
+    expect(await running).toMatchObject({ ok: false, cancelled: true });
+    expect(child!.stdio.map((stream) => stream?.destroyed)).toEqual([true, true, true, true]);
   });
 
   it("kills and reports a compiler that exceeds its deadline", async () => {

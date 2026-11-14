@@ -29,6 +29,20 @@ export function lowerPriority(pid, priority, setPriority = os.setPriority) {
   }
 }
 
+/**
+ * Ends a helper this process gives up on, and its pipes with it. The input reaches the
+ * child with `stdin.end()`, a write and a shutdown request, and a pending request
+ * holds the event loop open although the stream is unref'd. On Windows a pipe's
+ * shutdown waits until the reader has drained it or its handle is gone, so a helper
+ * killed before it read its input (one still starting on a loaded machine) kept this
+ * process from exiting until the system finished tearing the helper down: seconds.
+ * Destroying the streams closes the pipes now, which cancels the request.
+ */
+export function stopChild(child) {
+  child.kill("SIGKILL");
+  for (const stream of child.stdio ?? []) stream?.destroy?.();
+}
+
 function attempt(
   entryFile,
   input,
@@ -73,7 +87,7 @@ function attempt(
       try {
         lowerPriority(child.pid, priority);
       } catch (error) {
-        child.kill("SIGKILL");
+        stopChild(child);
         throw error;
       }
     }
@@ -91,7 +105,7 @@ function attempt(
     const started = performance.now();
     const suspension = suspensionTracker({ intervalMs: pollMs });
     const onAbort = () => {
-      child.kill("SIGKILL");
+      stopChild(child);
       finish({ ok: false, oom: false, cancelled: true, error: `${label} was cancelled`, heapMb });
     };
     const finish = (result) => {
@@ -111,7 +125,7 @@ function attempt(
       outputBytes += Buffer.byteLength(chunk);
       if (outputBytes > MAX_OUTPUT_BYTES) {
         overflow = true;
-        child.kill("SIGKILL");
+        stopChild(child);
         finish({
           ok: false,
           oom: false,
@@ -179,7 +193,7 @@ function attempt(
     timer = setInterval(() => {
       suspension.tick();
       if (performance.now() - started - suspension.suspendedMs <= timeoutMs) return;
-      child.kill("SIGKILL");
+      stopChild(child);
       finish({
         ok: false,
         oom: false,
@@ -191,7 +205,7 @@ function attempt(
     try {
       child.stdin?.end(JSON.stringify(input));
     } catch (error) {
-      child.kill("SIGKILL");
+      stopChild(child);
       finish({
         ok: false,
         oom: false,
