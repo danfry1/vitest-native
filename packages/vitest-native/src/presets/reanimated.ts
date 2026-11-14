@@ -144,7 +144,7 @@ function probeHook(call: () => unknown): unknown {
  * `modify(modifier?, forceUpdate = true)` (the value becomes the modifier's result),
  * `addListener(id, listener)` / `removeListener(id)`, each listener called with the new
  * value on every write, and the `_isReanimatedSharedValue` mark. A read (`.value` or
- * `get()`) is recorded while a derived value's updater runs (derivedValue).
+ * `get()`) is recorded while a mapper runs (mapper).
  */
 export function sharedValue<T>(init: T) {
   let current = init;
@@ -156,7 +156,7 @@ export function sharedValue<T>(init: T) {
   const shared = {
     _isReanimatedSharedValue: true as const,
     get value(): T {
-      derivedReads?.add(shared);
+      mapperReads?.add(shared);
       return current;
     },
     set value(next: T) {
@@ -164,7 +164,7 @@ export function sharedValue<T>(init: T) {
       notify();
     },
     get: (): T => {
-      derivedReads?.add(shared);
+      mapperReads?.add(shared);
       return current;
     },
     set(next: T | ((value: T) => T)) {
@@ -187,66 +187,44 @@ export function sharedValue<T>(init: T) {
 
 type SharedValue = ReturnType<typeof sharedValue<unknown>>;
 
-/** The shared values read while a derived value's updater runs, or null outside one. */
-let derivedReads: Set<SharedValue> | null = null;
+/** The shared values read while a mapper runs (mapper), or null outside one. */
+let mapperReads: Set<SharedValue> | null = null;
 
-/**
- * Reanimated's useDerivedValue: a shared value holding what `updater` returns, recomputed
- * whenever a shared value the updater read changes, without a render. Reanimated starts a
- * mapper over the updater's inputs and runs it on every change of one (at once under
- * Jest, src/mappers.ts maybeRequestUpdates); here the inputs are the shared values the
- * last run read, so it needs no Babel plugin. It also recomputes on every render, as the
- * mock's does, so a value the updater takes from props is current, and once more on
- * mount, as Reanimated's mapper runs when it starts. Listeners hear a changed result, and
- * the subscriptions end when the component unmounts.
- */
-export function derivedValue(updater: () => unknown): SharedValue {
-  // Outside a render, which the mock allows, a new one each call, with no component to
-  // unmount; in one, kept per component (perComponent).
-  const rendering = useRefOrNull<DerivedState>();
-  const state = rendering?.current ?? derivedState(updater);
-  if (rendering && rendering.current === null) rendering.current = state;
-  state.updater = updater;
-  state.run();
-  if (rendering) {
-    // Subscribed again on mount, as Reanimated starts its mapper in an effect (a
-    // StrictMode remount stops it first).
-    React.useEffect(() => {
-      state.run();
-      return () => state.stop();
-    }, [state]);
+/** `fn()` with no reads recorded: what a reaction does is not one of its inputs. */
+function untracked<T>(fn: () => T): T {
+  const outer = mapperReads;
+  mapperReads = null;
+  try {
+    return fn();
+  } finally {
+    mapperReads = outer;
   }
-  return state.derived;
 }
 
-type DerivedState = ReturnType<typeof derivedState>;
-
-function derivedState(updater: () => unknown) {
+/**
+ * What Reanimated's mapper does for its hooks: `run()` runs `body`, and runs it again
+ * whenever a shared value the last run read changes, until `stop()`. Reanimated runs a
+ * mapper on every change of one of its inputs (at once under Jest, src/mappers.ts
+ * maybeRequestUpdates); here the inputs are the shared values the last run read, so it
+ * needs no Babel plugin. `own` is a shared value the body writes, not an input.
+ */
+function mapper(body: () => void, own?: SharedValue) {
   const held = {
-    derived: sharedValue<unknown>(undefined),
-    updater,
+    body,
     inputs: new Set<SharedValue>(),
-    ran: false,
-    last: undefined as unknown,
     run() {
-      const outer = derivedReads;
+      const outer = mapperReads;
       const read = new Set<SharedValue>();
-      derivedReads = read;
-      let next: unknown;
+      mapperReads = read;
       try {
-        next = held.updater();
+        held.body();
       } finally {
-        derivedReads = outer;
+        mapperReads = outer;
       }
-      read.delete(held.derived);
+      if (own) read.delete(own);
       for (const input of held.inputs) if (!read.has(input)) input.removeListener(held);
       for (const input of read) if (!held.inputs.has(input)) input.addListener(held, held.run);
       held.inputs = read;
-      if (!held.ran || !Object.is(held.last, next)) {
-        held.ran = true;
-        held.last = next;
-        held.derived.value = next;
-      }
     },
     stop() {
       for (const input of held.inputs) input.removeListener(held);
@@ -255,6 +233,137 @@ function derivedState(updater: () => unknown) {
   };
   return held;
 }
+
+type Mapper = ReturnType<typeof mapper>;
+
+/**
+ * A mapper kept per component, run on every render (so what the updater takes from
+ * props is current), and once more on mount, as Reanimated starts its mapper in an
+ * effect; it stops when the component unmounts (a StrictMode remount stops it first).
+ * Outside a render, which the mock allows, a new one each call, run once, with no
+ * component to unmount.
+ */
+function renderMapper<T extends Mapper>(create: () => T, update: (held: T) => void): T {
+  const rendering = useRefOrNull<T>();
+  const held = rendering?.current ?? create();
+  if (rendering && rendering.current === null) rendering.current = held;
+  update(held);
+  held.run();
+  if (rendering) {
+    React.useEffect(() => {
+      held.run();
+      return () => held.stop();
+    }, [held]);
+  }
+  return held;
+}
+
+/**
+ * Reanimated's useDerivedValue: a shared value holding what `updater` returns, recomputed
+ * whenever a shared value the updater read changes, without a render (renderMapper).
+ * Listeners hear a changed result.
+ */
+export function derivedValue(updater: () => unknown): SharedValue {
+  const held = renderMapper(
+    () => {
+      const derived = sharedValue<unknown>(undefined);
+      let ran = false;
+      let last: unknown;
+      const state = mapper(() => {
+        const next = state.updater();
+        if (!ran || !Object.is(last, next)) {
+          ran = true;
+          last = next;
+          derived.value = next;
+        }
+      }, derived);
+      return Object.assign(state, { derived, updater });
+    },
+    (state) => {
+      state.updater = updater;
+    },
+  );
+  return held.derived;
+}
+
+/**
+ * Reanimated's useAnimatedStyle and useAnimatedProps: what `updater` returns, kept current
+ * whenever a shared value the updater read changes, without a render (renderMapper).
+ * Reanimated applies the new result to the view; here each render gives a copy of the
+ * result, and a change rewrites that copy in place, so the props a test reads hold it,
+ * also in a child React skipped. The updater's own object is never written. A result
+ * that is not a plain object is given as it is, and updated only by a render.
+ */
+export function animatedStyle(updater: () => unknown): unknown {
+  const held = renderMapper(
+    () => {
+      const state = mapper(() => {
+        const next = state.updater();
+        if (state.rendering || !isPlainObject(next) || !isPlainObject(state.shown)) {
+          state.shown = isPlainObject(next) ? { ...next } : next;
+          return;
+        }
+        const shown = state.shown;
+        for (const key of Object.keys(shown)) if (!(key in next)) delete shown[key];
+        Object.assign(shown, next);
+      });
+      return Object.assign(state, { updater, shown: undefined as unknown, rendering: true });
+    },
+    (state) => {
+      state.updater = updater;
+      state.rendering = true;
+    },
+  );
+  held.rendering = false;
+  return held.shown;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
+ * Reanimated's useAnimatedReaction: calls `react(prepared, previous)` on mount and
+ * whenever a shared value `prepare` read changes, without a render, with `previous` the
+ * last prepared result (null the first time). As in Reanimated
+ * (useAnimatedReactionCommon.ts), the functions are those of the render that started it,
+ * and it starts again, keeping `previous`, when `dependencies` change, or without them
+ * when the worklets Babel plugin finds that the functions' closures changed.
+ */
+export function animatedReaction(
+  prepare: (() => unknown) & Worklet,
+  react: ((prepared: unknown, previous: unknown) => void) & Worklet,
+  dependencies?: readonly unknown[],
+): void {
+  const rendering = useRefOrNull<{ previous: unknown }>();
+  if (rendering === null) return;
+  if (rendering.current === null) rendering.current = { previous: null };
+  const memo = rendering.current;
+  const deps =
+    dependencies === undefined
+      ? [
+          ...(prepare.__closure ? Object.values(prepare.__closure) : []),
+          ...(react.__closure ? Object.values(react.__closure) : []),
+          prepare.__workletHash,
+          react.__workletHash,
+        ]
+      : [...dependencies, prepare.__workletHash, react.__workletHash];
+  React.useEffect(() => {
+    const held = mapper(() => {
+      const input = prepare();
+      untracked(() => react(input, memo.previous));
+      memo.previous = input;
+    });
+    held.run();
+    return () => held.stop();
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- Reanimated's own dependencies
+  }, deps);
+}
+
+/** What the worklets Babel plugin adds to a worklet. */
+type Worklet = { __closure?: Record<string, unknown>; __workletHash?: number };
 
 /**
  * `create()` once per component, as Reanimated's hooks keep their shared values: a
@@ -329,6 +438,31 @@ export function mockCorrections(
   }
   if (wrong("useDerivedValue", (hook) => hook(() => 0))) {
     fixed.useDerivedValue = derivedValue;
+  }
+  // useAnimatedStyle and useAnimatedProps, while the mock's run the updater only at render,
+  // and useAnimatedReaction, while the mock's never calls the reaction (#754). Probed
+  // outside a render with this module's shared values (sharedValue), which a hook that
+  // needs React does not reach.
+  const probe = sharedValue(0);
+  for (const name of ["useAnimatedStyle", "useAnimatedProps"]) {
+    const given = gives(name, (hook) => {
+      const result = hook(() => ({ probe: probe.get() }));
+      probe.set(probe.get() + 1);
+      return result;
+    }) as Record<string, unknown> | undefined;
+    if (given !== NEEDS_RENDER && given?.probe !== probe.get()) fixed[name] = animatedStyle;
+  }
+  let reacted = false;
+  const reaction = gives("useAnimatedReaction", (hook) =>
+    hook(
+      () => 0,
+      () => {
+        reacted = true;
+      },
+    ),
+  );
+  if (typeof mock.useAnimatedReaction === "function" && reaction !== NEEDS_RENDER && !reacted) {
+    fixed.useAnimatedReaction = animatedReaction;
   }
   for (const name of ["useScrollOffset", "useScrollViewOffset", "useTimestamp"]) {
     if (wrong(name, (hook) => hook())) {
@@ -785,13 +919,8 @@ export function reanimated(): Preset {
             return ref.current;
           }
 
-          function useAnimatedStyle(updater: () => any) {
-            return updater();
-          }
-
-          function useAnimatedProps(updater: () => any) {
-            return updater();
-          }
+          const useAnimatedStyle = animatedStyle;
+          const useAnimatedProps = animatedStyle;
 
           const useDerivedValue = derivedValue;
 
@@ -826,13 +955,7 @@ export function reanimated(): Preset {
             return vi.fn();
           }
 
-          function useAnimatedReaction(
-            _prepare: () => any,
-            _react: (prepared: any, previous: any) => void,
-            _deps?: any[],
-          ) {
-            // No-op in tests — reaction doesn't fire
-          }
+          const useAnimatedReaction = animatedReaction;
 
           function useAnimatedKeyboard() {
             return {
