@@ -1151,6 +1151,28 @@
       }
     },
     {
+      "id": "pfs-hot-compiled-mjs-require",
+      "class": "per-file-state",
+      "title": "Under hot on Node 22, a compiled ES index's require() of a CommonJS sibling fails to link",
+      "source": "#847, found by a test of an esbuild-built component library (2026-11-14)",
+      "fixedBy": "a require() from compiled code the loader serves as source is served as Node's CommonJS loader serves a require, behind no generation facade",
+      "bugSignature": "is from a module not been linked",
+      "control": {
+        "why": "The stock runtime (hotRuntime: false) stamps no generation, so no facade is involved and Node links the library.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "hotRuntime: { allowUnboundedMemory: true }",
+            "replace": "hotRuntime: false"
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS"
+      }
+    },
+    {
       "id": "pfs-hot-nonconfigurable-global",
       "class": "per-file-state",
       "title": "Under hot, a non-configurable global fails every later file in the worker",

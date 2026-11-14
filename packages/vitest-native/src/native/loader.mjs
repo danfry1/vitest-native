@@ -430,6 +430,15 @@ function resolveAfter(resolved, context) {
   if (versionable(resolved.url)) {
     const gen = generationOf();
     if (gen > 0 && !resolved.url.includes("vnhot=")) {
+      // A require() from compiled code this loader served as source: served as Node's
+      // CommonJS loader serves a require, behind no generation facade (#847).
+      if (requiredFromServedSource(context.parentURL)) {
+        return {
+          ...resolved,
+          url: `${resolved.url}?vnhot=${gen}${NODE_SERVED}`,
+          shortCircuit: true,
+        };
+      }
       const url = `${resolved.url}?vnhot=${gen}`;
       pinFacade(url, context.parentURL);
       return { ...resolved, url, shortCircuit: true };
@@ -583,6 +592,7 @@ export function requireFacade(url, file, compiled) {
   // loader cannot see it (hooks.mjs), and both routes give one instance
   // (tests-native/ecosystem-mjs.test.ts).
   if (file.endsWith(".mjs")) {
+    compiledSourceModules.add(url.replace(STAMP, ""));
     return {
       format: "commonjs",
       source: names.length > 0 ? `${code}\n0 && (module.exports = { ${names.join(", ")} });` : code,
@@ -698,6 +708,20 @@ const pinnedFacades = new Set();
 // The URL of the module from which Vitest's module runner imports a test file's
 // externalized modules (pinFacade), or null to release nothing.
 let runnerImportSite = null;
+
+// Unstamped URLs of compiled modules this loader hands Node as CommonJS source (an `.mjs`
+// file, see requireFacade). Node gives such source a `require` that resolves through
+// this loader, with import conditions, so its require()s arrive here looking like
+// imports. A generation facade is an ES module, and a require() must get the module's
+// `module.exports`: on Node 22 an ES facade reached this way failed to link
+// (ERR_VM_MODULE_LINK_FAILURE, "is from a module not been linked", #847), and a facade
+// imported from outside the runner is pinned for the run (pinFacade). Served as
+// `&vnnode`, the request is the module Node's CommonJS loader owns, the instance the
+// file's own import of it reaches, and dropped per file by the hot reset.
+const compiledSourceModules = new Set();
+function requiredFromServedSource(parentURL) {
+  return typeof parentURL === "string" && compiledSourceModules.has(parentURL.replace(STAMP, ""));
+}
 
 /**
  * Vitest's module evaluator, the module whose `import(file)` loads a test file's
