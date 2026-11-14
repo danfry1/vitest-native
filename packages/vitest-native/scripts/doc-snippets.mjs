@@ -23,7 +23,11 @@ import { stripVTControlCharacters } from "node:util";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 
 /** The pages whose snippets run, relative to the repository root. */
-export const SNIPPET_PAGES = ["packages/vitest-native/README.md", "website/guide/quick-start.md"];
+export const SNIPPET_PAGES = [
+  "packages/vitest-native/README.md",
+  "website/guide/quick-start.md",
+  "website/guide/writing-tests.md",
+];
 
 /**
  * Whole files that run as snippets, by the file each becomes in the project. The landing

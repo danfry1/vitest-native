@@ -20,6 +20,14 @@ const REQUIRED: Record<string, string[]> = {
     "src/press.test.tsx",
     "src/device-state.test.tsx",
   ],
+  "website/guide/writing-tests.md": [
+    "src/SignInForm.tsx",
+    "src/SignInForm.test.tsx",
+    "src/Profile.tsx",
+    "src/Profile.test.tsx",
+    "src/Toast.tsx",
+    "src/Toast.test.tsx",
+  ],
   // The landing page's hero, shown with `<<<` and run as written.
   "website/.vitepress/hero/Counter.tsx": ["src/Counter.tsx"],
   "website/.vitepress/hero/Counter.test.tsx": ["src/Counter.test.tsx"],
