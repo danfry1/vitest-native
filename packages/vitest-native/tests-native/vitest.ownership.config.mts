@@ -70,6 +70,7 @@ export default defineConfig(({ mode }) => {
         "tests-native/navigation-params.test.tsx",
         // Spawns its own Vitest runs, for minutes: its own step (vitest.background.config.mts).
         "tests-native/registry-background.test.ts",
+        // Each runs an app as its own Vitest run, which this config does not reach.
         ...SPAWNS_OWN_RUN,
         // Asserts the flag is off: it runs in the default suite.
         "tests-native/ownership-off.test.ts",

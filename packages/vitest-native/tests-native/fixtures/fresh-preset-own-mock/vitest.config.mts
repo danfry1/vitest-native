@@ -1,6 +1,6 @@
 // Two files on one hot worker with freshRuntime and one preset, safe-area, serving the
-// installed library's own Jest mock (5.8.1 and later ship it built): no preset module
-// holds React per worker, so freshRuntime stays on (fresh-runtime-presets.ts).
+// installed library's own Jest mock (5.8.1 and later ship it built), which loads with the
+// file's own React.
 import { defineConfig } from "vitest/config";
 import { presets, reactNative } from "vitest-native";
 

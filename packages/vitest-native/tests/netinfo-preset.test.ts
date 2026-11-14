@@ -11,6 +11,7 @@
  * factories directly and never exercised AUTO_DETECT_PRESETS, which is how a preset
  * once shipped mapped to a name that shadowed nothing.
  */
+import React from "react";
 import { describe, expect, it } from "vitest";
 import { AUTO_DETECT_PRESETS } from "../src/preset-map.js";
 import * as presets from "../src/presets/index.js";
@@ -21,7 +22,7 @@ const PACKAGE = "@react-native-community/netinfo";
 /** The module object a worker would get for the shadowed package. */
 function moduleFor(): Record<string, any> {
   const preset = netInfo();
-  return preset.modules[PACKAGE].factory();
+  return preset.modules[PACKAGE].factory({ React });
 }
 
 describe("netInfo preset: wiring", () => {

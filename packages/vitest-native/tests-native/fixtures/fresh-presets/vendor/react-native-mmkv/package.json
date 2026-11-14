@@ -1,0 +1,10 @@
+{
+  "name": "react-native-mmkv",
+  "version": "2.12.2",
+  "description": "Stand-in with the package's name only, at a 2.x version: from 3 on, react-native-mmkv tests itself under Vitest and the preset steps aside (SELF_TESTING_FROM_MAJOR), so only 2.x is served by vitest-native's mmkv preset, which replaces it; its code never runs.",
+  "main": "lib/index.js",
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  }
+}

@@ -20,9 +20,14 @@ import {
   requireProjectContext,
 } from "../context.mjs";
 import { importPresetModule, presetModulePaths } from "../preset-modules.mjs";
+import { presetFactoryContext } from "../preset-react.mjs";
 import { installNitroProxy } from "./nitro.mjs";
 import { createExpoNativeModuleResolver } from "./expo-native-modules.mjs";
-import { beginTestFile, installLibraryJest } from "./library-jest.mjs";
+import { beginTestFile, installLibraryJest, libraryJestFor } from "./library-jest.mjs";
+import {
+  GESTURE_HANDLER_SETUP,
+  registerGestureHandlerButtons,
+} from "./gesture-handler-buttons.mjs";
 import { cacheRootFor } from "./transform.mjs";
 import { installKnownNativeModules } from "./native-modules.mjs";
 import { OWNERSHIP_META_KEY, installOwnershipLedger } from "./ownership-ledger.mjs";
@@ -355,6 +360,11 @@ for (const request of runContext.librarySetupFiles ?? []) {
   if (file === null) continue;
   delete load.cache[file];
   load(request);
+  // What the package's own setup leaves real and a test cannot press: Gesture Handler
+  // 3's button host (gesture-handler-buttons.mjs), registered as if from its jestSetup.js.
+  if (request === GESTURE_HANDLER_SETUP) {
+    registerGestureHandlerButtons(libraryJestFor(vi, file));
+  }
 }
 // Through Vitest, so a TypeScript preset module loads. Its export lists already
 // reached the ESM loader from the plugin; a module the plugin did not read would be
@@ -397,7 +407,10 @@ for (const { pkg, mod, presetName } of presetDefs) {
     enumerable: true,
     get() {
       if (!builtPresetMocks.has(pkg)) {
-        builtPresetMocks.set(pkg, mod.factory());
+        builtPresetMocks.set(
+          pkg,
+          mod.factory(presetFactoryContext(pkg, projectRoot, { check: true })),
+        );
         if (diagnostics) {
           console.log(`[vitest-native] (native) built preset mock: ${pkg} (${presetName})`);
         }

@@ -14,7 +14,7 @@ import { render, screen } from "@testing-library/react-native";
 import { View, Text, StyleSheet } from "react-native";
 import { reanimated } from "../src/presets/index.js";
 
-const rea = reanimated().modules["react-native-reanimated"].factory();
+const rea = reanimated().modules["react-native-reanimated"].factory({ React });
 
 describe("toHaveAnimatedStyle", () => {
   it("matches a subset of the element's style", async () => {
