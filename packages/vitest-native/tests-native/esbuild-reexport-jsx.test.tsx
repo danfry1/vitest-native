@@ -16,6 +16,7 @@
 import * as React from "react";
 import { render, screen } from "@testing-library/react-native";
 import { expect, it } from "vitest";
+import { projectContext } from "../src/context.mjs";
 import * as Badge from "rn-esbuild-reexport-lib";
 // The same package through its CommonJS index alone, which Node runs as published and
 // reads the names of from the loaded module: a guard that it stays that way.
@@ -24,9 +25,23 @@ import * as BadgeCjs from "rn-esbuild-reexport-lib/cjs";
 // The bug's condition: the namespace is built from the ES index, which the engine
 // compiles, and whose re-exported module Node cannot read from disk. The CommonJS index,
 // run as published, never had the bug, so a resolution change to it would pass vacuously.
-it("resolves the package to its ES index, the build the bug was in", () => {
-  expect(import.meta.resolve("rn-esbuild-reexport-lib")).toMatch(/\/build\/index\.mjs$/);
-});
+// The ownership models resolve the import through the `require` condition instead (#838),
+// so there this file checks the CommonJS index only.
+const ownershipModel = projectContext()?.ownershipModel;
+
+it.runIf(ownershipModel === undefined)(
+  "resolves the package to its ES index, the build the bug was in",
+  () => {
+    expect(import.meta.resolve("rn-esbuild-reexport-lib")).toMatch(/\/build\/index\.mjs$/);
+  },
+);
+
+it.runIf(ownershipModel !== undefined)(
+  "resolves the package to its CommonJS index under the ownership models (#838)",
+  () => {
+    expect(import.meta.resolve("rn-esbuild-reexport-lib")).toMatch(/\/build\/index\.js(?:\?|$)/);
+  },
+);
 
 it.each([
   ["the ES build, compiled", Badge],
