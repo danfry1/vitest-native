@@ -334,6 +334,117 @@ export function transformCacheDir(projectRoot) {
   return contexts.get(canonicalRoot(projectRoot))?.cacheDir ?? null;
 }
 
+/** The specifier of `require("x")`, or null. */
+function requiredSpecifier(node) {
+  return node?.type === "CallExpression" &&
+    node.callee.type === "Identifier" &&
+    node.callee.name === "require" &&
+    node.arguments.length === 1 &&
+    node.arguments[0].type === "StringLiteral"
+    ? node.arguments[0].value
+    : null;
+}
+
+// Helpers that copy every export of a required module: TypeScript's (`__exportStar`,
+// `__export`) and esbuild's (`__reExport`).
+const REEXPORT_HELPERS = new Set(["__exportStar", "__export", "__reExport"]);
+
+/**
+ * The specifiers a CommonJS module re-exports whole, read from its AST: the forms
+ * cjs-module-lexer follows as re-exports.
+ *
+ * - `module.exports = require("x")`;
+ * - a spread in an object assigned to `module.exports`, as in esbuild's
+ *   `0 && (module.exports = { ...require("x") })` hint;
+ * - TypeScript's `__exportStar(require("x"), exports)` and esbuild's
+ *   `__reExport(target, require("x"), module.exports)`;
+ * - Babel's `var _x = require("x"); Object.keys(_x).forEach(…)`.
+ *
+ * Node reads a re-exported file from disk to find its names, past the module loader's
+ * hooks, so the names of a file the engine compiles are lost there (compiledReexports
+ * in loader.mjs). Returns [] for code that does not parse.
+ */
+export function cjsReexports(code) {
+  if (!/\brequire\s*\(/.test(code)) return [];
+  const ctx = anyContext();
+  if (!ctx) return [];
+  if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
+  let ast;
+  try {
+    ast = ctx.babel.parseSync(code, { babelrc: false, configFile: false, sourceType: "script" });
+  } catch {
+    return [];
+  }
+  const found = new Set();
+  const required = new Map(); // `var _x = require("x")`: _x → "x"
+  const isModuleExports = (node) =>
+    node?.type === "MemberExpression" &&
+    !node.computed &&
+    node.object.type === "Identifier" &&
+    node.object.name === "module" &&
+    node.property.type === "Identifier" &&
+    node.property.name === "exports";
+  const visitExpression = (node) => {
+    if (!node) return;
+    if (node.type === "LogicalExpression" || node.type === "SequenceExpression") {
+      for (const part of node.type === "LogicalExpression"
+        ? [node.left, node.right]
+        : node.expressions)
+        visitExpression(part);
+      return;
+    }
+    if (node.type === "AssignmentExpression" && isModuleExports(node.left)) {
+      const direct = requiredSpecifier(node.right);
+      if (direct) found.add(direct);
+      if (node.right.type === "ObjectExpression") {
+        for (const property of node.right.properties) {
+          const spread =
+            property.type === "SpreadElement" ? requiredSpecifier(property.argument) : null;
+          if (spread) found.add(spread);
+        }
+      }
+      return;
+    }
+    if (node.type !== "CallExpression") return;
+    if (node.callee.type === "Identifier" && REEXPORT_HELPERS.has(node.callee.name)) {
+      for (const argument of node.arguments) {
+        const specifier = requiredSpecifier(argument) ?? required.get(argument.name);
+        if (specifier) found.add(specifier);
+      }
+      return;
+    }
+    // Object.keys(_x).forEach(…)
+    const callee = node.callee;
+    if (
+      callee.type === "MemberExpression" &&
+      callee.property.type === "Identifier" &&
+      callee.property.name === "forEach" &&
+      callee.object.type === "CallExpression" &&
+      callee.object.callee.type === "MemberExpression" &&
+      callee.object.callee.object.type === "Identifier" &&
+      callee.object.callee.object.name === "Object" &&
+      callee.object.callee.property.name === "keys" &&
+      callee.object.arguments[0]?.type === "Identifier"
+    ) {
+      const specifier = required.get(callee.object.arguments[0].name);
+      if (specifier) found.add(specifier);
+    }
+  };
+  for (const statement of ast.program.body) {
+    if (statement.type === "VariableDeclaration") {
+      for (const declaration of statement.declarations) {
+        const specifier = requiredSpecifier(declaration.init);
+        if (specifier && declaration.id.type === "Identifier") {
+          required.set(declaration.id.name, specifier);
+        }
+      }
+    } else if (statement.type === "ExpressionStatement") {
+      visitExpression(statement.expression);
+    }
+  }
+  return [...found];
+}
+
 /** Returns true if the source contains RN Flow syntax that must be transformed. */
 /** A valid identifier, so a name can appear in the shorthand export hint. */
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
@@ -388,7 +499,17 @@ export function cjsExportNames(code) {
   };
   for (const statement of ast.program.body) {
     if (statement.type !== "ExpressionStatement") continue;
-    const expression = statement.expression;
+    let expression = statement.expression;
+    // esbuild's dead hint for Node, `0 && (module.exports = { a, b })`, is the one place
+    // its CommonJS output names its exports: they are otherwise getters set up through
+    // `__export(target, { a: () => a })` and `module.exports = __toCommonJS(target)`.
+    if (
+      expression.type === "LogicalExpression" &&
+      expression.operator === "&&" &&
+      expression.right.type === "AssignmentExpression"
+    ) {
+      expression = expression.right;
+    }
     if (expression.type !== "AssignmentExpression" || expression.operator !== "=") continue;
     const target = expression.left;
     // `module.exports = { … }` / `exports = { … }` — take the literal's own keys.

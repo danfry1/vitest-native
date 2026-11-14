@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -18,7 +20,7 @@ import { reactNative } from "../src/index.js";
 import { runPluginConfig } from "./plugin-config.js";
 import { contextOf } from "./project-context-helpers.js";
 // @ts-expect-error — internal runtime .mjs, intentionally not public API
-import { lowerPriority } from "../src/native/bounded-process.mjs";
+import { lowerPriority, runBoundedProcess } from "../src/native/bounded-process.mjs";
 // @ts-expect-error — internal runtime .mjs, intentionally not public API
 import { registryKey } from "../src/native/registry.mjs";
 
@@ -33,7 +35,7 @@ function compiler(name: string, source: string): string {
 
 const respond = `
   import fs from "node:fs";
-  const options = JSON.parse(fs.readFileSync(0, "utf8"));
+  const options = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
   fs.writeSync(3, JSON.stringify({
     ok: true,
     registryFile: options.registryFile,
@@ -108,7 +110,7 @@ describe("bounded registry compiler process", () => {
       "ordinary-failure",
       `
         import fs from "node:fs";
-        fs.readFileSync(0, "utf8");
+        fs.readFileSync(process.argv[2], "utf8");
         fs.writeSync(3, JSON.stringify({ ok: false, error: "bad transform" }));
         process.exitCode = 1;
       `,
@@ -129,7 +131,7 @@ describe("bounded registry compiler process", () => {
       "oom-then-success",
       `
         import fs from "node:fs";
-        fs.readFileSync(0, "utf8");
+        fs.readFileSync(process.argv[2], "utf8");
         const heap = Number(process.execArgv[0].split("=")[1]);
         if (heap < 64) {
           process.stderr.write("FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\\n");
@@ -149,12 +151,134 @@ describe("bounded registry compiler process", () => {
     });
   });
 
+  it("gives a helper its input in a file and no stdin, so nothing to it can hold this process open", async () => {
+    // A pending stdin.end() to a helper held the event loop open; on Windows until the
+    // system had torn a stopped helper down, seconds on a loaded machine.
+    const dir = fs.mkdtempSync(path.join(fixtureRoot, "input-"));
+    const file = compiler("echo-input", `${respond}`);
+    let child: ReturnType<typeof spawn> | undefined;
+    const result = await runBoundedProcess(
+      file,
+      { registryFile: "x.cjs", projectRoot: "/p" },
+      {
+        initialHeapMb: 64,
+        retryHeapMb: 64,
+        inputDir: dir,
+        spawnProcess: (...args: Parameters<typeof spawn>) => (child = spawn(...args)),
+      },
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      received: { registryFile: "x.cjs", projectRoot: "/p" },
+    });
+    expect(child!.stdin).toBeNull();
+    expect(fs.readdirSync(path.join(dir, "helper-input"))).toEqual([]);
+  });
+
+  it("removes the input file however the helper ends", async () => {
+    const dir = fs.mkdtempSync(path.join(fixtureRoot, "cleanup-"));
+    const left = () => fs.readdirSync(path.join(dir, "helper-input"));
+    const base = { initialHeapMb: 64, retryHeapMb: 64, inputDir: dir };
+    const idle = compiler("idle", `setInterval(() => {}, 1_000);`);
+
+    // Answered.
+    await runBoundedProcess(compiler("answers", respond), {}, base);
+    expect(left()).toEqual([]);
+    // Stopped.
+    const controller = new AbortController();
+    const stopped = runBoundedProcess(idle, {}, { ...base, signal: controller.signal });
+    await vi.waitFor(() => expect(left()).toHaveLength(1));
+    controller.abort();
+    expect(await stopped).toMatchObject({ cancelled: true });
+    expect(left()).toEqual([]);
+    // Timed out.
+    expect(await runBoundedProcess(idle, {}, { ...base, timeoutMs: 100 })).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("exceeded 100ms"),
+    });
+    expect(left()).toEqual([]);
+    // Could not start.
+    const failed = await runBoundedProcess(
+      idle,
+      {},
+      {
+        ...base,
+        spawnProcess: () => {
+          throw new Error("spawn unavailable");
+        },
+      },
+    );
+    expect(failed).toMatchObject({ ok: false, error: "spawn unavailable" });
+    expect(left()).toEqual([]);
+    // Threw: a priority os.setPriority rejects outright.
+    await expect(runBoundedProcess(idle, {}, { ...base, priority: 999 })).rejects.toThrow();
+    expect(left()).toEqual([]);
+  });
+
+  it("removes this host's old input files whose writer has died, and no others", async () => {
+    // A run killed outright cannot remove its helper's input; a later one does. Another
+    // host's process ids mean nothing here (a project directory shared by containers),
+    // and a recent file may still be about to be read.
+    const dir = fs.mkdtempSync(path.join(fixtureRoot, "orphans-"));
+    const inputs = path.join(dir, "helper-input");
+    fs.mkdirSync(inputs);
+    const ended = spawn(process.execPath, ["-e", ""]);
+    await new Promise((done) => ended.on("exit", done));
+    const host = os
+      .hostname()
+      .replace(/[^a-z0-9]+/gi, "-")
+      .toLowerCase();
+    const name = (onHost: string, pid: number) =>
+      ["compiler", onHost, pid, crypto.randomUUID(), "json"].join(".");
+    const old = new Date(Date.now() - 60 * 60_000);
+    const files = {
+      deadOld: name(host, ended.pid!),
+      deadFresh: name(host, ended.pid!),
+      liveOld: name(host, process.ppid),
+      otherHostOld: name(`${host}-elsewhere`, ended.pid!),
+    };
+    for (const [kind, file] of Object.entries(files)) {
+      fs.writeFileSync(path.join(inputs, file), "{}");
+      if (kind !== "deadFresh") fs.utimesSync(path.join(inputs, file), old, old);
+    }
+    await runBoundedProcess(
+      compiler("answers-again", respond),
+      {},
+      {
+        initialHeapMb: 64,
+        retryHeapMb: 64,
+        inputDir: dir,
+      },
+    );
+    expect(fs.readdirSync(inputs).sort()).toEqual(
+      [files.deadFresh, files.liveOld, files.otherHostOld].sort(),
+    );
+  });
+
+  it("gives concurrent helpers input files of their own", async () => {
+    const dir = fs.mkdtempSync(path.join(fixtureRoot, "concurrent-"));
+    const file = compiler(
+      "names-input",
+      `import fs from "node:fs";
+       fs.writeSync(3, JSON.stringify({ ok: true, file: process.argv[2], input: JSON.parse(fs.readFileSync(process.argv[2], "utf8")) }));`,
+    );
+    const results = await Promise.all(
+      [1, 2, 3, 4].map((n) =>
+        runBoundedProcess(file, { n }, { initialHeapMb: 64, retryHeapMb: 64, inputDir: dir }),
+      ),
+    );
+    expect(results.map((r) => r.input.n)).toEqual([1, 2, 3, 4]);
+    expect(new Set(results.map((r) => r.file)).size).toBe(4);
+    for (const r of results) expect(path.dirname(r.file)).toBe(path.join(dir, "helper-input"));
+    expect(fs.readdirSync(path.join(dir, "helper-input"))).toEqual([]);
+  });
+
   it("kills and reports a compiler that exceeds its deadline", async () => {
     const file = compiler(
       "timeout",
       `
         import fs from "node:fs";
-        fs.readFileSync(0, "utf8");
+        fs.readFileSync(process.argv[2], "utf8");
         setInterval(() => {}, 1_000);
       `,
     );

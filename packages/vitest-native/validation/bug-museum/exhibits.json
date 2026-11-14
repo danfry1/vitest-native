@@ -1444,6 +1444,15 @@
       "preFixRef": "0f2400e"
     },
     {
+      "id": "res-esbuild-reexport-jsx",
+      "class": "transform/resolution",
+      "title": "A component library built by esbuild with JSX preserved imports as an empty namespace",
+      "source": "a survey of public projects that use vitest-native (a tsup-built primitives library)",
+      "fixedBy": "the compiled re-export names fix",
+      "bugSignature": "^badge\\.test\\.tsx: (AssertionError: Badge\\.Root: expected 'undefined' to be 'function'.*|Error: Element type is invalid.*)$",
+      "fixRef": "3d74dd92839adfdd029809074bc3cf794d0f25ee"
+    },
+    {
       "id": "res-esm-cycle-default",
       "class": "transform/resolution",
       "title": "A default import read during an import cycle must stay live",
@@ -2234,6 +2243,24 @@
         ]
       },
       "fixRef": "964c6c664c6032c6f0a908f9747977e57dae2f96"
+    },
+    {
+      "id": "pre-712-navigation-ref-reset-root",
+      "class": "presets",
+      "title": "A navigation container ref has no resetRoot",
+      "source": "#712",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/navigation-preset-missing-api",
+      "bugSignature": "^app\\.test\\.tsx: TypeError: navigationRef\\.resetRoot is not a function"
+    },
+    {
+      "id": "env-expo-snapshot-friendly-ref",
+      "class": "env-contract",
+      "title": "A snapshot prints the fiber tree behind an Expo ref",
+      "source": "#849",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/expo-snapshot-friendly-ref",
+      "bugSignature": "^snapshot-ref\\.test\\.tsx: Error: Snapshot `a snapshot prints the ref as jest-expo does 1` mismatched"
     },
     {
       "id": "pre-857-mock-interpolate-color",

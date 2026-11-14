@@ -13,6 +13,7 @@ import {
   transformRN,
   isFlow,
   cjsExportNames,
+  cjsReexports,
   needsTransform,
 } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
@@ -583,7 +584,7 @@ export function requireFacade(url, file, compiled) {
   // A `#!` line is valid only as a source's first characters; carried inside the
   // facade it would be a syntax error. The carried code is never run.
   const code = compiled.startsWith("#!") ? compiled.replace(/^#!.*/, "") : compiled;
-  const names = cjsExportNames(code);
+  const names = [...new Set([...cjsExportNames(code), ...compiledReexports(file, code)])];
   // An `.mjs` file is an ES module wherever it is loaded, so the CommonJS loader cannot
   // own it: requiring it is Node's require(esm), which on Node 20.19 and 22.13 fails
   // for a module this loader is still loading ("Cannot require() ES Module ... in a
@@ -611,6 +612,88 @@ export function requireFacade(url, file, compiled) {
     ].join("\n"),
     shortCircuit: true,
   };
+}
+
+/**
+ * The code this loader compiles `file` to, or null for a file Node runs as published (or
+ * React Native's own, which has its own facade). The decisions loadModule makes, for a
+ * file reached by `require` rather than loaded here.
+ */
+function compiledCodeOf(file) {
+  const norm = file.replace(/\\/g, "/");
+  if (ownership.reactNativePathFor(file) !== null) return null;
+  if (!isExtra(norm)) {
+    return NODE_MODULES_TS.test(norm) ? transformRN(file, undefined, PROJECT_ROOT, PLATFORM) : null;
+  }
+  const stub = boundarySourceFor(norm, PLATFORM, REACT_NATIVE_VERSION);
+  if (stub != null) return stub;
+  if (!TRANSFORMABLE.test(norm)) return null;
+  const held = heldTransform(file, PROJECT_ROOT, PLATFORM);
+  if (held !== undefined) return held;
+  const src = fs.readFileSync(file, "utf8");
+  return needsTransform(file, src) ? transformRN(file, src, PROJECT_ROOT, PLATFORM) : null;
+}
+
+/**
+ * The names a CommonJS module re-exports from files this loader compiles.
+ *
+ * Node builds an imported CommonJS module's named exports with cjs-module-lexer, and for
+ * a re-export (`module.exports = { ...require("./avatar") }`, `__exportStar(require(…))`)
+ * it reads the re-exported file from disk to lex it there. That read passes no loader
+ * hook, so for a file the engine compiles Node lexes the published source instead: JSX in
+ * a `.js` file (an esbuild build left untransformed), which the lexer cannot read, so the
+ * names were dropped. An esbuild-built library meets this through its ES build: the
+ * index's `export * from "./avatar"` compiles to Babel's `Object.keys(_avatar).forEach`
+ * re-export, and avatar.js is JSX. The namespace held only `default`, and Vitest takes a
+ * namespace with `__esModule` as it is, so `import * as Avatar` gave `Avatar.Root ===
+ * undefined`. Here each re-exported file is followed (cjsReexports), and the names of
+ * one this loader compiles are read from its compiled code, through its own re-exports
+ * too. For the compiled modules this loader serves (requireFacade); a module Node loads
+ * as published is loaded through the CommonJS loader first, and its names are read from
+ * the loaded module.
+ */
+function compiledReexports(file, code, seen = new Set([file])) {
+  const names = new Set();
+  for (const specifier of cjsReexports(code)) {
+    // Unresolvable: Node fails the require itself, with its own error.
+    const target = resolvedOrNull(file, specifier);
+    if (target === null || seen.has(target) || !path.isAbsolute(target)) continue;
+    seen.add(target);
+    // Failing to compile: the require compiles it, and reports its own error.
+    const compiled = compiledCodeOrFailure(target);
+    if (compiled === COMPILE_FAILED) continue;
+    if (compiled !== null) for (const name of cjsExportNames(compiled)) names.add(name);
+    const source = compiled ?? readOrNull(target);
+    if (source !== null)
+      for (const name of compiledReexports(target, source, seen)) names.add(name);
+  }
+  return [...names];
+}
+
+const COMPILE_FAILED = Symbol("compile failed");
+
+function compiledCodeOrFailure(file) {
+  try {
+    return compiledCodeOf(file);
+  } catch {
+    return COMPILE_FAILED;
+  }
+}
+
+function resolvedOrNull(from, specifier) {
+  try {
+    return createRequire(from).resolve(specifier);
+  } catch {
+    return null;
+  }
+}
+
+function readOrNull(file) {
+  try {
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
 }
 
 /**

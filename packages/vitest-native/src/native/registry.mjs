@@ -39,7 +39,7 @@ import {
   TRANSFORM_CACHE_VERSION,
 } from "./transform.mjs";
 
-import { boundarySourceFor, BOUNDARY_SOURCES } from "./boundary.mjs";
+import { boundarySourceFor, BOUNDARY_SOURCES, PACKAGE_STUBS } from "./boundary.mjs";
 import { resolveTransformPreset } from "./babel-preset.mjs";
 import { assetRegistryPathFor, nativeAssetModuleSource } from "./assets.mjs";
 import {
@@ -310,6 +310,11 @@ export function registryKeyInputs({
       String(boundarySourceFor(`/react-native/${suffix}`, platform, reactNativeVersion)),
     );
     boundaries.update("\0");
+  }
+  for (const [dir, stubs] of Object.entries(PACKAGE_STUBS)) {
+    for (const suffix of Object.keys(stubs).sort()) {
+      boundaries.update(`${dir}/${suffix}\0${stubs[suffix]}\0`);
+    }
   }
   return [
     `f${REGISTRY_FORMAT_VERSION}`,

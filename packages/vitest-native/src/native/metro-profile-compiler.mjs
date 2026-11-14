@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { VitestNativeError } from "../errors.mjs";
 import { METRO_ASSET_EXTS } from "./assets.mjs";
+import { readInput } from "./bounded-process.mjs";
 
 const BARE_SOURCE_EXTS = ["js", "jsx", "json", "ts", "tsx"];
 
@@ -185,7 +186,7 @@ async function loadProject(input) {
 }
 
 try {
-  const input = JSON.parse(fs.readFileSync(0, "utf8"));
+  const input = readInput();
   const started = performance.now();
   const profile = await loadProject(input);
   respond({
