@@ -34,7 +34,7 @@ function compiler(name: string, source: string): string {
 
 const respond = `
   import fs from "node:fs";
-  const options = JSON.parse(fs.readFileSync(0, "utf8"));
+  const options = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
   fs.writeSync(3, JSON.stringify({
     ok: true,
     registryFile: options.registryFile,
@@ -109,7 +109,7 @@ describe("bounded registry compiler process", () => {
       "ordinary-failure",
       `
         import fs from "node:fs";
-        fs.readFileSync(0, "utf8");
+        fs.readFileSync(process.argv[2], "utf8");
         fs.writeSync(3, JSON.stringify({ ok: false, error: "bad transform" }));
         process.exitCode = 1;
       `,
@@ -130,7 +130,7 @@ describe("bounded registry compiler process", () => {
       "oom-then-success",
       `
         import fs from "node:fs";
-        fs.readFileSync(0, "utf8");
+        fs.readFileSync(process.argv[2], "utf8");
         const heap = Number(process.execArgv[0].split("=")[1]);
         if (heap < 64) {
           process.stderr.write("FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\\n");
@@ -150,28 +150,86 @@ describe("bounded registry compiler process", () => {
     });
   });
 
-  it("closes the pipes of a compiler it stops, so none holds this process open", async () => {
-    // A pending stdin.end() (input the child has not read) holds the event loop open; on
-    // Windows until the system has torn the killed child down, seconds on a loaded
-    // machine. Stopping it must close its pipes at once.
-    const file = compiler("unread-input", `setInterval(() => {}, 1_000);`);
+  it("gives a helper its input in a file and no stdin, so nothing to it can hold this process open", async () => {
+    // A pending stdin.end() to a helper held the event loop open; on Windows until the
+    // system had torn a stopped helper down, seconds on a loaded machine.
+    const dir = fs.mkdtempSync(path.join(fixtureRoot, "input-"));
+    const file = compiler("echo-input", `${respond}`);
     let child: ReturnType<typeof spawn> | undefined;
-    const controller = new AbortController();
-    const running = runBoundedProcess(
+    const result = await runBoundedProcess(
       file,
-      { padding: "x".repeat(1024 * 1024) },
+      { registryFile: "x.cjs", projectRoot: "/p" },
       {
         initialHeapMb: 64,
         retryHeapMb: 64,
-        signal: controller.signal,
+        inputDir: dir,
         spawnProcess: (...args: Parameters<typeof spawn>) => (child = spawn(...args)),
       },
     );
-    await vi.waitFor(() => expect(child?.pid).toBeDefined());
-    expect(child!.stdin!.writableLength).toBeGreaterThan(0);
+    expect(result).toMatchObject({
+      ok: true,
+      received: { registryFile: "x.cjs", projectRoot: "/p" },
+    });
+    expect(child!.stdin).toBeNull();
+    expect(fs.readdirSync(path.join(dir, "helper-input"))).toEqual([]);
+  });
+
+  it("removes the input file however the helper ends", async () => {
+    const dir = fs.mkdtempSync(path.join(fixtureRoot, "cleanup-"));
+    const left = () => fs.readdirSync(path.join(dir, "helper-input"));
+    const base = { initialHeapMb: 64, retryHeapMb: 64, inputDir: dir };
+    const idle = compiler("idle", `setInterval(() => {}, 1_000);`);
+
+    // Answered.
+    await runBoundedProcess(compiler("answers", respond), {}, base);
+    expect(left()).toEqual([]);
+    // Stopped.
+    const controller = new AbortController();
+    const stopped = runBoundedProcess(idle, {}, { ...base, signal: controller.signal });
+    await vi.waitFor(() => expect(left()).toHaveLength(1));
     controller.abort();
-    expect(await running).toMatchObject({ ok: false, cancelled: true });
-    expect(child!.stdio.map((stream) => stream?.destroyed)).toEqual([true, true, true, true]);
+    expect(await stopped).toMatchObject({ cancelled: true });
+    expect(left()).toEqual([]);
+    // Timed out.
+    expect(await runBoundedProcess(idle, {}, { ...base, timeoutMs: 100 })).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("exceeded 100ms"),
+    });
+    expect(left()).toEqual([]);
+    // Could not start.
+    const failed = await runBoundedProcess(
+      idle,
+      {},
+      {
+        ...base,
+        spawnProcess: () => {
+          throw new Error("spawn unavailable");
+        },
+      },
+    );
+    expect(failed).toMatchObject({ ok: false, error: "spawn unavailable" });
+    expect(left()).toEqual([]);
+    // Threw: a priority os.setPriority rejects outright.
+    await expect(runBoundedProcess(idle, {}, { ...base, priority: 999 })).rejects.toThrow();
+    expect(left()).toEqual([]);
+  });
+
+  it("gives concurrent helpers input files of their own", async () => {
+    const dir = fs.mkdtempSync(path.join(fixtureRoot, "concurrent-"));
+    const file = compiler(
+      "names-input",
+      `import fs from "node:fs";
+       fs.writeSync(3, JSON.stringify({ ok: true, file: process.argv[2], input: JSON.parse(fs.readFileSync(process.argv[2], "utf8")) }));`,
+    );
+    const results = await Promise.all(
+      [1, 2, 3, 4].map((n) =>
+        runBoundedProcess(file, { n }, { initialHeapMb: 64, retryHeapMb: 64, inputDir: dir }),
+      ),
+    );
+    expect(results.map((r) => r.input.n)).toEqual([1, 2, 3, 4]);
+    expect(new Set(results.map((r) => r.file)).size).toBe(4);
+    for (const r of results) expect(path.dirname(r.file)).toBe(path.join(dir, "helper-input"));
+    expect(fs.readdirSync(path.join(dir, "helper-input"))).toEqual([]);
   });
 
   it("kills and reports a compiler that exceeds its deadline", async () => {
@@ -179,7 +237,7 @@ describe("bounded registry compiler process", () => {
       "timeout",
       `
         import fs from "node:fs";
-        fs.readFileSync(0, "utf8");
+        fs.readFileSync(process.argv[2], "utf8");
         setInterval(() => {}, 1_000);
       `,
     );
