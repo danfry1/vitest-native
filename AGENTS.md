@@ -55,9 +55,7 @@ each report to one line, and send one only at these points:
 ## Lanes
 
 `agents/lanes.json` says which lane owns every tracked file.
-`tests/agent-lanes.test.ts` fails if any file has no owner. Label each pull
-request `lane:<name>` for every lane it touches. Topic labels such as
-`area:ownership` stay as they are.
+`tests/agent-lanes.test.ts` fails if any file has no owner.
 
 | Lane | Owns |
 | --- | --- |
@@ -94,8 +92,9 @@ adds its own tests, its own changeset, and its own guide page.
   (`{name, adr, since, decideBy}`). At most 2 flags are live, and a flag past
   its `decideBy` date blocks release. Refactors ship without a flag.
   (ADR 0001, 0016)
-- **The structural scorecard's net total never rises between releases**
-  without a signed exception. (ADR 0002; `scorecard.json`)
+- **No structural scorecard metric may rise:** patch sites, environment
+  switches, private globals and swallowed catches. (ADR 0002;
+  `scorecard.json`)
 - **Every new public option has an ADR,** and a section in
   `/website/guide/plugin-options.md`. (ADR 0016)
 

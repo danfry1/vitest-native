@@ -38,12 +38,6 @@ function laneOf(file: string): string | undefined {
   if (sharedPatterns.some((re) => re.test(file))) return "shared";
   return lanePatterns.find((lane) => lane.globs.some((re) => re.test(file)))?.name;
 }
-
-/** The distinct lanes a set of files touches, in config order, ignoring shared files. */
-function lanesOf(files: string[]): string[] {
-  const touched = new Set(files.map(laneOf));
-  return LANES.lanes.map((lane) => lane.name).filter((name) => touched.has(name));
-}
 const packageRoot = path.join(repoRoot, "packages/vitest-native");
 const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" })
   .split("\0")
@@ -92,20 +86,6 @@ describe("lane ownership", () => {
     expect(laneOf("packages/vitest-native/package.json")).toBe("delivery");
     expect(laneOf("packages/vitest-native/README.md")).toBe("docs");
     expect(laneOf("packages/vitest-native/tests/plugin.test.ts")).toBe("shared");
-  });
-
-  it("lists the lanes a change touches, ignoring shared files", () => {
-    expect(
-      lanesOf([
-        "packages/vitest-native/src/plugin.ts",
-        "packages/vitest-native/tests/plugin.test.ts",
-        "website/guide/plugin-options.md",
-      ]),
-    ).toEqual(["runtime"]);
-    expect(lanesOf(["packages/vitest-native/src/cli/doctor.ts", "bun.lock"])).toEqual([
-      "cli",
-      "delivery",
-    ]);
   });
 });
 
