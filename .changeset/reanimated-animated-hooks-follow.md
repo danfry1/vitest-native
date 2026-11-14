@@ -1,5 +1,11 @@
 ---
-"vitest-native": patch
+"vitest-native": minor
 ---
 
-**Reanimated's `useAnimatedStyle`, `useAnimatedProps` and `useAnimatedReaction` now follow the shared values they read, without a render.** Previously the style and props updaters ran only at render, so `progress.set(0.5)` followed by `toHaveAnimatedStyle` saw the old style, and a child React skipped (such as one React Compiler memoized) kept its first one. The reaction never ran. Now the updaters rerun when a shared value they read changes, and the reaction runs on mount and on each change, as Reanimated's mappers do. This covers Reanimated 4.7's own mock and the built-in preset for older versions. No action needed.
+**Reanimated's `useAnimatedStyle`, `useAnimatedProps` and `useAnimatedReaction` now run as Reanimated's mappers do, without a render.** A style read after `progress.set()` is current, also in a memoized child, and reactions run. Tests that relied on the old render-only behaviour can change:
+
+- Reactions run on mount and on each change, so their spies and `runOnJS` side effects fire.
+- Updaters rerun on each write, so call counts change, and an updater that throws now throws at the write.
+- A key an updater stops returning keeps its last value, as in Reanimated.
+
+Update tests that counted on the old behaviour; see [Reanimated's animated hooks](https://vitest-native.danfry.dev/guide/presets#reanimated-s-animated-hooks).
