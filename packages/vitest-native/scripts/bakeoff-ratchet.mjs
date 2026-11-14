@@ -14,14 +14,17 @@
 //   node scripts/bakeoff-ratchet.mjs --bakeoffs <dir> --apps paper
 //   node scripts/bakeoff-ratchet.mjs --bakeoffs <dir> --update   # record new baselines
 //
-// Exit: 1 if any app/mode falls below its observation baseline (or setup fails
-// to produce comparable results); 0 otherwise. Improvements never fail.
+// Exit: 1 if any app/mode passes fewer tests than its observation baseline, or runs a
+// different number of tests (or setup fails to produce comparable results); 0
+// otherwise. More passes on the same total never fail.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  changedReason,
+  changeKind,
   classifyObservation,
   classifyObservationVerdict,
   confirmObservation,
@@ -139,6 +142,7 @@ const results = {};
 const confirmations = {};
 let failed = false;
 let observationChanged = false;
+const changeKinds = [];
 let infrastructureFailed = false;
 let improved = false;
 
@@ -266,9 +270,12 @@ for (const app of apps) {
     const status = confirm
       ? confirmObservation(got, confirm, want)
       : classifyObservation(got, want);
+    // A confirmed CHANGED means the re-run changed too: describe the later observation.
+    const kind = status === "CHANGED" ? changeKind(confirm ?? got, want) : undefined;
     if (status === "CHANGED") {
       failed = true;
       observationChanged = true;
+      changeKinds.push(kind);
     }
     if (status === "IMPROVED") improved = true;
     const mark = status === "CHANGED" ? "✗" : status === "FLAKY" ? "⚠" : "✓";
@@ -276,7 +283,11 @@ for (const app of apps) {
       `${mark} ${app}/${mode}: ${got.passed}/${got.total} passed` +
         (confirm ? `, then ${confirm.passed}/${confirm.total} on re-run` : "") +
         (want ? ` (baseline ${want.passed}/${want.total})` : " (no baseline yet)") +
-        (status !== "OK" ? ` — ${status}` : ""),
+        (status === "CHANGED"
+          ? ` — CHANGED (${kind === "total-only" ? "total changed" : "fewer passed"})`
+          : status !== "OK"
+            ? ` — ${status}`
+            : ""),
     );
     if (confirm) {
       printChanges(
@@ -352,7 +363,7 @@ if (failed) {
     verdict === "mixed"
       ? "an observation changed and another result was not comparable; investigate each independently"
       : observationChanged
-        ? "an external-app observation moved below its baseline; inspect package behavior, app setup, and shims before drawing a conclusion"
+        ? changedReason(changeKinds)
         : "the external apps did not produce comparable results; no product conclusion can be drawn";
   console.error(`\n✗ bake-off observation failed: ${reason}.`);
   process.exit(1);
