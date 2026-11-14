@@ -204,6 +204,56 @@ describe("ecosystem detection: dependency closure", () => {
  * the canonical React Native monorepo — the application's presence alone stopped the
  * library's tests from loading.
  */
+/**
+ * An installed React Native package the run does not declare (#688): a hoisted package an
+ * app imports without listing it. Node loads it through any require, and left undetected
+ * Vite evaluated it again for the test's imports: two copies of every file.
+ */
+describe("ecosystem detection: an installed React Native package nothing declares", () => {
+  const app = () =>
+    project(["react-native"], {
+      "react-native": {},
+      "rn-undeclared": { peerDeps: ["react-native"], deps: ["rn-undeclared-dep"] },
+      "rn-undeclared-dep": {},
+      "plain-undeclared": {},
+    });
+
+  it("is detected, and its own dependencies are not walked", () => {
+    const detected = detectEcosystemPackages(app());
+    expect(detected).toContain("rn-undeclared");
+    // Not seeded from: an unrelated sibling's package costs nothing until it loads.
+    expect(detected).not.toContain("rn-undeclared-dep");
+    expect(detected).not.toContain("plain-undeclared");
+  });
+
+  it("is not detected when transform.exclude names it, or a preset shadows it", () => {
+    expect(detectEcosystemPackages(app(), [], [], ["rn-undeclared"])).not.toContain(
+      "rn-undeclared",
+    );
+  });
+
+  it("answers from the cache on the next detection, and rescans after an install", () => {
+    const root = app();
+    expect(detectEcosystemPackages(root)).toContain("rn-undeclared");
+    const cache = path.join(root, "node_modules", ".cache", "vitest-native");
+    const written = fs.readdirSync(cache).filter((f) => f.startsWith("installed-rn-"));
+    expect(written).toHaveLength(1);
+    // A hit: the next detection reads that file instead of every manifest, and writes none.
+    const before = fs.statSync(path.join(cache, written[0])).mtimeMs;
+    expect(detectEcosystemPackages(root)).toContain("rn-undeclared");
+    expect(fs.readdirSync(cache).filter((f) => f.startsWith("installed-rn-"))).toEqual(written);
+    expect(fs.statSync(path.join(cache, written[0])).mtimeMs).toBe(before);
+    // An install adds a package: node_modules changes, and the scan runs again.
+    const added = path.join(root, "node_modules", "rn-added");
+    fs.mkdirSync(added);
+    fs.writeFileSync(
+      path.join(added, "package.json"),
+      JSON.stringify({ name: "rn-added", peerDependencies: { "react-native": "*" } }),
+    );
+    expect(detectEcosystemPackages(root)).toContain("rn-added");
+  });
+});
+
 describe("ecosystem detection: an ESM-only closure member", () => {
   /** `project()` cannot express `type`/`exports`, so this writes the manifests. */
   function withEsmDependency(extra: Record<string, unknown>): string {
