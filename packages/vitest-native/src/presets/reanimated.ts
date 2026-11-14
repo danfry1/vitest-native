@@ -207,10 +207,16 @@ export function derivedValue(updater: () => unknown): SharedValue {
   const state = rendering?.current ?? derivedState(updater);
   if (rendering && rendering.current === null) rendering.current = state;
   state.updater = updater;
-  state.run();
+  // A render follows nothing: React may discard it (a Suspense throw, an error boundary,
+  // an abandoned concurrent render), and no effect would then stop what it started. Its
+  // reads are followed once it commits, as Reanimated starts its mapper in an effect.
+  state.run(rendering === null);
   if (rendering) {
-    // Subscribed again on mount, as Reanimated starts its mapper in an effect (a
-    // StrictMode remount stops it first).
+    React.useEffect(() => {
+      state.followRendered();
+    });
+    // Run again on mount, as Reanimated's mapper runs when it starts (a StrictMode
+    // remount stops it first).
     React.useEffect(() => {
       state.run();
       return () => state.stop();
@@ -226,9 +232,11 @@ function derivedState(updater: () => unknown) {
     derived: sharedValue<unknown>(undefined),
     updater,
     inputs: new Set<SharedValue>(),
+    /** What the last render read, followed when it commits (followRendered). */
+    rendered: null as Set<SharedValue> | null,
     ran: false,
     last: undefined as unknown,
-    run() {
+    run(follow = true) {
       const outer = derivedReads;
       const read = new Set<SharedValue>();
       derivedReads = read;
@@ -239,14 +247,24 @@ function derivedState(updater: () => unknown) {
         derivedReads = outer;
       }
       read.delete(held.derived);
-      for (const input of held.inputs) if (!read.has(input)) input.removeListener(held);
-      for (const input of read) if (!held.inputs.has(input)) input.addListener(held, held.run);
-      held.inputs = read;
+      if (follow) held.follow(read);
+      else held.rendered = read;
       if (!held.ran || !Object.is(held.last, next)) {
         held.ran = true;
         held.last = next;
         held.derived.value = next;
       }
+    },
+    /** Listen to `read`, and to nothing else. */
+    follow(read: Set<SharedValue>) {
+      for (const input of held.inputs) if (!read.has(input)) input.removeListener(held);
+      for (const input of read)
+        if (!held.inputs.has(input)) input.addListener(held, () => held.run());
+      held.inputs = read;
+    },
+    followRendered() {
+      if (held.rendered) held.follow(held.rendered);
+      held.rendered = null;
     },
     stop() {
       for (const input of held.inputs) input.removeListener(held);
