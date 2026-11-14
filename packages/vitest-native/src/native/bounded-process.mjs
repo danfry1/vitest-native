@@ -75,14 +75,10 @@ const ORPHAN_AGE_MS = 10 * 60_000;
  * that exists but cannot be signalled (EPERM) is alive.
  */
 function removeOrphanedInputs(inputDir) {
-  let names;
-  try {
-    names = fs.readdirSync(inputDir);
-  } catch {
-    return;
-  }
+  // writeInput has just created the directory: an unreadable one fails that write, and
+  // runBoundedProcess reports it.
   const now = Date.now();
-  for (const name of names) {
+  for (const name of fs.readdirSync(inputDir)) {
     const [, host, pidText] = name.split(".");
     const pid = Number(pidText);
     if (host !== HOST || !Number.isInteger(pid) || pid <= 0 || pid === process.pid) continue;
