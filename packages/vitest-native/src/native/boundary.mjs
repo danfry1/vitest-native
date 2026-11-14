@@ -447,11 +447,42 @@ const EXPO_DEV_STUBS = {
 };
 const EXPO_SUFFIXES = Object.keys(EXPO_DEV_STUBS);
 
+/**
+ * expo-modules-core's `createSnapshotFriendlyRef` (src/Refs.ts) is React's `createRef`.
+ * Expo modules pass refs made with it to their native views as props: expo-image's
+ * `nativeViewRef` and `containerViewRef`. A snapshot then printed the host instance and
+ * React's fiber tree behind them, thousands of lines with render timings that differ on
+ * every run. jest-expo serves a ref that prints as "[React.ref]" (src/preset/setup.js),
+ * and this is that ref: `{ current: null }` with a non-enumerable `toJSON`.
+ */
+const SNAPSHOT_FRIENDLY_REF = `
+  exports.createSnapshotFriendlyRef = function createSnapshotFriendlyRef() {
+    const ref = { current: null };
+    Object.defineProperty(ref, "toJSON", { value: () => "[React.ref]" });
+    return ref;
+  };
+`;
+const EXPO_MODULES_CORE_STUBS = {
+  "build/Refs.js": SNAPSHOT_FRIENDLY_REF,
+  "src/Refs.ts": SNAPSHOT_FRIENDLY_REF,
+};
+const EXPO_MODULES_CORE_SUFFIXES = Object.keys(EXPO_MODULES_CORE_STUBS);
+
+/**
+ * The stand-ins for files outside react-native, by package directory. The registry keys
+ * on them, so a changed stand-in is not served from a registry built with the old one.
+ */
+export const PACKAGE_STUBS = {
+  expo: EXPO_DEV_STUBS,
+  "expo-modules-core": EXPO_MODULES_CORE_STUBS,
+};
+
 /** Normalised-path test: is this a native-boundary module? */
 export function isBoundary(normPath) {
   return (
     SUFFIXES.some((s) => normPath.endsWith("/react-native/" + s)) ||
-    EXPO_SUFFIXES.some((s) => normPath.endsWith("/expo/" + s))
+    EXPO_SUFFIXES.some((s) => normPath.endsWith("/expo/" + s)) ||
+    EXPO_MODULES_CORE_SUFFIXES.some((s) => normPath.endsWith("/expo-modules-core/" + s))
   );
 }
 
@@ -465,6 +496,9 @@ export function boundarySourceFor(normPath, platform = "ios", version = "0.0.0")
   }
   for (const s of EXPO_SUFFIXES) {
     if (normPath.endsWith("/expo/" + s)) return EXPO_DEV_STUBS[s];
+  }
+  for (const s of EXPO_MODULES_CORE_SUFFIXES) {
+    if (normPath.endsWith("/expo-modules-core/" + s)) return EXPO_MODULES_CORE_STUBS[s];
   }
   return null;
 }

@@ -420,6 +420,12 @@ jobs:
         if: runner.os == 'Linux' && matrix.node-version == '22.22.3'
         run: bun run check:exports
 
+      - name: Check npm publishes package.json as written
+        # Fails on npm's "auto-corrected some errors in your package.json" warning, which
+        # the 0.15.0 release logged for its bin path (scripts/check-publish-manifest.mjs).
+        if: runner.os == 'Linux' && matrix.node-version == '22.22.3'
+        run: bun run check:publish-manifest
+
       - name: Windows synchronous loader-hook contracts
         if: runner.os == 'Windows' && matrix.part != 'native'
         env:

@@ -1,5 +1,4 @@
 import type { Preset } from "../types.js";
-import React from "react";
 import { builtInPreset } from "./built-in.js";
 
 // react-native-webview renders a native WebView; its source also has extensionless
@@ -11,7 +10,7 @@ export function webview(): Preset {
     modules: {
       "react-native-webview": {
         exports: ["WebView"],
-        factory: () => {
+        factory: ({ React }) => {
           const WebView = React.forwardRef((props: any, ref: any) => {
             React.useImperativeHandle(ref, () => ({
               reload: () => {},

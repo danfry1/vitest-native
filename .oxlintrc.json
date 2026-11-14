@@ -29,6 +29,12 @@
         "vitest-native/escaped-regexp": "error",
         "vitest-native/root-containment": "error"
       }
+    },
+    {
+      "files": ["packages/vitest-native/src/presets/**"],
+      "rules": {
+        "vitest-native/preset-react-per-file": "error"
+      }
     }
   ],
   "settings": {

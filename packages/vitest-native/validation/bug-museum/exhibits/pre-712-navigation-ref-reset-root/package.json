@@ -1,0 +1,12 @@
+{
+  "name": "museum-pre-712-navigation-ref-reset-root",
+  "private": true,
+  "dependencies": {
+    "@react-navigation/native": "*",
+    "react": "*",
+    "react-native": "*"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "*"
+  }
+}

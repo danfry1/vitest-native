@@ -17,6 +17,7 @@ import path from "node:path";
 import {
   DEFAULT_ASSET_EXTS,
   LIBRARY_SETUP_FILES,
+  libraryMockUsable,
   presetShadowing,
   type PresetName,
 } from "../preset-map.js";
@@ -36,7 +37,13 @@ import {
 import { resolveJestPreset, withPresetSettings } from "./jest-preset.js";
 import { projectBabelTrigger } from "../project-babel.js";
 import { mockFactoryForwardReads } from "./mock-factory-reads.js";
-import { libraryResolver, onlyCallsSetUpTests, stripsOnlyReanimatedProps } from "./superseded.js";
+import {
+  callsReanimatedSetUpTests,
+  libraryResolver,
+  mocksReanimated,
+  onlyCallsSetUpTests,
+  stripsOnlyReanimatedProps,
+} from "./superseded.js";
 import {
   babelRecipe,
   classifyBabelPlugins,
@@ -351,6 +358,55 @@ export function analyzeJestConfig(root: string): MigrationReport {
   const jestPreset = resolvedPreset?.name;
   const fromJestExpo = /^jest-expo(\/(ios|android|universal))?$/.test(jestPreset ?? "");
 
+  // A project file a Jest setting names (`<rootDir>/x`, `./x`, `x`), or null.
+  const projectSource = (file: string): string | null => {
+    if (/^(?:<rootDir>\/|\.\/)?node_modules\//.test(file)) return null;
+    const rel = file.replace(/^<rootDir>\/?/, "");
+    const base = path.resolve(root, rel);
+    const found = [base, `${base}.js`, `${base}.ts`].find((candidate) =>
+      fs.statSync(candidate, { throwIfNoEntry: false })?.isFile(),
+    );
+    return found === undefined ? null : fs.readFileSync(found, "utf8");
+  };
+  // Reanimated has two Jest modes, and a suite is written against one: its mock
+  // (`jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'))`)
+  // or the real library with `setUpTests()`. A suite whose setup runs setUpTests() and
+  // mocks Reanimated nowhere ran the real library; under the native engine that is
+  // `presets: { reanimated: false }` (through Reanimated's own Jest resolver, from 4.7),
+  // and its setup file stays. Without it the preset would serve the mock, and Reanimated's
+  // readers (getAnimatedStyle) would find nothing (#834).
+  const setupSources = (["setupFiles", "setupFilesAfterEnv"] as const)
+    .flatMap((key) => (Array.isArray(config?.[key]) ? (config[key] as unknown[]) : []))
+    .filter((f): f is string => typeof f === "string")
+    .map((f) => ({ file: f, code: projectSource(f) }))
+    .filter((f): f is { file: string; code: string } => f.code !== null);
+  const realReanimatedSetup = setupSources.find(({ code }) => callsReanimatedSetUpTests(code));
+  const reanimatedMocked =
+    setupSources.some(({ code }) => mocksReanimated(code)) ||
+    // A root manual mock, which Jest applied to the package by itself.
+    ["", ".js", ".ts", ".tsx"].some((ext) =>
+      fs.existsSync(path.join(root, "__mocks__", `react-native-reanimated${ext}`)),
+    ) ||
+    Object.keys((config?.moduleNameMapper as Record<string, unknown> | undefined) ?? {}).some(
+      (pattern) => {
+        try {
+          return new RegExp(pattern).test("react-native-reanimated");
+        } catch {
+          return false;
+        }
+      },
+    );
+  const ranRealReanimated =
+    realReanimatedSetup !== undefined &&
+    !reanimatedMocked &&
+    activePresets(root).includes("reanimated") &&
+    libraryMockUsable(root);
+  // The engine runs a package as itself only when the project declares it: an
+  // undeclared one is compiled by Vite, where Reanimated's own Jest resolver does not
+  // apply (#688). Such a suite keeps its setup and the preset, with a note.
+  const reanimatedReal =
+    ranRealReanimated && declaredDependencies(root).includes("react-native-reanimated");
+
   // jest-expo mocks Expo's native modules but not React Navigation, so its suites
   // render real navigators. The navigation preset would mock them, so it is switched
   // off — unless the project mocked React Navigation itself (Jest applied a root
@@ -363,7 +419,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
   // (installed, not testing itself, not switched off) — and the packages the engine
   // detects and compiles by itself under them. A `transform` entry for one of those
   // would take precedence over detection and externalize it instead.
-  const active: PresetName[] = activePresets(root, navigationOff ? ["navigation"] : []);
+  const presetsOff = [
+    ...(navigationOff ? ["navigation"] : []),
+    ...(reanimatedReal ? ["reanimated"] : []),
+  ];
+  const active: PresetName[] = activePresets(root, presetsOff);
   // A preset that steps aside under the native engine for a library that runs as itself
   // with the Jest setup file it ships (LIBRARY_SETUP_FILES).
   const runsWithOwnSetup = (preset: PresetName): boolean =>
@@ -376,16 +436,6 @@ export function analyzeJestConfig(root: string): MigrationReport {
     aliasEntries.push(`${JSON.stringify(key)}: ${value}`);
     aliasArray.push(`{ find: ${JSON.stringify(key)}, replacement: ${value} }`);
     return true;
-  };
-  // A project file a Jest setting names (`<rootDir>/x`, `./x`, `x`), or null.
-  const projectSource = (file: string): string | null => {
-    if (/^(?:<rootDir>\/|\.\/)?node_modules\//.test(file)) return null;
-    const rel = file.replace(/^<rootDir>\/?/, "");
-    const base = path.resolve(root, rel);
-    const found = [base, `${base}.js`, `${base}.ts`].find((candidate) =>
-      fs.statSync(candidate, { throwIfNoEntry: false })?.isFile(),
-    );
-    return found === undefined ? null : fs.readFileSync(found, "utf8");
   };
   // The lines of a project setup file that mock or set up a library a preset covers:
   // `jest.mock('react-native-reanimated', …)`, a `require()` or `import` of a library's own
@@ -542,7 +592,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
             `${key}: '${f}' — ${setupPackage}'s own test setup, which the native engine runs ` +
               `before the setup files (${LIBRARY_SETUP_FILES[setupPreset]}); delete.`,
           );
-        } else if (reanimatedActive && onlyCallsSetUpTests(projectSource(f) ?? "")) {
+        } else if (
+          reanimatedActive &&
+          !ranRealReanimated &&
+          onlyCallsSetUpTests(projectSource(f) ?? "")
+        ) {
           presetCovered.push(
             `${key}: '${f}' — only calls Reanimated's setUpTests(), whose matchers cannot see the ` +
               `rendered style here; vitest-native registers toHaveAnimatedStyle and ` +
@@ -1056,8 +1110,25 @@ export function analyzeJestConfig(root: string): MigrationReport {
     ? `jestMockTransform({ ${transformOptions.join(", ")} })`
     : "jestMockTransform()";
 
+  if (presetsOff.length) {
+    pluginOptions.push(`presets: { ${presetsOff.map((p) => `${p}: false`).join(", ")} }`);
+  }
+  if (ranRealReanimated && !reanimatedReal) {
+    attention.push(
+      `${realReanimatedSetup!.file} runs Reanimated's setUpTests() and the suite mocks Reanimated ` +
+        `nowhere, so under Jest it ran the real library; here the reanimated preset serves its ` +
+        `mock. To run the real library, declare react-native-reanimated in package.json and add ` +
+        `presets: { reanimated: false }.`,
+    );
+  }
+  if (reanimatedReal) {
+    automatic.push(
+      `${realReanimatedSetup!.file} runs Reanimated's setUpTests() and the suite mocks Reanimated ` +
+        `nowhere: it ran the real library under Jest → presets: { reanimated: false }, so ` +
+        `Reanimated runs as itself (through its own Jest resolver), and the setup file stays.`,
+    );
+  }
   if (navigationOff) {
-    pluginOptions.push(`presets: { navigation: false }`);
     automatic.push(
       `jest-expo renders the real React Navigation → presets: { navigation: false }, so screens keep ` +
         `running in real navigators.`,

@@ -21,6 +21,7 @@
  * dropped, so `Platform.OS` said "android" while `select()` picked the iOS value) is
  * caught by the source scan at the end: nothing the package ships may install one.
  */
+import React from "react";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -108,7 +109,9 @@ describe("preset mocks after vi.resetAllMocks()", () => {
       it(`${presetName}: ${moduleName} keeps every mock's implementation`, async () => {
         // A preset with async preparation (skia loads CanvasKit) builds only after it.
         await preset.prepare?.();
-        expect(droppedByReset(mod.factory(), moduleName), "dropped by a reset").toEqual([]);
+        expect(droppedByReset(mod.factory({ React }), moduleName), "dropped by a reset").toEqual(
+          [],
+        );
       });
     }
   }

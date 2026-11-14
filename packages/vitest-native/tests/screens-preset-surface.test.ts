@@ -69,20 +69,20 @@ describe("screens preset surface", () => {
   it("builds every name it declares", () => {
     // A name in `exports` that the factory does not produce is an undefined import
     // at the call site — worse than omitting it, because it looks supported.
-    const built = module.factory();
+    const built = module.factory({ React });
     const hollow = module.exports.filter((name) => !(name in built));
     expect(hollow, `declared but not built:\n${hollow.join("\n")}`).toEqual([]);
   });
 
   it("provides ScreenStackItem, which native-stack renders through", () => {
-    expect(module.factory().ScreenStackItem).toBeTruthy();
+    expect(module.factory({ React }).ScreenStackItem).toBeTruthy();
   });
 
   it("renders headerConfig's children, where native-stack puts headerLeft and headerRight", async () => {
     // @react-navigation/native-stack 7.x passes the header's elements to
     // ScreenStackItem as `headerConfig.children`; the real component renders
     // `<ScreenStackHeaderConfig {...headerConfig} />` after the content.
-    const built = module.factory() as Record<string, React.ComponentType<any>>;
+    const built = module.factory({ React }) as Record<string, React.ComponentType<any>>;
     const { ScreenStackItem, ScreenStackHeaderRightView } = built;
     await render(
       React.createElement(
@@ -132,13 +132,16 @@ describe("screens preset surface", () => {
 
   it("makes ScreenContext a real context, not a component stub", () => {
     // native-stack calls useContext on it; a forwardRef component would throw.
-    const context = module.factory().ScreenContext as { Provider?: unknown; Consumer?: unknown };
+    const context = module.factory({ React }).ScreenContext as {
+      Provider?: unknown;
+      Consumer?: unknown;
+    };
     expect(context.Provider).toBeTruthy();
     expect(context.Consumer).toBeTruthy();
   });
 
   it("returns a transition-progress shape rather than a bare mock", () => {
-    const progress = (module.factory().useTransitionProgress as () => unknown)();
+    const progress = (module.factory({ React }).useTransitionProgress as () => unknown)();
     expect(progress).toMatchObject({ progress: expect.any(Number) });
   });
 

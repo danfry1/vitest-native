@@ -24,7 +24,7 @@
     "directory": "packages/vitest-native"
   },
   "bin": {
-    "vitest-native": "./dist/cli.mjs"
+    "vitest-native": "dist/cli.mjs"
   },
   "files": [
     "dist",
@@ -156,7 +156,7 @@
     "test:native:android": "node scripts/ci/vitest.mjs run --config tests-native/vitest.android.config.mts",
     "test:native:advice": "node scripts/ci/vitest.mjs run --config tests-native/vitest.advice.config.mts",
     "test:native:hot": "node scripts/ci/vitest.mjs run --config tests-native/vitest.hot.config.mts",
-    "test:native:hot:isolation": "node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-isolation.config.mts && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-user-setup.config.mts && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-jest-compat.config.mts --mode stock && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-jest-compat.config.mts --mode hot && node scripts/ci/vitest.mjs run --config tests-native/vitest.jest-registry-no-isolate.config.mts && bun run test:native:hot:file-accounting && bun run test:native:hot:act-scope && bun run test:native:hot:rntl-optout && bun run test:native:hot:worker-state && bun run test:native:hot:nonconfigurable-global && bun run test:native:hot:resident-mock && bun run test:native:hot:fresh-runtime && bun run test:native:hot:compile-cache && bun run test:native:hot:workspace-member && bun run test:native:hot:memory && bun run test:native:hot:generation-parity",
+    "test:native:hot:isolation": "node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-isolation.config.mts && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-user-setup.config.mts && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-jest-compat.config.mts --mode stock && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-jest-compat.config.mts --mode hot && node scripts/ci/vitest.mjs run --config tests-native/vitest.jest-registry-no-isolate.config.mts && bun run test:native:hot:file-accounting && bun run test:native:hot:act-scope && bun run test:native:hot:rntl-optout && bun run test:native:hot:worker-state && bun run test:native:hot:nonconfigurable-global && bun run test:native:hot:diagnostics && bun run test:native:hot:resident-mock && bun run test:native:hot:fresh-runtime && bun run test:native:hot:compile-cache && bun run test:native:hot:workspace-member && bun run test:native:hot:memory && bun run test:native:hot:generation-parity",
     "test:native:hot:file-accounting": "node scripts/test-hot-file-accounting.mjs",
     "test:native:hot:act-scope": "node scripts/test-hot-act-scope.mjs",
     "test:native:hot:fresh-runtime": "node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-fresh-runtime.config.mts && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-fresh-runtime-memory.config.mts --mode fresh && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-fresh-runtime-memory.config.mts --mode resident && node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-fresh-runtime-timers.config.mts --mode fresh",
@@ -179,6 +179,7 @@
     "check:size": "node scripts/check-package-size.mjs",
     "check:structure": "node scripts/structural-scorecard.mjs",
     "check:exports": "node scripts/check-exports.mjs",
+    "check:publish-manifest": "node scripts/check-publish-manifest.mjs",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "prepublishOnly": "bun run build && bun run check:size && bun run test && bun run test:native && bun run test:native:forks && bun run test:native:navigation && bun run test:native:android && bun run test:native:advice && bun run test:native:hot && bun run test:native:hot:isolation && bun run test:native:hot:state-manifest && bun run test:native:hot:soak && bun run validate:hot-parity && bun run validate:registry-process && bun run fidelity:check && bun run test:consumers && bun run lint && bun run typecheck",
@@ -191,7 +192,8 @@
     "validate:vitest-semantics": "node validation/vitest-semantics/run.mjs",
     "validate:registry-process": "node validation/module-isolation/run-registry-process.mjs",
     "validate:metro-profile": "node --expose-gc validation/module-isolation/run-metro-profile.mjs",
-    "test:native:hot:nonconfigurable-global": "node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-nonconfigurable-global.config.mts"
+    "test:native:hot:nonconfigurable-global": "node scripts/ci/vitest.mjs run --config tests-native/vitest.hot-nonconfigurable-global.config.mts",
+    "test:native:hot:diagnostics": "node scripts/test-hot-diagnostics.mjs"
   },
   "dependencies": {
     "flow-remove-types": "^2.337.0",
@@ -219,6 +221,7 @@
     "dispatch-target-lib": "file:./tests-native/fixtures/dispatch-target-lib",
     "expo": "58.0.21",
     "expo-constants": "58.0.14",
+    "expo-image": "58.0.18",
     "expo-status-bar": "58.0.4",
     "ext-platform-lib": "file:./tests-native/fixtures/ext-platform-lib",
     "ext-rn-named-lib": "file:./tests-native/fixtures/ext-rn-named-lib",
@@ -242,6 +245,7 @@
     "rn-condition-cjs-lib": "file:./tests-native/fixtures/rn-condition-cjs-lib",
     "rn-condition-lib": "file:./tests-native/fixtures/rn-condition-lib",
     "rn-ecosystem-lib": "file:./tests-native/fixtures/rn-ecosystem-lib",
+    "rn-esbuild-reexport-lib": "file:./tests-native/fixtures/rn-esbuild-reexport-lib",
     "rn-mainfield-lib": "file:./tests-native/fixtures/rn-mainfield-lib",
     "rn-platform-flow-lib": "file:./tests-native/fixtures/rn-platform-flow-lib",
     "rn-singleton-lib": "file:./tests-native/fixtures/rn-singleton-lib",
