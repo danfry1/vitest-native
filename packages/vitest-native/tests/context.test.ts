@@ -412,3 +412,22 @@ describe("experimental.nodeMocks", () => {
     expect((await fieldsFor({ nodeMocks: true })).nodeMocks).toBe(true);
   });
 });
+
+describe("fakeTimersApis", () => {
+  // jest-compat's jest.useFakeTimers() names the APIs to fake (queueMicrotask included)
+  // unless the project's test.fakeTimers already does (#835).
+  const fieldsFor = async (fakeTimers?: object) => {
+    const out = await runPluginConfig(reactNative({ engine: "native" }) as any, {
+      root: process.cwd(),
+      test: fakeTimers ? { fakeTimers } : {},
+    });
+    return JSON.parse(fs.readFileSync(fileOf(out.test.env[CONTEXT_ENV]), "utf8")).fields;
+  };
+
+  it("is set when the project's test.fakeTimers names toFake or toNotFake, and only then", async () => {
+    expect((await fieldsFor({ toFake: ["setTimeout"] })).fakeTimersApis).toBe(true);
+    expect((await fieldsFor({ toNotFake: ["Date"] })).fakeTimersApis).toBe(true);
+    expect((await fieldsFor({ loopLimit: 5 })).fakeTimersApis).toBeUndefined();
+    expect((await fieldsFor()).fakeTimersApis).toBeUndefined();
+  });
+});

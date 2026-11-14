@@ -14,17 +14,51 @@ import { FAKEABLE_TIMER_APIS, toVitestFakeTimersConfig } from "../src/jest-compa
 
 /** The real clock the translation reads when no `now` is given. */
 const REAL_NOW = 1_700_000_000_000;
-const translate = (config?: Record<string, unknown>) =>
-  toVitestFakeTimersConfig(config, () => REAL_NOW) as Record<string, unknown>;
+const translate = (config?: Record<string, unknown>, projectFakesApis = false) =>
+  toVitestFakeTimersConfig(config, () => REAL_NOW, projectFakesApis) as Record<string, unknown>;
+/** What Jest fakes by default, less `nextTick`: queueMicrotask included (#835). */
+const FAKED = FAKEABLE_TIMER_APIS.filter((api) => api !== "nextTick");
 
 describe("toVitestFakeTimersConfig", () => {
-  it("passes Jest's loopLimit default and the real clock, and nothing else, for no config", () => {
+  it("passes Jest's loopLimit default, the real clock and Jest's faked APIs for no config", () => {
     // Jest's `timerLimit || 100_000`; Vitest's own default is 10_000.
-    expect(translate()).toEqual({ loopLimit: 100_000, now: REAL_NOW });
-    expect(translate({})).toEqual({ loopLimit: 100_000, now: REAL_NOW });
-    expect(translate({ timerLimit: 50 })).toEqual({ loopLimit: 50, now: REAL_NOW });
+    expect(translate()).toEqual({ loopLimit: 100_000, now: REAL_NOW, toFake: FAKED });
+    expect(translate({})).toEqual({ loopLimit: 100_000, now: REAL_NOW, toFake: FAKED });
+    expect(translate({ timerLimit: 50 })).toEqual({ loopLimit: 50, now: REAL_NOW, toFake: FAKED });
     // `||`, as in Jest: 0 is not a limit.
-    expect(translate({ timerLimit: 0 })).toEqual({ loopLimit: 100_000, now: REAL_NOW });
+    expect(translate({ timerLimit: 0 })).toMatchObject({ loopLimit: 100_000 });
+  });
+
+  it("fakes queueMicrotask as Jest does, and never nextTick", () => {
+    expect(translate().toFake).toContain("queueMicrotask");
+    expect(translate().toFake).not.toContain("nextTick");
+    expect(translate({ doNotFake: ["queueMicrotask"] }).toFake).toEqual(
+      FAKED.filter((api) => api !== "queueMicrotask"),
+    );
+  });
+
+  it("leaves the faked APIs to a project whose test.fakeTimers names them", () => {
+    expect(translate(undefined, true)).toEqual({ loopLimit: 100_000, now: REAL_NOW });
+    // A doNotFake on the call still names the list, as Jest's call config wins.
+    expect(translate({ doNotFake: ["Date"] }, true).toFake).toEqual(
+      FAKED.filter((api) => api !== "Date"),
+    );
+  });
+
+  it("keeps a call's own Vitest toFake or toNotFake", () => {
+    expect(translate({ toFake: ["setTimeout"] }).toFake).toEqual(["setTimeout"]);
+    expect(translate({ toFake: ["setTimeout"], doNotFake: ["Date"] }).toFake).toEqual([
+      "setTimeout",
+    ]);
+    // doNotFake still subtracts from the call's own list.
+    expect(
+      translate({ toFake: ["setTimeout", "queueMicrotask"], doNotFake: ["queueMicrotask"] }).toFake,
+    ).toEqual(["setTimeout"]);
+    expect(translate({ toNotFake: ["Date"] })).toEqual({
+      loopLimit: 100_000,
+      now: REAL_NOW,
+      toNotFake: ["Date"],
+    });
   });
 
   it("advanceTimers: true auto-advances with sinon's own delta", () => {
@@ -32,6 +66,7 @@ describe("toVitestFakeTimersConfig", () => {
       loopLimit: 100_000,
       now: REAL_NOW,
       shouldAdvanceTime: true,
+      toFake: FAKED,
     });
   });
 
@@ -41,6 +76,7 @@ describe("toVitestFakeTimersConfig", () => {
       now: REAL_NOW,
       shouldAdvanceTime: true,
       advanceTimeDelta: 40,
+      toFake: FAKED,
     });
     expect(translate({ advanceTimers: false })).toMatchObject({ shouldAdvanceTime: false });
   });
@@ -52,18 +88,16 @@ describe("toVitestFakeTimersConfig", () => {
     expect(translate({ now: null })).toMatchObject({ now: REAL_NOW });
   });
 
-  it("doNotFake becomes the fakeable list minus the named APIs and Vitest's kept-real two", () => {
+  it("doNotFake becomes the fakeable list minus the named APIs and nextTick", () => {
     const { toFake } = translate({ doNotFake: ["performance", "Date"] }) as { toFake: string[] };
     expect(toFake).not.toContain("performance");
     expect(toFake).not.toContain("Date");
-    // Vitest never fakes these unless asked (Jest does); doNotFake does not ask.
+    // nextTick stays real; queueMicrotask is faked, as in Jest.
     expect(toFake).not.toContain("nextTick");
-    expect(toFake).not.toContain("queueMicrotask");
+    expect(toFake).toContain("queueMicrotask");
     expect(toFake).toContain("setTimeout");
     expect(toFake).toContain("hrtime");
-    expect(translate({ doNotFake: [] }).toFake).toEqual(
-      FAKEABLE_TIMER_APIS.filter((api) => api !== "nextTick" && api !== "queueMicrotask"),
-    );
+    expect(translate({ doNotFake: [] }).toFake).toEqual(FAKED);
   });
 
   it("legacyFakeTimers fakes the timer functions only, ignoring the modern options", () => {
