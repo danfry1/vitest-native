@@ -2,20 +2,54 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-// @ts-expect-error — runtime .mjs outside the package, no types
-import { LANES, globToRegExp, laneOf, lanesOf } from "../../../.github/scripts/lanes.mjs";
-
 // agents/lanes.json says which lane owns each file, and AGENTS.md and the lane files in
 // agents/lanes/ are what every agent reads before working here. These checks keep both
 // true: every tracked file has exactly one owner, and every path the guide names exists.
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
+
+type Lane = { name: string; globs: string[] };
+type LanesConfig = { shared: string[]; lanes: Lane[] };
+const LANES: LanesConfig = JSON.parse(
+  fs.readFileSync(path.join(repoRoot, "agents/lanes.json"), "utf8"),
+);
+
+/** A glob as an anchored regular expression: `**` crosses segments, `*` does not. */
+function globToRegExp(glob: string): RegExp {
+  const source = glob
+    .split("**")
+    .map((part) =>
+      part
+        .split("*")
+        .map((text) => text.replace(/[.+?^${}()|[\]\\]/g, "\\$&"))
+        .join("[^/]*"),
+    )
+    .join(".*");
+  return new RegExp(`^${source}$`);
+}
+
+const sharedPatterns = LANES.shared.map(globToRegExp);
+const lanePatterns = LANES.lanes.map((lane) => ({
+  name: lane.name,
+  globs: lane.globs.map(globToRegExp),
+}));
+
+/** "shared", the first lane with a matching glob, or undefined if nothing owns the file. */
+function laneOf(file: string): string | undefined {
+  if (sharedPatterns.some((re) => re.test(file))) return "shared";
+  return lanePatterns.find((lane) => lane.globs.some((re) => re.test(file)))?.name;
+}
+
+/** The distinct lanes a set of files touches, in config order, ignoring shared files. */
+function lanesOf(files: string[]): string[] {
+  const touched = new Set(files.map(laneOf));
+  return LANES.lanes.map((lane) => lane.name).filter((name) => touched.has(name));
+}
 const packageRoot = path.join(repoRoot, "packages/vitest-native");
 const tracked = execFileSync("git", ["ls-files", "-z"], { cwd: repoRoot, encoding: "utf8" })
   .split("\0")
   .filter(Boolean);
 
-type Lane = { name: string; globs: string[] };
-const laneNames = (LANES.lanes as Lane[]).map((lane) => lane.name);
+const laneNames = LANES.lanes.map((lane) => lane.name);
 
 const guideFiles = [
   "AGENTS.md",
@@ -44,8 +78,8 @@ describe("lane ownership", () => {
   });
 
   it("has no glob that matches nothing", () => {
-    const dead = [...LANES.shared, ...(LANES.lanes as Lane[]).flatMap((lane) => lane.globs)].filter(
-      (glob: string) => !tracked.some((file) => globToRegExp(glob).test(file)),
+    const dead = [...LANES.shared, ...LANES.lanes.flatMap((lane) => lane.globs)].filter(
+      (glob) => !tracked.some((file) => globToRegExp(glob).test(file)),
     );
     expect(dead).toEqual([]);
   });

@@ -55,9 +55,8 @@ each report to one line, and send one only at these points:
 ## Lanes
 
 `agents/lanes.json` says which lane owns every tracked file.
-`tests/agent-lanes.test.ts` fails if any file has no owner. Each pull request
-gets a `lane:<name>` label per lane it touches
-(`node .github/scripts/lanes.mjs --pr <n>`). Topic labels such as
+`tests/agent-lanes.test.ts` fails if any file has no owner. Label each pull
+request `lane:<name>` for every lane it touches. Topic labels such as
 `area:ownership` stay as they are.
 
 | Lane | Owns |
@@ -103,18 +102,24 @@ adds its own tests, its own changeset, and its own guide page.
 ### Settled decisions (ADR 0017; don't reopen them)
 
 - No parallel v2 runtime.
-- No fresh renderer per file.
+- No Jest-exact "strict" isolation tier beside stock and hot.
 - No realm or vm-pool isolation.
-- Worker-per-file is not the default.
 - No single Vite graph for React Native.
 - No Oxc for React Native, Flow or codegen specs.
 - No fetching at run time.
 - No Hermes, Fabric or Fantom.
 - No react-native-web.
+- No codemod that edits user tests.
 - No patching of dependencies, or of React or scheduler internals.
+- No more than two runtime dependencies.
 
 ### Conventions
 
+- **Every addition needs a reason you can name today.** A new file, script,
+  option, abstraction or dependency must serve the issue in hand, not a
+  possible future. Prefer deep modules with small, typed contracts over many
+  thin ones. Logic used in one place lives in that place; a script earns a
+  file of its own only when CI or a documented command runs it.
 - **Don't reassign members of objects you don't own** (`vi`, `expect`, React
   Native exports). Add to our own `jest` object, and read state from its
   owner. The no-monkey-patching lint rule enforces this.
