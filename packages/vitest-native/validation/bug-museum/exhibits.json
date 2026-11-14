@@ -740,6 +740,15 @@
       }
     },
     {
+      "id": "env-jest-renamed-jest-mock",
+      "class": "env-contract",
+      "title": "jest.mock through a renamed jest from @jest/globals is ignored",
+      "source": "react-native-paper bake-off (#833)",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/jest-mock-transform-aliased-jest",
+      "bugSignature": "^renamed\\.test\\.ts: AssertionError: AccessibilityInfo from the renamed jest's mock: expected undefined to be 'mocked'"
+    },
+    {
       "id": "env-permissive-expo-dev-launcher",
       "class": "env-contract",
       "title": "Importing expo throws under nativeModules: 'permissive'",
@@ -1151,6 +1160,28 @@
       }
     },
     {
+      "id": "pfs-hot-compiled-mjs-require",
+      "class": "per-file-state",
+      "title": "Under hot on Node 22, a compiled ES index's require() of a CommonJS sibling fails to link",
+      "source": "#847, found by a test of an esbuild-built component library (2026-11-14)",
+      "fixedBy": "a require() from compiled code the loader serves as source is served as Node's CommonJS loader serves a require, behind no generation facade",
+      "bugSignature": "is from a module not been linked",
+      "control": {
+        "why": "The stock runtime (hotRuntime: false) stamps no generation, so no facade is involved and Node links the library.",
+        "edits": [
+          {
+            "file": "vitest.config.mts",
+            "find": "hotRuntime: { allowUnboundedMemory: true }",
+            "replace": "hotRuntime: false"
+          }
+        ]
+      },
+      "status": {
+        "main": "PASS",
+        "control": "PASS"
+      }
+    },
+    {
       "id": "pfs-hot-nonconfigurable-global",
       "class": "per-file-state",
       "title": "Under hot, a non-configurable global fails every later file in the worker",
@@ -1307,6 +1338,15 @@
       "fixedBy": "#753",
       "fixRef": "origin/fix/reanimated-derived-value-follows",
       "bugSignature": "^app\\.test\\.tsx: AssertionError: expected 10 to be 60"
+    },
+    {
+      "id": "pre-351-gh-buttons-unpressable",
+      "class": "presets",
+      "title": "Gesture Handler 3's buttons cannot be pressed from Testing Library",
+      "source": "#351 (rc.4 report)",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/gesture-handler-button-host",
+      "bugSignature": "^app\\.test\\.tsx: AssertionError: a Gesture Handler 3 button was not pressed"
     },
     {
       "id": "pre-banner-names-presets",

@@ -1,7 +1,6 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
-import React from "react";
-import { asHost } from "../mocks/host.js";
+import { hosts } from "../mocks/host-classes.js";
 import { createViewMock } from "../mocks/components/View.js";
 import { createScrollViewMock } from "../mocks/components/ScrollView.js";
 import { builtInPreset } from "./built-in.js";
@@ -11,7 +10,7 @@ import { libraryMockModule, type LibraryMock } from "./library-mock.js";
 // (`react-native-keyboard-controller/jest`), as a Jest suite installs it: its hooks
 // return React Native `Animated.Value`s and are mock functions. Under the mock engine,
 // and for a version without that mock, the module below serves.
-export const KEYBOARD_CONTROLLER_MOCK: LibraryMock = {
+const KEYBOARD_CONTROLLER_MOCK: LibraryMock = {
   pkg: "react-native-keyboard-controller",
   entry: "jest",
   file: "jest/index.js",
@@ -55,7 +54,8 @@ export function keyboardController(): Preset {
           "useKeyboardController",
           "useWindowDimensions",
         ],
-        factory: () => {
+        factory: ({ React }) => {
+          const { asHost } = hosts(React);
           function hostComponent(name: string) {
             const Component = React.forwardRef((props: any, ref: any) =>
               React.createElement(asHost(name), { ...props, ref }, props.children),
@@ -91,7 +91,7 @@ export function keyboardController(): Preset {
             }),
           };
 
-          const KeyboardToolbar = Object.assign(createViewMock(), {
+          const KeyboardToolbar = Object.assign(createViewMock(React), {
             Background: hostComponent("KeyboardToolbar.Background"),
             Content: hostComponent("KeyboardToolbar.Content"),
             Prev: hostComponent("KeyboardToolbar.Prev"),
@@ -109,10 +109,10 @@ export function keyboardController(): Preset {
             KeyboardBackgroundView: hostComponent("KeyboardBackgroundView"),
             KeyboardExtender: hostComponent("KeyboardExtender"),
             // layout components backed by real RN (so children render + behave)
-            KeyboardStickyView: createViewMock(),
-            KeyboardAvoidingView: createViewMock(),
-            KeyboardAwareScrollView: createScrollViewMock(),
-            KeyboardChatScrollView: createScrollViewMock(),
+            KeyboardStickyView: createViewMock(React),
+            KeyboardAvoidingView: createViewMock(React),
+            KeyboardAwareScrollView: createScrollViewMock(React),
+            KeyboardChatScrollView: createScrollViewMock(React),
             KeyboardToolbar,
             // imperative module
             KeyboardController: {

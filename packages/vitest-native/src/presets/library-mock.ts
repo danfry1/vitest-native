@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import type { PresetModule } from "../types.js";
+import type { PresetFactoryContext, PresetModule } from "../types.js";
 import { mockModuleExportNames } from "./esm-export-names.js";
 import { projectContext } from "../context.mjs";
 import { BUILT_AT_SETUP, libraryMockDir, type LibraryMock } from "../preset-map.js";
@@ -58,7 +58,7 @@ export function libraryMockModule(mock: LibraryMock, fallback: PresetModule): Pr
       }
       return fallback.exportsFor ? fallback.exportsFor(context) : fallback.exports;
     },
-    factory() {
+    factory(context) {
       const root = workerRoot();
       const dir = underNativeEngine() ? libraryMockDir(mock, root) : null;
       if (dir) {
@@ -67,11 +67,11 @@ export function libraryMockModule(mock: LibraryMock, fallback: PresetModule): Pr
         );
         const module = mock.exportKey ? loaded?.[mock.exportKey] : loaded;
         // A mock without the export it is meant to be is no module of it: the preset's.
-        if (module === undefined) return fallback.factory();
-        const extended = mock.extend ? mock.extend(module, dir) : module;
-        return mock.keepsPresetNames ? withPresetNames(extended, fallback) : extended;
+        if (module === undefined) return fallback.factory(context);
+        const extended = mock.extend ? mock.extend(module, dir, context) : module;
+        return mock.keepsPresetNames ? withPresetNames(extended, fallback, context) : extended;
       }
-      return fallback.factory();
+      return fallback.factory(context);
     },
   };
 }
@@ -88,7 +88,11 @@ function presetNames(
  * `module` with the preset's own names it lacks, read from the preset's module when one
  * is first read (it is built once, then). The library's mock object is left as it is.
  */
-function withPresetNames(module: unknown, fallback: PresetModule): unknown {
+function withPresetNames(
+  module: unknown,
+  fallback: PresetModule,
+  context: PresetFactoryContext,
+): unknown {
   if (module === null || typeof module !== "object") return module;
   const names = Array.isArray(fallback.exports) ? fallback.exports : [];
   const missing = names.filter((name) => name !== "default" && !(name in module));
@@ -99,7 +103,7 @@ function withPresetNames(module: unknown, fallback: PresetModule): unknown {
     Object.defineProperty(merged, name, {
       enumerable: true,
       configurable: true,
-      get: () => (own ??= fallback.factory() as Record<string, unknown>)[name],
+      get: () => (own ??= fallback.factory(context) as Record<string, unknown>)[name],
     });
   }
   return merged;

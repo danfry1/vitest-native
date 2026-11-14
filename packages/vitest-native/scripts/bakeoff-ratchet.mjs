@@ -31,18 +31,19 @@ import {
   statusChanges,
   testStatuses,
 } from "./bakeoff-observation.mjs";
+import { cliArguments } from "./support/arguments.mjs";
 import "./release-age.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const ratchetPath = path.join(root, "bakeoffs-ratchet.json");
 
-function argValue(flag) {
-  const i = process.argv.indexOf(flag);
-  return i !== -1 ? process.argv[i + 1] : undefined;
-}
-const bakeoffsDir = argValue("--bakeoffs");
-const update = process.argv.includes("--update");
-const apps = (argValue("--apps") ?? "paper,obytes").split(",").filter(Boolean);
+const options = cliArguments(
+  { script: "bakeoff-ratchet.mjs", valued: ["bakeoffs", "apps"], flags: ["update"] },
+  "bakeoff-ratchet.mjs --bakeoffs <dir> [--apps paper,obytes] [--update]",
+).values;
+const bakeoffsDir = options.bakeoffs;
+const update = Boolean(options.update);
+const apps = (options.apps ?? "paper,obytes").split(",").filter(Boolean);
 
 function publishVerdict(verdict) {
   if (process.env.GITHUB_OUTPUT) {
