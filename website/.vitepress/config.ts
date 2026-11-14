@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitepress'
 import { groupIconMdPlugin, groupIconVitePlugin } from 'vitepress-plugin-group-icons'
+import { nav, sidebar } from './sections.ts'
 import { BASE, OG_IMAGE, SITE_URL, canonicalUrl } from './site.ts'
 
 const description =
@@ -49,83 +50,21 @@ export default defineConfig({
   themeConfig: {
     logo: { light: '/logo.svg', dark: '/logo-dark.svg', alt: '' },
     search: { provider: 'local' },
-    socialLinks: [{ icon: 'github', link: 'https://github.com/danfry1/vitest-native' }],
+    socialLinks: [
+      { icon: 'github', link: 'https://github.com/danfry1/vitest-native' },
+      { icon: 'npm', link: 'https://www.npmjs.com/package/vitest-native' },
+    ],
     editLink: {
       pattern: 'https://github.com/danfry1/vitest-native/edit/main/website/:path',
       text: 'Edit this page on GitHub',
     },
-    nav: [
-      { text: 'Guide', link: '/guide/' },
-      { text: 'API Coverage', link: '/api/coverage' },
-      {
-        text: 'Migrating',
-        items: [
-          { text: 'From Jest', link: '/migration/from-jest' },
-          { text: 'From vitest-react-native', link: '/migration/from-vitest-react-native' },
-          { text: 'Upgrading to 0.15', link: '/migration/upgrading-to-0-15' },
-        ],
-      },
-      {
-        text: 'Resources',
-        items: [
-          { text: 'Changelog', link: 'https://github.com/danfry1/vitest-native/blob/main/packages/vitest-native/CHANGELOG.md' },
-          { text: 'npm', link: 'https://www.npmjs.com/package/vitest-native' },
-          { text: 'llms.txt', link: '/llms.txt', target: '_blank' },
-        ],
-      },
-    ],
-    sidebar: {
-      '/': [
-        {
-          text: 'Introduction',
-          items: [
-            { text: 'What is vitest-native', link: '/guide/' },
-            { text: 'Installation', link: '/guide/install' },
-            { text: 'Quick Start', link: '/guide/quick-start' },
-            { text: 'Choosing an Engine', link: '/guide/engines' },
-            { text: 'Hot Runtime', link: '/guide/hot-runtime' },
-          ],
-        },
-        {
-          text: 'Core Concepts',
-          items: [
-            { text: 'How It Works', link: '/guide/how-it-works' },
-            { text: 'Plugin Options', link: '/guide/plugin-options' },
-            { text: 'Third-Party Presets', link: '/guide/presets' },
-            { text: 'Expo', link: '/guide/expo' },
-            { text: 'Coverage', link: '/guide/coverage' },
-            { text: 'Matchers & Snapshots', link: '/guide/matchers' },
-            { text: 'Mocking', link: '/guide/mocking' },
-            { text: 'Test Helpers', link: '/guide/helpers' },
-            { text: 'CLI', link: '/guide/cli' },
-          ],
-        },
-        {
-          text: 'Migrating',
-          items: [
-            { text: 'From Jest', link: '/migration/from-jest' },
-            { text: 'jest-compat Layer', link: '/guide/jest-compat' },
-            { text: 'From vitest-react-native', link: '/migration/from-vitest-react-native' },
-            { text: 'Upgrading to 0.15', link: '/migration/upgrading-to-0-15' },
-          ],
-        },
-        {
-          text: 'Reference',
-          items: [
-            { text: 'API Coverage', link: '/api/coverage' },
-            { text: 'Validation Model', link: '/guide/validation-model' },
-            { text: 'Fidelity Report', link: '/guide/fidelity' },
-            { text: 'Fidelity Matrix', link: '/guide/fidelity-matrix' },
-            { text: 'Comparison with Jest', link: '/guide/comparison' },
-            { text: 'Troubleshooting', link: '/guide/troubleshooting' },
-            { text: 'Error Codes', link: '/guide/errors' },
-          ],
-        },
-      ],
-    },
+    // The sections, their nav items and the sidebar: sections.ts.
+    nav: nav(),
+    sidebar: sidebar(),
     outline: { level: [2, 3] },
     footer: {
-      message: 'Released under the MIT License.',
+      // llms.txt is a file, not a page: linked with the base, outside VitePress's router.
+      message: `Released under the MIT License. · <a href="${BASE}llms.txt">llms.txt</a>`,
       copyright: 'Copyright © 2026 Daniel Fry',
     },
   },
