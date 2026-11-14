@@ -52,10 +52,36 @@ export function readInput(argv = process.argv) {
 function writeInput(dir, label, input) {
   const inputDir = path.join(dir, "helper-input");
   fs.mkdirSync(inputDir, { recursive: true });
+  removeOrphanedInputs(inputDir);
   const slug = label.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
   const file = path.join(inputDir, `${slug}-${process.pid}-${crypto.randomUUID()}.json`);
   fs.writeFileSync(file, JSON.stringify(input), { flag: "wx", mode: 0o600 });
   return file;
+}
+
+const INPUT_NAME = /-(\d+)-[0-9a-f-]{36}\.json$/;
+
+/**
+ * Removes input files whose writer has died: a run killed outright (SIGKILL, a closed
+ * terminal) cannot run the removal its helper's end would have. A process that exists
+ * but cannot be signalled (EPERM) is still alive.
+ */
+function removeOrphanedInputs(inputDir) {
+  let names;
+  try {
+    names = fs.readdirSync(inputDir);
+  } catch {
+    return;
+  }
+  for (const name of names) {
+    const pid = Number(name.match(INPUT_NAME)?.[1]);
+    if (!pid || pid === process.pid) continue;
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error?.code === "ESRCH") removeInput(path.join(inputDir, name));
+    }
+  }
 }
 
 function removeInput(file) {

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -212,6 +213,29 @@ describe("bounded registry compiler process", () => {
     // Threw: a priority os.setPriority rejects outright.
     await expect(runBoundedProcess(idle, {}, { ...base, priority: 999 })).rejects.toThrow();
     expect(left()).toEqual([]);
+  });
+
+  it("removes input files a dead process left behind, and keeps a live one's", async () => {
+    // A run killed outright cannot remove its helper's input; the next one does.
+    const dir = fs.mkdtempSync(path.join(fixtureRoot, "orphans-"));
+    const inputs = path.join(dir, "helper-input");
+    fs.mkdirSync(inputs);
+    const ended = spawn(process.execPath, ["-e", ""]);
+    await new Promise((done) => ended.on("exit", done));
+    const name = (pid: number) => `compiler-${pid}-${crypto.randomUUID()}.json`;
+    const orphan = name(ended.pid!);
+    const live = name(process.ppid);
+    for (const file of [orphan, live]) fs.writeFileSync(path.join(inputs, file), "{}");
+    await runBoundedProcess(
+      compiler("answers-again", respond),
+      {},
+      {
+        initialHeapMb: 64,
+        retryHeapMb: 64,
+        inputDir: dir,
+      },
+    );
+    expect(fs.readdirSync(inputs)).toEqual([live]);
   });
 
   it("gives concurrent helpers input files of their own", async () => {
