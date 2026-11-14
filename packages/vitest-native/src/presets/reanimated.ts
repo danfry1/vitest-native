@@ -2,7 +2,7 @@ import fs from "node:fs";
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import { hosts } from "../mocks/host-classes.js";
-import { createRequire, Module } from "node:module";
+import { createRequire, Module, registerHooks } from "node:module";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
 import { builtInPreset } from "./built-in.js";
@@ -530,14 +530,66 @@ const NOT_LOADED = new Proxy(
   },
 );
 
+/** Words that cannot name a binding in the module below. */
+const RESERVED = new Set(
+  (
+    "break case catch class const continue debugger default delete do else enum export " +
+    "extends false finally for function if implements import in instanceof interface let " +
+    "new null package private protected public return static super switch this throw true " +
+    "try typeof var void while with yield await arguments eval"
+  ).split(" "),
+);
+
+/** The module reanimated's files get for `react-native` while the mock engine loads them. */
+const MOCK_REACT_NATIVE_URL = "vitest-native:reanimated/react-native";
+
+/**
+ * Runs `load` with the imports of `react-native` it makes answered by the mock engine's
+ * React Native, as the rest of the mock engine sees it. reanimated's interpolateColor.js
+ * reaches React Native's `Platform` (common/constants/platform.js), whose Flow source Node
+ * cannot run (#857). The hook is removed once `load` returns, and only what `load` loads
+ * runs meanwhile. Under the native engine, which runs real React Native, `load` runs as
+ * it is.
+ */
+export function withMockReactNative<T>(load: () => T): T {
+  const mock = (globalThis as { __vitest_native_mock?: Record<string, unknown> })
+    .__vitest_native_mock;
+  if (underNativeEngine() || !mock) return load();
+  // Each name the mock has that can be a binding (not `default`, which is exported below).
+  const names = Object.keys(mock).filter(
+    (name) => /^[A-Za-z_$][\w$]*$/.test(name) && !RESERVED.has(name),
+  );
+  const hooks = registerHooks({
+    resolve: (specifier, context, next) =>
+      specifier === "react-native"
+        ? { url: MOCK_REACT_NATIVE_URL, shortCircuit: true }
+        : next(specifier, context),
+    load: (url, context, next) =>
+      url === MOCK_REACT_NATIVE_URL
+        ? {
+            format: "module",
+            shortCircuit: true,
+            source:
+              "const RN = globalThis.__vitest_native_mock;\n" +
+              `export const { ${names.join(", ")} } = RN;\nexport default RN;\n`,
+          }
+        : next(url, context),
+  });
+  try {
+    return load();
+  } finally {
+    hooks.deregister();
+  }
+}
+
 /**
  * Reanimated's own `interpolate`, `clamp` and `interpolateColor`, loaded from the
  * installed package's files (by name, the preset answers): plain functions, which
  * reanimated also runs on the JS thread. A file that does not load is left out, and
- * its names keep what the module had. Under the native engine both load from 3.17 on;
- * under the mock engine, which runs no transform, interpolateColor.js does not load
- * (it imports React Native's Flow source), nor, before 4.5, does interpolation.js
- * (its imports have no file extension, which Node's ES module loader rejects).
+ * its names keep what the module had. Under the native engine both load from 3.17 on.
+ * Under the mock engine, which runs no transform, they load against its React Native
+ * (withMockReactNative) from 4.5 on; before 4.5 their imports have no file extension,
+ * which Node's ES module loader rejects.
  */
 function ownHelpers(dir: string, fromRegistry = false): Helpers {
   const helpers: Helpers = {};
@@ -552,7 +604,9 @@ function ownHelpers(dir: string, fromRegistry = false): Helpers {
     // The registry holds the files the package's react-native field leads to (src/).
     const source = path.join(dir, file.replace(/^lib\/module\//, "src/").replace(/\.js$/, ".ts"));
     const own = () =>
-      loadOwnFile(path.join(dir, file), /^\.\/(core|hook\/useSharedValue)(\.js)?$/, NOT_LOADED);
+      withMockReactNative(() =>
+        loadOwnFile(path.join(dir, file), /^\.\/(core|hook\/useSharedValue)(\.js)?$/, NOT_LOADED),
+      );
     // Only a file the registry holds: required by path otherwise, it would load a second
     // copy of reanimated's source through Node.
     const loaded =
@@ -855,9 +909,9 @@ export function reanimated(): Preset {
               `reanimated's ${name} did not load from ${installedDir ?? "react-native-reanimated (not installed)"}. ` +
                 (underNativeEngine()
                   ? "Its file is missing or failed to load; please report this with your reanimated version."
-                  : "The mock engine runs no transform, and its file needs one (it imports React " +
-                    "Native, or, before reanimated 4.5, modules without a file extension). It works " +
-                    "under the native engine (engine: 'native')."),
+                  : "The mock engine runs no transform, and its file needs one (before reanimated " +
+                    "4.5, its imports have no file extension). It works under the native engine " +
+                    "(engine: 'native')."),
             );
           };
           const interpolate = vi.fn(

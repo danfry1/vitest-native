@@ -2234,6 +2234,15 @@
         ]
       },
       "fixRef": "964c6c664c6032c6f0a908f9747977e57dae2f96"
+    },
+    {
+      "id": "pre-857-mock-interpolate-color",
+      "class": "presets",
+      "title": "Reanimated's interpolateColor throws under the mock engine",
+      "source": "#857",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/mock-interpolate-color",
+      "bugSignature": "^color\\.test\\.tsx: (VitestNativeError: )?\\[vitest-native\\] reanimated's interpolateColor did not load"
     }
   ]
 }
