@@ -6,6 +6,7 @@
 // the Vite main process must never retain Metro module identities.
 import { fileURLToPath } from "node:url";
 import { runBoundedProcess } from "./bounded-process.mjs";
+import { cacheRootFor } from "./transform.mjs";
 import { VitestNativeError, VitestNativeTypeError } from "../errors.mjs";
 
 const INITIAL_HEAP_MB = 128;
@@ -88,6 +89,7 @@ export async function loadMetroProfile(
       retryHeapMb: RETRY_HEAP_MB,
       timeoutMs: TIMEOUT_MS,
       label: "Metro profile loader",
+      inputDir: cacheRootFor(projectRoot),
     },
   );
   if (!result.ok) {
