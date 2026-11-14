@@ -297,8 +297,8 @@ describe("native engine: the registry builds in the background on a cold cache",
     // --bail cancels the run after the first failure; the build goes on (in watch mode
     // the session continues and later reruns use it), but close does not wait for it.
     // Without the cancel, close waits half of teardownTimeout for the build: set to 60 s
-    // here, far above how long close takes on a loaded CI machine (up to ~18 s on
-    // Windows), so the two cannot be mistaken for each other.
+    // here, far above how long close takes on a loaded CI machine, so the two cannot be
+    // mistaken for each other.
     const p = project(["a.test.mjs", "fail.test.mjs"], { teardownTimeout: 120_000 });
     fs.writeFileSync(
       path.join(p.root, "fail.test.mjs"),
@@ -360,14 +360,19 @@ describe("native engine: the registry builds in the background on a cold cache",
           )
       : [];
     const at = (event: string) => events.find((entry) => entry.event === event);
+    const last = (event: string) => events.findLast((entry) => entry.event === event);
     const detail = `${JSON.stringify(events)}\n${run.output}`;
     // A repro collects every run's timeline, passing or not, in this file.
     const collect = process.env.VN_REGISTRY_BG_TIMELINES;
     if (collect) fs.appendFileSync(collect, `${JSON.stringify(events)}\n`);
     expect(at("end")?.reason, detail).toBe("interrupted");
     expect(at("exit"), detail).toBeDefined();
-    // Half the 60 s a missed cancel would take.
-    expect(at("exit")!.at - at("end")!.at, detail).toBeLessThan(30_000);
+    // Bounds from 40 runs on a loaded Windows runner. A missed cancel waits 60 s within
+    // the close hooks (max 0.21 s seen). A stopped helper holding the process open shows
+    // after close resolves (max 0.12 s seen; up to 9 s before #824). The time from the
+    // run's end to the close hooks, the pool's shutdown, is not bounded here: #831.
+    expect(last("closed")!.at - at("hooks")!.at, detail).toBeLessThan(5_000);
+    expect(at("exit")!.at - last("closed")!.at, detail).toBeLessThan(2_000);
     expect(await settled(run.pid)).toEqual([]);
     expect(published(p.root)).toBe(false);
   }, 180_000);
