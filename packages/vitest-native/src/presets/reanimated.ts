@@ -566,7 +566,11 @@ const compiledSources = new Map<string, string>();
  * its React Native as it does every other. Each load has its own module cache, outside
  * Node's, so a file imported twice runs once. Throws when the project has no Babel.
  */
-function loadCompiledGraph(dir: string, entry: string, babelRoot: string): Record<string, any> {
+export function loadCompiledGraph(
+  dir: string,
+  entry: string,
+  babelRoot: string,
+): Record<string, any> {
   const babel = projectBabel(babelRoot);
   if (!babel) {
     throw new VitestNativeError(
@@ -692,7 +696,9 @@ export function ownHelpers(dir: string, fromRegistry = false, babelRoot = worker
       let graph: Record<string, any> | null | undefined;
       for (const name of names) {
         helpers[name] = (...args: unknown[]) => {
-          graph ??= loadOrNull(() => loadCompiledGraph(dir, file, babelRoot));
+          // Loaded once: a failure (no Babel) is kept too, not looked for again each call.
+          if (graph === undefined)
+            graph = loadOrNull(() => loadCompiledGraph(dir, file, babelRoot));
           const helper = graph?.[name];
           return typeof helper === "function" ? helper(...args) : unavailableHelper(name, dir)();
         };

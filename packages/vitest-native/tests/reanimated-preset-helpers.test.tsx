@@ -24,7 +24,7 @@ import Animated, {
   useComposedEventHandler,
 } from "react-native-reanimated";
 import { describe, expect, it } from "vitest";
-import { ownHelpers } from "../src/presets/reanimated.js";
+import { loadCompiledGraph, ownHelpers } from "../src/presets/reanimated.js";
 
 describe("reanimated preset (hand-written)", () => {
   it("interpolates with reanimated's own helpers", () => {
@@ -64,6 +64,55 @@ describe("reanimated preset (hand-written)", () => {
       );
     } finally {
       fs.rmSync(noBabel, { recursive: true, force: true });
+    }
+  });
+
+  it("looks for Babel once: a project without it is not searched again on each call", () => {
+    const dir = path.dirname(require.resolve("react-native-reanimated/package.json"));
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-babel-once-"));
+    try {
+      const { interpolateColor: color } = ownHelpers(dir, false, root);
+      expect(() => color?.(0, [0, 1], ["red", "blue"])).toThrow(/@babel\/core/);
+      // A Babel that appears afterwards is not picked up: the failure was kept.
+      for (const name of ["@babel/core", "@babel/plugin-transform-modules-commonjs"]) {
+        const at = path.join(root, "node_modules", name);
+        fs.mkdirSync(at, { recursive: true });
+        fs.writeFileSync(
+          path.join(at, "index.js"),
+          name === "@babel/core"
+            ? 'module.exports = { version: "0", transformSync: () => ({ code: "exports.interpolateColor = () => \'found\';" }) };'
+            : "module.exports = {};",
+        );
+      }
+      expect(() => color?.(0, [0, 1], ["red", "blue"])).toThrow(/@babel\/core/);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("runs each file of a compiled graph once, through a cycle", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "vn-graph-"));
+    const write = (name: string, source: string) => fs.writeFileSync(path.join(dir, name), source);
+    try {
+      write("package.json", JSON.stringify({ version: "0.0.0-test" }));
+      write("shared.js", "export const state = { runs: 0 };\nstate.runs += 1;\n");
+      write(
+        "a.js",
+        'import { state } from "./shared.js";\nimport { fromB } from "./b.js";\n' +
+          "export const fromA = () => state;\nexport { fromB };\n",
+      );
+      write(
+        "b.js",
+        'import { state } from "./shared.js";\nimport * as a from "./a.js";\n' +
+          "export const fromB = () => [state, a];\n",
+      );
+      const graph = loadCompiledGraph(dir, "a.js", process.cwd());
+      const [stateOfB, a] = graph.fromB();
+      expect(graph.fromA()).toBe(stateOfB);
+      expect(stateOfB.runs).toBe(1);
+      expect(a.fromA).toBe(graph.fromA);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 
