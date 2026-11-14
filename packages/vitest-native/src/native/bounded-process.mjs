@@ -53,18 +53,26 @@ function writeInput(dir, label, input) {
   const inputDir = path.join(dir, "helper-input");
   fs.mkdirSync(inputDir, { recursive: true });
   removeOrphanedInputs(inputDir);
-  const slug = label.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
-  const file = path.join(inputDir, `${slug}-${process.pid}-${crypto.randomUUID()}.json`);
+  const file = path.join(
+    inputDir,
+    [slugOf(label), HOST, process.pid, crypto.randomUUID(), "json"].join("."),
+  );
   fs.writeFileSync(file, JSON.stringify(input), { flag: "wx", mode: 0o600 });
   return file;
 }
 
-const INPUT_NAME = /-(\d+)-[0-9a-f-]{36}\.json$/;
+const slugOf = (text) => text.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "x";
+// Input files are named <label>.<host>.<pid>.<uuid>.json.
+const HOST = slugOf(os.hostname());
+// A helper reads its input within seconds of starting.
+const ORPHAN_AGE_MS = 10 * 60_000;
 
 /**
  * Removes input files whose writer has died: a run killed outright (SIGKILL, a closed
- * terminal) cannot run the removal its helper's end would have. A process that exists
- * but cannot be signalled (EPERM) is still alive.
+ * terminal) cannot run the removal its helper's end would have. Only this host's files,
+ * and only old ones: a process id means nothing on another machine or container sharing
+ * the directory (a mounted project in CI), and a recent file may still be read. A process
+ * that exists but cannot be signalled (EPERM) is alive.
  */
 function removeOrphanedInputs(inputDir) {
   let names;
@@ -73,13 +81,17 @@ function removeOrphanedInputs(inputDir) {
   } catch {
     return;
   }
+  const now = Date.now();
   for (const name of names) {
-    const pid = Number(name.match(INPUT_NAME)?.[1]);
-    if (!pid || pid === process.pid) continue;
+    const [, host, pidText] = name.split(".");
+    const pid = Number(pidText);
+    if (host !== HOST || !Number.isInteger(pid) || pid <= 0 || pid === process.pid) continue;
+    const file = path.join(inputDir, name);
     try {
+      if (now - fs.statSync(file).mtimeMs < ORPHAN_AGE_MS) continue;
       process.kill(pid, 0);
     } catch (error) {
-      if (error?.code === "ESRCH") removeInput(path.join(inputDir, name));
+      if (error?.code === "ESRCH") removeInput(file);
     }
   }
 }

@@ -215,17 +215,32 @@ describe("bounded registry compiler process", () => {
     expect(left()).toEqual([]);
   });
 
-  it("removes input files a dead process left behind, and keeps a live one's", async () => {
-    // A run killed outright cannot remove its helper's input; the next one does.
+  it("removes this host's old input files whose writer has died, and no others", async () => {
+    // A run killed outright cannot remove its helper's input; a later one does. Another
+    // host's process ids mean nothing here (a project directory shared by containers),
+    // and a recent file may still be about to be read.
     const dir = fs.mkdtempSync(path.join(fixtureRoot, "orphans-"));
     const inputs = path.join(dir, "helper-input");
     fs.mkdirSync(inputs);
     const ended = spawn(process.execPath, ["-e", ""]);
     await new Promise((done) => ended.on("exit", done));
-    const name = (pid: number) => `compiler-${pid}-${crypto.randomUUID()}.json`;
-    const orphan = name(ended.pid!);
-    const live = name(process.ppid);
-    for (const file of [orphan, live]) fs.writeFileSync(path.join(inputs, file), "{}");
+    const host = os
+      .hostname()
+      .replace(/[^a-z0-9]+/gi, "-")
+      .toLowerCase();
+    const name = (onHost: string, pid: number) =>
+      ["compiler", onHost, pid, crypto.randomUUID(), "json"].join(".");
+    const old = new Date(Date.now() - 60 * 60_000);
+    const files = {
+      deadOld: name(host, ended.pid!),
+      deadFresh: name(host, ended.pid!),
+      liveOld: name(host, process.ppid),
+      otherHostOld: name(`${host}-elsewhere`, ended.pid!),
+    };
+    for (const [kind, file] of Object.entries(files)) {
+      fs.writeFileSync(path.join(inputs, file), "{}");
+      if (kind !== "deadFresh") fs.utimesSync(path.join(inputs, file), old, old);
+    }
     await runBoundedProcess(
       compiler("answers-again", respond),
       {},
@@ -235,7 +250,9 @@ describe("bounded registry compiler process", () => {
         inputDir: dir,
       },
     );
-    expect(fs.readdirSync(inputs)).toEqual([live]);
+    expect(fs.readdirSync(inputs).sort()).toEqual(
+      [files.deadFresh, files.liveOld, files.otherHostOld].sort(),
+    );
   });
 
   it("gives concurrent helpers input files of their own", async () => {
