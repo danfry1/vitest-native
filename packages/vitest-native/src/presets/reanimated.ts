@@ -242,9 +242,12 @@ function derivedState(updater: () => unknown) {
     ran: false,
     last: undefined as unknown,
     run(follow = true) {
-      // Reanimated's mapperRun returns while mappers are processing: an updater that
-      // writes a value it reads does not run again inside itself, it waits for the
-      // next write to one of its inputs.
+      // An updater that writes a value it reads does not run again inside itself. This
+      // guard is per derived value, unlike Reanimated's: its mapperRun returns while any
+      // mapper is processing and runs one topological pass, so here the final values
+      // are the same but a chain runs nested rather than in that order. And Reanimated
+      // keeps a self-written mapper dirty, to rerun on the next pass that ANY mapper
+      // input's write starts; here it reruns only on the next write to its own inputs.
       if (held.running) return;
       held.running = true;
       const outer = derivedReads;
