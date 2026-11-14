@@ -306,8 +306,9 @@ describe("native engine: the registry builds in the background on a cold cache",
     );
     // The run records, inside the process, when it ended and how, when the close hooks
     // started (after global teardown and the pool's close), when its Vite server closed,
-    // and when it exited. So a slow start on a loaded machine does not count, and a
-    // failure shows which step took the time.
+    // when close resolved, and when it exited, with what held it open meanwhile. So a
+    // slow start on a loaded machine does not count, and a failure shows which step
+    // took the time.
     const timeline = path.join(p.root, "timeline.jsonl");
     const config = path.join(p.root, "vitest.config.mjs");
     fs.writeFileSync(
@@ -319,7 +320,12 @@ describe("native engine: the registry builds in the background on a cold cache",
             "export default {",
             `const mark = (event, extra) => fs.appendFileSync(${JSON.stringify(timeline)}, JSON.stringify({ event, at: Math.round(performance.now()), ...extra }) + "\\n");\n` +
               `process.on("exit", () => mark("exit"));\n` +
-              `const timing = { name: "timing", closeBundle: () => mark("viteClosed"), configureVitest: ({ vitest }) => vitest.onClose(() => mark("hooks")) };\n` +
+              // After close resolves the process exits once nothing holds its event loop:
+              // what still does is sampled until then. Vitest's removal of its temporary
+              // directory, the last step of close, is timed when it exists (internal).
+              `const held = () => { mark("held", { resources: process.getActiveResourcesInfo() }); setTimeout(held, 500).unref(); };\n` +
+              `const timed = (vitest, key, start, end) => { const original = vitest[key]; if (typeof original === "function") vitest[key] = async (...args) => { if (start) mark(start); try { return await original.apply(vitest, args); } finally { mark(end); if (end === "closed") held(); } }; };\n` +
+              `const timing = { name: "timing", closeBundle: () => mark("viteClosed"), configureVitest: ({ vitest }) => { vitest.onClose(() => mark("hooks")); timed(vitest, "close", null, "closed"); timed(vitest, "_clearTmpDir", "tmpStart", "tmpEnd"); } };\n` +
               "export default {",
           )
           .replace('reactNative({ engine: "native" })', 'reactNative({ engine: "native" }), timing')
@@ -335,7 +341,15 @@ describe("native engine: the registry builds in the background on a cold cache",
           .readFileSync(timeline, "utf8")
           .trim()
           .split("\n")
-          .map((line) => JSON.parse(line) as { event: string; at: number; reason?: string })
+          .map(
+            (line) =>
+              JSON.parse(line) as {
+                event: string;
+                at: number;
+                reason?: string;
+                resources?: string[];
+              },
+          )
       : [];
     const at = (event: string) => events.find((entry) => entry.event === event);
     const detail = `${JSON.stringify(events)}\n${run.output}`;
