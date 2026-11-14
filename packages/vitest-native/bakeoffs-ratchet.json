@@ -1,25 +1,25 @@
 {
   "comment": "External-app observation baselines (scripts/bakeoff-ratchet.mjs), never package capability or fidelity claims. Each pinned app runs with custom migration config and Jest-era shims, so counts measure app + dependency pins + setup + shims + vitest-native as a unit. A change opens an investigation; it does not prove a vitest-native regression or that a behavior is unsupported. Package-owned conformance, crosscheck, consumer, and version-matrix suites define support. NEVER quote these internal counts in docs or positioning. Raise baselines deliberately with --update after an improvement; lowering one requires a hand edit with a written justification. bakeoffsRepoSha pins danfry1/vitest-native-bakeoffs, which pins each app commit.",
-  "bakeoffsRepoSha": "b2899282167d031931c92b18b6f89cc4284f7486",
+  "bakeoffsRepoSha": "ea3b57d62901f5da92544792d7b19d438d20ed51",
   "apps": {
     "paper": {
       "stock": {
-        "passed": 663,
-        "total": 715
+        "passed": 696,
+        "total": 717
       },
       "hot": {
-        "passed": 663,
-        "total": 715
+        "passed": 696,
+        "total": 717
       }
     },
     "obytes": {
       "stock": {
-        "passed": 34,
-        "total": 36
+        "passed": 40,
+        "total": 40
       },
       "hot": {
-        "passed": 34,
-        "total": 36
+        "passed": 40,
+        "total": 40
       }
     }
   }

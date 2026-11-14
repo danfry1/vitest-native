@@ -10,6 +10,7 @@
 //   shape    pool       two workers: every file is its own task, so a worker can retire
 //            batch      one worker: Vitest runs every file as one task, so it cannot
 // Files run in name order, so the leaking file `a-*` starts first.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";

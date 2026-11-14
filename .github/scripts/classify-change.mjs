@@ -1,7 +1,9 @@
 // Decides which gate groups a change needs, from the files it touches.
 //
 // Groups (each one a job condition in its workflow):
-//   full    ci.yml `Full gate` matrix: static checks, unit suite, native suites, every OS
+//   full    ci.yml `Full gate` matrix: static checks and the unit suite, every OS and Node
+//   native  the `Full gate` legs' native-engine steps (the native suites, the hot runtime,
+//           the cross-check); without `full` it runs nothing
 //   packed  ci.yml `Packed gate` cells: packed consumer, Expo, hot-runtime and semantics
 //   rn      native-rn-matrix.yml cells
 //   axes    config-axis-matrix.yml cells
@@ -43,12 +45,13 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SNIPPET_PAGES } from "../../packages/vitest-native/scripts/doc-snippets.mjs";
 
-export const GROUPS = ["full", "packed", "rn", "axes"];
+export const GROUPS = ["full", "native", "packed", "rn", "axes"];
 const ALL = GROUPS;
 const P = "packages/vitest-native/";
 
+const isFidelityPage = (file) => /^website\/guide\/fidelity(-matrix)?\.md$/.test(file);
 const isDocs = (file) =>
-  !/^website\/guide\/fidelity(-matrix)?\.md$/.test(file) &&
+  !isFidelityPage(file) &&
   (file.endsWith(".md") ||
     file.startsWith(".changeset/") ||
     file === "LICENSE" ||
@@ -58,11 +61,20 @@ const isDocs = (file) =>
 /** [file test, groups beyond `unit`], first match wins. */
 export const RULES = [
   [isDocs, []],
+  // The site's own code: no gate builds the site (pages.yml, on main), and the unit suite
+  // runs its tests. The landing page's hero files run as snippets in the packed consumer
+  // cell (scripts/doc-snippets.mjs), and the generated fidelity pages fall through to
+  // every group (fidelity:check).
+  [(f) => f.startsWith("website/.vitepress/hero/"), ["packed"]],
+  [(f) => f.startsWith("website/") && !isFidelityPage(f), []],
   // Workflows that are not a gate group's own. bug-museum.yml runs itself, on its paths.
-  [(f) => f === ".github/workflows/ci.yml", ["full", "packed"]],
+  [(f) => f === ".github/workflows/ci.yml", ["full", "native", "packed"]],
   [(f) => f === ".github/workflows/native-rn-matrix.yml", ["rn"]],
   // fidelity:check (Full gate) publishes the React Native range from rn-matrix.json.
-  [(f) => f === ".github/rn-matrix.json" || f === ".github/scripts/rn-matrix.mjs", ["full", "rn"]],
+  [
+    (f) => f === ".github/rn-matrix.json" || f === ".github/scripts/rn-matrix.mjs",
+    ["full", "native", "rn"],
+  ],
   [(f) => f === ".github/workflows/config-axis-matrix.yml", ["axes"]],
   [(f) => /^\.github\/workflows\/[\w-]+\.yml$/.test(f), []],
   [(f) => f === ".github/dependabot.yml", []],
@@ -72,17 +84,21 @@ export const RULES = [
   // Read only by check:size, on a Full gate leg.
   [(f) => f === `${P}package-budget.json`, ["full"]],
   // Only the unit test files themselves: tests/support and the fixtures are also read by
-  // tests-native (the RN matrix) and copied into packed consumers.
+  // tests-native (the RN matrix) and copied into packed consumers. The unit suite runs on
+  // every Full gate leg; the native steps do not read these files.
   [(f) => /^packages\/vitest-native\/tests\/[\w.-]+\.test\.tsx?$/.test(f), ["full"]],
-  [(f) => f.startsWith(`${P}tests-native/`) || f.startsWith(`${P}crosscheck/`), ["full", "rn"]],
+  [
+    (f) => f.startsWith(`${P}tests-native/`) || f.startsWith(`${P}crosscheck/`),
+    ["full", "native", "rn"],
+  ],
   [
     (f) =>
       f.startsWith(`${P}consumer-tests/`) ||
       f === `${P}scripts/test-consumers.mjs` ||
       f.startsWith("apps/"),
-    ["full", "packed"],
+    ["full", "native", "packed"],
   ],
-  [(f) => f.startsWith(`${P}src/cli/`), ["full", "packed"]],
+  [(f) => f.startsWith(`${P}src/cli/`), ["full", "native", "packed"]],
   // The benchmark workspace and the scheduled bake-off ratchet's data: no gate reads them.
   [(f) => f.startsWith("bench/") || f === `${P}bakeoffs-ratchet.json`, []],
   [(f) => /(^|\/)\.gitignore$/.test(f), []],

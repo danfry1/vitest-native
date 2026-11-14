@@ -1,6 +1,7 @@
 // Two inline `extends: true` projects inheriting one plugin from this config. Vitest 5
 // once dropped a plugin's test config for that shape (#246); both projects must still
 // get a context.
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 

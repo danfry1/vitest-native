@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { PROOF_INPUTS } from "../../../website/.vitepress/proof.ts";
 
 // The site deploys only when something it is built from changes: Vercel skips a build
 // through website/scripts/skip-unless-site-changed.sh, and GitHub Pages filters pushes by
@@ -50,9 +51,14 @@ function importsOf(file: string): string[] {
   return [...resolved, ...codeImports];
 }
 
-/** Every file outside website/ the build reaches, following imports from there on. */
+/**
+ * Every file outside website/ the build reaches, following imports from there on, and the
+ * data files the landing page's proof cards read without importing them.
+ */
 function inputsOutsideWebsite(): Set<string> {
-  const outside = new Set<string>();
+  const outside = new Set<string>(
+    Object.values(PROOF_INPUTS).filter((input) => !input.startsWith("website/")),
+  );
   const queue = siteSources().flatMap(importsOf);
   while (queue.length) {
     const file = queue.pop()!;
