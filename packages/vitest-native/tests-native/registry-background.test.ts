@@ -95,6 +95,30 @@ function project(files = ["a.test.mjs"], test: Record<string, unknown> = {}) {
   return { root, out: path.join(root, "out.jsonl") };
 }
 
+/**
+ * Config source that records, inside the run, when it ended and how, when the close hooks
+ * started, when the Vite server closed, when close resolved, what held the process open
+ * until it exited (with each handle's owner), and when it exited.
+ */
+function timingPrelude(timeline: string): string {
+  return (
+    `const mark = (event, extra) => fs.appendFileSync(${JSON.stringify(timeline)}, JSON.stringify({ event, at: Math.round(performance.now()), ...extra }) + "\\n");\n` +
+    `process.on("exit", () => mark("exit"));\n` +
+    // After close resolves the process exits once nothing holds its event loop:
+    // what still does is sampled until then. Vitest's removal of its temporary
+    // directory, the last step of close, is timed when it exists (internal).
+    // Each sample names the owner of every handle and request still active: this
+    // process's stdout, stderr or stdin, or a child's stdio[n].
+    `const owners = () => { const handles = process._getActiveHandles(); const children = handles.filter((h) => h?.constructor?.name === "ChildProcess"); ` +
+    `const owner = (s) => s === process.stdout ? "stdout" : s === process.stderr ? "stderr" : s === process.stdin ? "stdin" : children.map((c) => [c, c.stdio?.indexOf(s) ?? -1]).filter(([, i]) => i >= 0).map(([c, i]) => "child " + c.spawnfile + " " + (c.spawnargs ?? []).slice(1).join(" ").slice(-80) + " stdio[" + i + "]")[0] ?? null; ` +
+    `return { handles: handles.map((h) => ({ type: h?.constructor?.name, owner: owner(h), pid: h?.pid, fd: h?._handle?.fd, destroyed: h?.destroyed, pending: h?.writableLength })), ` +
+    `requests: process._getActiveRequests().map((r) => { const s = handles.find((h) => h?._handle && h._handle === r.handle); return { type: r?.constructor?.name, owner: s ? owner(s) ?? s.constructor?.name : r.handle?.constructor?.name ?? null }; }) }; };\n` +
+    `const held = () => { mark("held", { resources: process.getActiveResourcesInfo(), ...owners() }); setTimeout(held, 500).unref(); };\n` +
+    `const timed = (vitest, key, start, end) => { const original = vitest[key]; if (typeof original === "function") vitest[key] = async (...args) => { if (start) mark(start); try { return await original.apply(vitest, args); } finally { mark(end); if (end === "closed") held(); } }; };\n` +
+    `const timing = { name: "timing", closeBundle: () => mark("viteClosed"), configureVitest: ({ vitest }) => { vitest.onClose(() => mark("hooks")); timed(vitest, "close", null, "closed"); timed(vitest, "_clearTmpDir", "tmpStart", "tmpEnd"); } };\n`
+  );
+}
+
 /** Whether a complete registry is in `root`'s cache: its metadata is published last. */
 function published(root: string): boolean {
   const dir = registryDir(root);
@@ -316,24 +340,7 @@ describe("native engine: the registry builds in the background on a cold cache",
       `import fs from "node:fs";\n` +
         fs
           .readFileSync(config, "utf8")
-          .replace(
-            "export default {",
-            `const mark = (event, extra) => fs.appendFileSync(${JSON.stringify(timeline)}, JSON.stringify({ event, at: Math.round(performance.now()), ...extra }) + "\\n");\n` +
-              `process.on("exit", () => mark("exit"));\n` +
-              // After close resolves the process exits once nothing holds its event loop:
-              // what still does is sampled until then. Vitest's removal of its temporary
-              // directory, the last step of close, is timed when it exists (internal).
-              // Each sample names the owner of every handle and request still active: this
-              // process's stdout, stderr or stdin, or a child's stdio[n].
-              `const owners = () => { const handles = process._getActiveHandles(); const children = handles.filter((h) => h?.constructor?.name === "ChildProcess"); ` +
-              `const owner = (s) => s === process.stdout ? "stdout" : s === process.stderr ? "stderr" : s === process.stdin ? "stdin" : children.map((c) => [c, c.stdio?.indexOf(s) ?? -1]).filter(([, i]) => i >= 0).map(([c, i]) => "child " + c.spawnfile + " " + (c.spawnargs ?? []).slice(1).join(" ").slice(-80) + " stdio[" + i + "]")[0] ?? null; ` +
-              `return { handles: handles.map((h) => ({ type: h?.constructor?.name, owner: owner(h), pid: h?.pid, fd: h?._handle?.fd, destroyed: h?.destroyed, pending: h?.writableLength })), ` +
-              `requests: process._getActiveRequests().map((r) => { const s = handles.find((h) => h?._handle && h._handle === r.handle); return { type: r?.constructor?.name, owner: s ? owner(s) ?? s.constructor?.name : r.handle?.constructor?.name ?? null }; }) }; };\n` +
-              `const held = () => { mark("held", { resources: process.getActiveResourcesInfo(), ...owners() }); setTimeout(held, 500).unref(); };\n` +
-              `const timed = (vitest, key, start, end) => { const original = vitest[key]; if (typeof original === "function") vitest[key] = async (...args) => { if (start) mark(start); try { return await original.apply(vitest, args); } finally { mark(end); if (end === "closed") held(); } }; };\n` +
-              `const timing = { name: "timing", closeBundle: () => mark("viteClosed"), configureVitest: ({ vitest }) => { vitest.onClose(() => mark("hooks")); timed(vitest, "close", null, "closed"); timed(vitest, "_clearTmpDir", "tmpStart", "tmpEnd"); } };\n` +
-              "export default {",
-          )
+          .replace("export default {", timingPrelude(timeline) + "export default {")
           .replace('reactNative({ engine: "native" })', 'reactNative({ engine: "native" }), timing')
           .replace(
             '"maxWorkers"',
@@ -371,6 +378,45 @@ describe("native engine: the registry builds in the background on a cold cache",
     expect(await settled(run.pid)).toEqual([]);
     expect(published(p.root)).toBe(false);
   }, 180_000);
+
+  // Upstream control (VN_REGISTRY_BG_CONTROL=1): the same cancelled run in a project
+  // without this plugin, timed the same way. A close→exit tail here too is not ours.
+  it.runIf(process.env.VN_REGISTRY_BG_CONTROL === "1")(
+    "control: plain Vitest, cancelled and timed the same way",
+    async () => {
+      const root = path.join(scratch, `control${count++}`);
+      fs.mkdirSync(root, { recursive: true });
+      fs.writeFileSync(
+        path.join(root, "package.json"),
+        JSON.stringify({ name: "control", private: true, type: "module" }),
+      );
+      fs.writeFileSync(path.join(root, "a.test.mjs"), `test("passes", () => {});\n`);
+      fs.writeFileSync(
+        path.join(root, "fail.test.mjs"),
+        `test("fails", () => { throw new Error("x"); });\n`,
+      );
+      const timeline = path.join(root, "timeline.jsonl");
+      fs.writeFileSync(
+        path.join(root, "vitest.config.mjs"),
+        `import fs from "node:fs";\n` +
+          timingPrelude(timeline) +
+          `export default { plugins: [timing], test: { globals: true, include: ["*.test.mjs"], maxWorkers: 1, fileParallelism: false, teardownTimeout: 120000, ` +
+          `reporters: ["default", { onTestRunEnd: (_m, _e, reason) => mark("end", { reason }) }] } };\n`,
+      );
+      const run = await start({ root, out: path.join(root, "out.jsonl") }, {}, ["--bail=1"]).done;
+      expect(run.output).toMatch(/fails/);
+      const events = fs
+        .readFileSync(timeline, "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      const collect = process.env.VN_REGISTRY_BG_TIMELINES;
+      if (collect)
+        fs.appendFileSync(collect, `${JSON.stringify([{ event: "control" }, ...events])}\n`);
+      expect(events.find((entry) => entry.event === "end")?.reason).toBe("interrupted");
+    },
+    180_000,
+  );
 
   it.skipIf(!posix)(
     "keeps building when a watch session cancels a run",
