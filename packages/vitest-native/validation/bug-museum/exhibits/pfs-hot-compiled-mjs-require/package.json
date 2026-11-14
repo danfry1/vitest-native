@@ -1,0 +1,8 @@
+{
+  "name": "pfs-hot-compiled-mjs-require",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "vn-compiled-mjs": "file:./vendor/vn-compiled-mjs"
+  }
+}
