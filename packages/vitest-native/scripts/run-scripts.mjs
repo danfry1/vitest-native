@@ -19,22 +19,38 @@
 // no-progress reporter (scripts/ci/hang-reporter.mjs). VN_SCRIPT_DEADLINE_MS is the
 // default; the long scripts have their own, from measured durations
 // (scripts/ci/script-deadlines.mjs). `--jobs 1` (or VN_TEST_JOBS=1)
-// is the old sequential behaviour, for bisecting a suspected interaction.
+// is the old sequential behaviour, for bisecting a suspected interaction. `--shard k/n`
+// (or VN_TEST_SHARD) runs only the k-th of n parts of the list (scripts/ci/shard.mjs),
+// for a CI leg split across parallel jobs.
 import os from "node:os";
 import process from "node:process";
 import { describeRunning, runWithDeadline } from "./ci/deadline.mjs";
 import { deadlineFor } from "./ci/script-deadlines.mjs";
+import { parseShard, scriptsInShard } from "./ci/shard.mjs";
 
 const args = process.argv.slice(2);
 let jobs = Number(process.env.VN_TEST_JOBS) || 0;
-const scripts = [];
+let shardSpec = process.env.VN_TEST_SHARD;
+const listed = [];
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--jobs") jobs = Number(args[++i]);
-  else scripts.push(args[i]);
+  else if (args[i] === "--shard") shardSpec = args[++i];
+  else listed.push(args[i]);
 }
-if (scripts.length === 0) {
-  console.error("usage: run-scripts.mjs [--jobs N] <script> [<script> ...]");
+if (listed.length === 0) {
+  console.error("usage: run-scripts.mjs [--jobs N] [--shard k/n] <script> [<script> ...]");
   process.exit(2);
+}
+let shard;
+try {
+  shard = parseShard(shardSpec);
+} catch (error) {
+  console.error(error.message);
+  process.exit(2);
+}
+const scripts = scriptsInShard(listed, shard);
+if (shard) {
+  console.log(`shard ${shard.index}/${shard.count}: ${scripts.length} of ${listed.length} scripts`);
 }
 // Each Vitest run already starts workers for most of the machine, so a few at a time
 // is enough to overlap start-up without starving the long runs (4-vCPU CI runners: 3).

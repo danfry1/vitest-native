@@ -173,7 +173,7 @@ jobs:
   check:
     # Unique per leg: the back-compat leg differs from another only by RNTL, and GitHub
     # resolves a check name shared by two jobs ambiguously.
-    name: Full gate (${{ matrix.os }}, Node ${{ matrix.node-version }}${{ matrix.rntl && format(', RNTL {0}', matrix.rntl) || '' }}${{ matrix.part && format(', {0}', matrix.part) || '' }})
+    name: Full gate (${{ matrix.os }}, Node ${{ matrix.node-version }}${{ matrix.rntl && format(', RNTL {0}', matrix.rntl) || '' }}${{ matrix.part && format(', {0}', matrix.part) || '' }}${{ matrix.shard && format(' {0}', matrix.shard) || '' }})
     needs: classify
     if: needs.classify.outputs.full != 'false'
     runs-on: ${{ matrix.os }}
@@ -211,9 +211,18 @@ jobs:
           - os: windows-latest
             node-version: 22.22.3
             part: suite
+          # Windows' `native` half is split again, by `shard`: test:native's scripts are
+          # dealt across the two jobs (scripts/ci/shard.mjs) and the other native steps
+          # run on the second. Whole, it took a median 28 minutes of the job's 30-minute
+          # timeout (43 green runs, 12-13 November 2026), and a slow runner went past it.
           - os: windows-latest
             node-version: 22.22.3
             part: native
+            shard: 1/2
+          - os: windows-latest
+            node-version: 22.22.3
+            part: native
+            shard: 2/2
           # Node 24 is the current release line and the matrix stopped at 22, which is
           # how a workspace-level Vitest mismatch went unnoticed locally for a whole
           # session. Everything runs here, hot runtime included. Pinned to the Node 24
@@ -317,17 +326,18 @@ jobs:
         # with the test files it was running, not at the job's timeout.
         env:
           VN_SCRIPT_DEADLINE_MS: "600000"
+          VN_TEST_SHARD: ${{ matrix.shard }}
         run: bun run test:native
 
       - name: Native engine tests (cold-cache background registry build)
         # Starts real Vitest runs against scratch projects (signals, cancel, CI, a
         # concurrent cold build), so it takes minutes: one leg per OS, not every leg.
-        if: matrix.part != 'suite' && ((runner.os == 'Linux' && matrix.node-version == '24.12.0') || runner.os != 'Linux') && needs.classify.outputs.native != 'false'
+        if: matrix.part != 'suite' && ((runner.os == 'Linux' && matrix.node-version == '24.12.0') || runner.os != 'Linux') && needs.classify.outputs.native != 'false' && matrix.shard != '1/2'
         shell: bash
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run test:native:background
 
       - name: Native engine tests (forks pool)
-        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false'
+        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false' && matrix.shard != '1/2'
         # When a project configures a VM pool the plugin throws and points at 'threads'
         # or 'forks'. Nothing ran the forks pool, so that advice was untested — and the
         # engine's module hooks have to install in a child process just as they do in a
@@ -337,17 +347,17 @@ jobs:
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run test:native:forks
 
       - name: Native engine tests (navigation preset)
-        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false'
+        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false' && matrix.shard != '1/2'
         shell: bash
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 180 -- bun run test:native:navigation
 
       - name: Native engine tests (Android)
-        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false'
+        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false' && matrix.shard != '1/2'
         shell: bash
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 180 -- bun run test:native:android
 
       - name: Native engine remediation advice
-        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false'
+        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false' && matrix.shard != '1/2'
         # The explainer tells users to add a package to `transform: [...]` when Node
         # cannot parse its source — the most common migration blocker. That advice was
         # only ever asserted as a substring of the error message; this applies it.
@@ -355,7 +365,7 @@ jobs:
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 180 -- bun run test:native:advice
 
       - name: Native engine tests (hot runtime)
-        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false'
+        if: matrix.part != 'suite' && needs.classify.outputs.native != 'false' && matrix.shard != '1/2'
         # The hot runtime rides @experimental Vitest internals (vitest/worker,
         # ThreadsPoolWorker, poolRunner) — the most churn-prone surface we depend
         # on, so gate it on every PR, not just the weekly matrix.
@@ -372,7 +382,7 @@ jobs:
         # @vitest/coverage-v8 over source Node compiles (a React Native workspace
         # package) must match coverage of the same source loaded by Vite, default and
         # hot, with nothing failing to parse.
-        if: ${{ !matrix.rntl && needs.classify.outputs.native != 'false' }}
+        if: ${{ !matrix.rntl && needs.classify.outputs.native != 'false' && matrix.shard != '1/2' }}
         shell: bash
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run test:native:coverage
 
@@ -390,7 +400,7 @@ jobs:
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run --filter vitest-native test:native:hot:state-manifest
 
       - name: Native engine hot-runtime soak and recycling
-        if: ${{ !matrix.rntl && matrix.part != 'suite' && needs.classify.outputs.native != 'false' }}
+        if: ${{ !matrix.rntl && matrix.part != 'suite' && needs.classify.outputs.native != 'false' && matrix.shard != '1/2' }}
         shell: bash
         run: node packages/vitest-native/scripts/ci/with-deadline.mjs 300 -- bun run test:native:hot:soak
 
