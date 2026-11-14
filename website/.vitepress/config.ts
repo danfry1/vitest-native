@@ -2,6 +2,7 @@ import { defineConfig } from 'vitepress'
 import { groupIconMdPlugin, groupIconVitePlugin } from 'vitepress-plugin-group-icons'
 import { nav, sidebar } from './sections.ts'
 import { BASE, OG_IMAGE, SITE_URL, canonicalUrl } from './site.ts'
+import { slugify } from './anchors.ts'
 
 const description =
   "A Vitest plugin for React Native. Your components run React Native's real JavaScript; only the native side is mocked."
@@ -40,6 +41,8 @@ export default defineConfig({
   markdown: {
     // Quiet, low-saturation code colours in both themes, so the green accent stays rare.
     theme: { light: 'vitesse-light', dark: 'vitesse-dark' },
+    // Keeps an error code's spelling in links to it (see anchors.ts).
+    anchor: { slugify },
     config(md) {
       md.use(groupIconMdPlugin)
     },
