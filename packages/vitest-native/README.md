@@ -1,4 +1,9 @@
-# vitest-native
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/danfry1/vitest-native/main/website/public/lockup-dark.svg">
+    <img src="https://raw.githubusercontent.com/danfry1/vitest-native/main/website/public/lockup.svg" alt="vitest-native" width="335" height="64">
+  </picture>
+</h1>
 
 [![npm](https://img.shields.io/npm/v/vitest-native)](https://www.npmjs.com/package/vitest-native)
 [![npm downloads](https://img.shields.io/npm/dm/vitest-native)](https://npmcharts.com/compare/vitest-native?interval=30)
@@ -105,7 +110,7 @@ through the jest-compat layer. See [migrating from Jest](https://vitest-native.d
 | | Supported |
 |---|---|
 | Node.js | 22.22.3+ on Node 22, 24.12+ on Node 24, or 26+ |
-| Vitest | 5.x |
+| Vitest | 5.x (5.1.0 or later recommended) |
 | Vite | ^8.0.5 |
 | React | 19 or later |
 | React Native | 0.86–0.88 |

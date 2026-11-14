@@ -140,6 +140,11 @@ Some libraries run as themselves instead:
 - **Expo modules**, under the native engine, run their own JavaScript, as under jest-expo. The `expo` preset applies only under the mock engine, or when you turn it on with `presets: { expo: true }`.
 - **react-native-mmkv 3 and later** switches to its own in-memory storage when it detects Vitest, so its preset steps aside under both engines.
 
+Two kinds of library mock from a Jest setup need a closer look:
+
+- **A Reanimated mock that spreads `jest.requireActual('react-native-reanimated')`** runs Reanimated's real hooks under the native engine, and those need the worklets Babel plugin, as under Jest. Deleting the mock works with every supported Reanimated: the engine already provides Reanimated's API, as Reanimated's own test mock from 4.7 and as its own preset before that. With Reanimated 4.7+ you can keep the mock instead: the engine applies `react-native-worklets/plugin` (or `react-native-reanimated/plugin`) from your Babel config to the files that need it. Otherwise `useAnimatedStyle` throws that it was "used without a dependency array or Babel plugin".
+- **`jest.mock('react-native-gesture-handler', …)` lines** can usually go. Under the native engine Gesture Handler runs with its own `jestSetup.js`, which mocks its native module and host components. A `presets: { gestureHandler: false }` added for those mocks can go too; it [keeps that setup](/guide/presets#turning-a-preset-off).
+
 A mock you wrote for your own app's modules stays.
 
 ### Keep Jest's and Vitest's snapshots apart {#snapshots}
@@ -199,9 +204,9 @@ Under Jest, babel-jest ran your `babel.config.js` on every file. vitest-native c
 | Plugin | Under vitest-native |
 |---|---|
 | `@babel/plugin-proposal-decorators`, `babel-plugin-macros` (`'macros'`), `@lingui/babel-plugin-lingui-macro`, `react-native-dotenv`, inline-environment plugins, plugins vitest-native does not know | **Applied by the engine** to the files that need it. Nothing to add. |
-| `react-native-worklets/plugin`, `react-native-reanimated/plugin` | **Applied by the engine** under the native engine with Reanimated 4.7+ and Worklets 0.9+, where Reanimated runs as its own mock and its hooks need the plugin. Not needed with an older Reanimated or the mock engine, where the preset's module replaces the library. |
+| `react-native-worklets/plugin`, `react-native-reanimated/plugin` | **Applied by the engine** to the files that need it whenever Reanimated or Worklets is installed, as under Jest. Reanimated 4.7+ runs as its own mock, whose hooks are the real ones; with an older Reanimated, a mock that spreads `jest.requireActual('react-native-reanimated')` also runs the real hooks. Left out only when neither library is installed. |
 | `babel-plugin-module-resolver` (`'module-resolver'`) | Its `alias` entries become `resolve.alias` (same exact-or-`key/` prefix rule). `migrate` writes them. |
-| `babel-plugin-react-compiler` | Not needed: it only adds memoization, and components render the same without it. |
+| `babel-plugin-react-compiler` | Not needed for tests to run. It applies to the files [`projectBabel`](/guide/plugin-options#projectbabel) compiles with Babel (`'auto'`: those another entry needs; `'always'`: all). There a memoized child given the same props skips re-rendering, so a test that reads a value React does not track during render (a shared value, a ref) can see it keep its earlier value. Other files run without it, so a test that counts renders can see more renders than under babel-jest. |
 
 This uses `@babel/core` from your project, so keep it installed as a devDependency. It often came only with babel-jest, and `migrate` and `doctor` say when it does not resolve. A startup line names the plugins that send files through Babel, and `diagnostics: true` names each file. You do not need `@rolldown/plugin-babel` for any of these. If your config already has a `babel()` entry for one of them, `doctor` reports it as redundant; it can be removed.
 

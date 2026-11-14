@@ -9,6 +9,7 @@
 // `--mode shadow` runs only the shadow probe, with `diagnostics` on: the shadow is
 // written under diagnostics only. `--mode resolution` and `resolution-hot` run the
 // stock and hot sets with 'resolution' (the require bridge).
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
@@ -16,6 +17,7 @@ import { reactNative } from "../dist/index.mjs";
 import { jestMockTransform } from "../dist/jest-compat.mjs";
 import { NATIVE_SUITE_SETUP_FILES } from "./support/setup-files.mjs";
 import { OTHER_FIXTURES_MOCKS } from "./support/fixture-mocks.mts";
+import { SPAWNS_OWN_RUN } from "./support/spawns-own-run.mts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -68,6 +70,8 @@ export default defineConfig(({ mode }) => {
         "tests-native/navigation-params.test.tsx",
         // Spawns its own Vitest runs, for minutes: its own step (vitest.background.config.mts).
         "tests-native/registry-background.test.ts",
+        // Each runs an app as its own Vitest run, which this config does not reach.
+        ...SPAWNS_OWN_RUN,
         // Asserts the flag is off: it runs in the default suite.
         "tests-native/ownership-off.test.ts",
         // Needs diagnostics: it runs in --mode shadow.

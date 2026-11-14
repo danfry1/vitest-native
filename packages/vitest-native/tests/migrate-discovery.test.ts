@@ -282,15 +282,16 @@ describe("transformIgnorePatterns allowlists with nested groups", () => {
       "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|await-lock)",
     );
     expect(unparseable).toEqual([]);
+    // A name the pattern only produces, never writes, is marked `expanded`.
     expect(entries).toEqual([
       { name: "react-native", kind: "prefix" },
-      { name: "jest-react-native", kind: "prefix" },
+      { name: "jest-react-native", kind: "prefix", expanded: true },
       { name: "@react-native", kind: "prefix" },
-      { name: "@react-native-community", kind: "prefix" },
+      { name: "@react-native-community", kind: "prefix", expanded: true },
       { name: "expo", kind: "prefix" },
-      { name: "exponent", kind: "prefix" },
+      { name: "exponent", kind: "prefix", expanded: true },
       { name: "@expo", kind: "scope" },
-      { name: "@exponent", kind: "scope" },
+      { name: "@exponent", kind: "scope", expanded: true },
       { name: "@expo-google-fonts", kind: "scope" },
       { name: "react-navigation", kind: "prefix" },
       { name: "@react-navigation", kind: "scope" },
@@ -448,6 +449,39 @@ describe("a jest-expo app's package.json#jest", () => {
       ["react-native-worklets/plugin", "unneeded"],
       ["babel-plugin-some-inline-env-plugin", "unknown"],
     ]);
+    // React Compiler is not needed to run, but where projectBabel compiles a file it applies,
+    // and memoized children keep values React does not track (#755).
+    const compiler = classified.find((p) => p.name === "babel-plugin-react-compiler")!.reason;
+    expect(compiler).not.toMatch(/render the same/);
+    expect(compiler).toMatch(/^tests run without it\. /);
+    for (const claim of [
+      "'auto'",
+      "'always'",
+      "memoized child",
+      "keep its earlier value",
+      "counts renders",
+    ]) {
+      expect(compiler).toContain(claim);
+    }
+    expect(report.dropped.join("\n")).toContain(`babel-plugin-react-compiler — ${compiler}`);
+    // The migration guide's table says the same.
+    const guide = fs.readFileSync(
+      path.join(import.meta.dirname, "../../../website/migration/from-jest.md"),
+      "utf8",
+    );
+    const row = guide
+      .split("\n")
+      .find((line) => line.startsWith("| `babel-plugin-react-compiler`"));
+    for (const claim of [
+      "`'auto'`",
+      "`'always'`",
+      "memoized child",
+      "keep its earlier value",
+      "counts renders",
+    ]) {
+      expect(row).toContain(claim);
+    }
+    expect(row).not.toMatch(/render the same/);
 
     const doctor = runDoctor(root).lines.join("\n");
     expect(doctor).toContain("Babel");
@@ -455,6 +489,7 @@ describe("a jest-expo app's package.json#jest", () => {
       "· @lingui/babel-plugin-lingui-macro: applied by the engine where needed",
     );
     expect(doctor).not.toContain("⚠ @lingui/babel-plugin-lingui-macro");
+    expect(doctor).toContain(`· babel-plugin-react-compiler: ${compiler}`);
   });
 
   it("says @babel/core is needed when the engine would apply plugins but cannot", () => {
@@ -609,11 +644,20 @@ export default defineConfig({ plugins: [reactNative(), babel({ plugins: [] })] }
       expect(report.dropped.join("\n")).not.toContain("react-native-worklets/plugin");
     });
 
-    it("stays unneeded where the preset's own module serves Reanimated", () => {
-      // Reanimated 4.6 ships no Jest resolver, so the preset's module replaces it.
-      const report = analyzeJestConfig(blueskyLike({ ...nativeReanimated(false), ...pluginBabel }));
-      expect(report.dropped.join("\n")).toContain("react-native-worklets/plugin");
-      expect(report.suggestedConfig).not.toContain("react-native-worklets/plugin");
+    it("is kept where the preset's own module serves Reanimated (#738)", () => {
+      // Reanimated 4.6 ships no Jest resolver, so the preset's module replaces it; a mock
+      // that spreads jest.requireActual('react-native-reanimated') still runs the real hooks
+      // in the project's components, which need the plugin.
+      const root = blueskyLike({ ...nativeReanimated(false), ...pluginBabel });
+      const classified = classifyBabelPlugins(readBabelConfig(root), root, ["reanimated"]);
+      expect(
+        classified.filter((p) => p.name.endsWith("/plugin")).map((p) => [p.name, p.verdict]),
+      ).toEqual([["react-native-worklets/plugin", "required"]]);
+      const report = analyzeJestConfig(root);
+      expect(report.dropped.join("\n")).not.toContain("react-native-worklets/plugin");
+      expect(report.automatic.join("\n")).toContain(
+        "plugin react-native-worklets/plugin → applied by the engine",
+      );
     });
   });
 });

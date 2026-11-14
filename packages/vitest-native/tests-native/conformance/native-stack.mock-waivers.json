@@ -1,0 +1,20 @@
+[
+  {
+    "export": "createNativeStackScreen",
+    "path": "createNativeStackScreen",
+    "reason": "missing from the navigation preset",
+    "issue": "#712"
+  },
+  {
+    "export": "NativeStackView",
+    "path": "NativeStackView",
+    "reason": "missing from the navigation preset",
+    "issue": "#712"
+  },
+  {
+    "export": "useAnimatedHeaderHeight",
+    "path": "useAnimatedHeaderHeight",
+    "reason": "missing from the navigation preset",
+    "issue": "#712"
+  }
+]

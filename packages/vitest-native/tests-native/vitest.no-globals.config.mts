@@ -6,6 +6,7 @@
 // reused hot worker, and `--mode noiso` (native) and `--mode mock-noiso` (mock engine)
 // in one worker with `isolate: false`, all in name order, so the `/pure` file follows a
 // file that imported RNTL's entry into that worker's module cache.
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 import { reactNative } from "../dist/index.mjs";

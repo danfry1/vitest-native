@@ -1,6 +1,7 @@
 // hotRuntime.freshRuntime: React, the renderer, scheduler and RNTL re-run per hot file. One
 // worker runs both files in name order, so the second compares itself with the first
 // (package.json test:native:hot:fresh-runtime).
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 import { reactNative } from "../dist/index.mjs";
@@ -15,6 +16,9 @@ export default defineConfig({
   plugins: [
     reactNative({
       engine: "native",
+      // No presets: a preset whose module holds React per worker makes freshRuntime
+      // decline (#719), and these gates are about freshRuntime itself.
+      presets: [],
       hotRuntime: { allowUnboundedMemory: true, freshRuntime: process.env.VN_FRESH !== "0" },
     }),
   ],

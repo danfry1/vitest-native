@@ -11,7 +11,7 @@ import { libraryMockModule, type LibraryMock } from "./library-mock.js";
 // mock functions that read the provider's metrics (`<SafeAreaProvider initialMetrics>`)
 // and zero insets on a 320x640 frame otherwise. Under the mock engine, and for a
 // version without that mock, the module below serves.
-const SAFE_AREA_MOCK: LibraryMock = {
+export const SAFE_AREA_MOCK: LibraryMock = {
   pkg: "react-native-safe-area-context",
   entry: "jest/mock",
   file: "lib/module/jest/mock.js",

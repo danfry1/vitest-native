@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
 import React from "react";
@@ -142,24 +143,30 @@ function probeHook(call: () => unknown): unknown {
  * A shared value with Reanimated 4's API: `.value` and `get()`, `set(value | updater)`,
  * `modify(modifier?, forceUpdate = true)` (the value becomes the modifier's result),
  * `addListener(id, listener)` / `removeListener(id)`, each listener called with the new
- * value on every write, and the `_isReanimatedSharedValue` mark.
+ * value on every write, and the `_isReanimatedSharedValue` mark. A read (`.value` or
+ * `get()`) is recorded while a derived value's updater runs (derivedValue).
  */
 export function sharedValue<T>(init: T) {
   let current = init;
   const listeners = new Map<unknown, (value: T) => void>();
   const notify = () => {
-    for (const listener of listeners.values()) listener(current);
+    // A snapshot: a listener that re-subscribes (derivedValue) is not called again.
+    for (const listener of Array.from(listeners.values())) listener(current);
   };
-  return {
+  const shared = {
     _isReanimatedSharedValue: true as const,
     get value(): T {
+      derivedReads?.add(shared);
       return current;
     },
     set value(next: T) {
       current = next;
       notify();
     },
-    get: (): T => current,
+    get: (): T => {
+      derivedReads?.add(shared);
+      return current;
+    },
     set(next: T | ((value: T) => T)) {
       current = typeof next === "function" ? (next as (value: T) => T)(current) : next;
       notify();
@@ -175,6 +182,121 @@ export function sharedValue<T>(init: T) {
       listeners.delete(id);
     },
   };
+  return shared;
+}
+
+type SharedValue = ReturnType<typeof sharedValue<unknown>>;
+
+/** The shared values read while a derived value's updater runs, or null outside one. */
+let derivedReads: Set<SharedValue> | null = null;
+
+/**
+ * Reanimated's useDerivedValue: a shared value holding what `updater` returns, recomputed
+ * whenever a shared value the updater read changes, without a render. Reanimated starts a
+ * mapper over the updater's inputs and runs it on every change of one (at once under
+ * Jest, src/mappers.ts maybeRequestUpdates); here the inputs are the shared values the
+ * last run read, so it needs no Babel plugin. It also recomputes on every render, as the
+ * mock's does, so a value the updater takes from props is current, and once more on
+ * mount, as Reanimated's mapper runs when it starts. Listeners hear a changed result, and
+ * the subscriptions end when the component unmounts.
+ */
+export function derivedValue(updater: () => unknown): SharedValue {
+  // Outside a render, which the mock allows, a new one each call, with no component to
+  // unmount; in one, kept per component (perComponent).
+  const rendering = useRefOrNull<DerivedState>();
+  const state = rendering?.current ?? derivedState(updater);
+  if (rendering && rendering.current === null) rendering.current = state;
+  state.updater = updater;
+  // A render follows nothing: React may discard it (a Suspense throw, an error boundary,
+  // an abandoned concurrent render), and no effect would then stop what it started. Its
+  // reads are followed once it commits, as Reanimated starts its mapper in an effect.
+  state.run(rendering === null);
+  if (rendering) {
+    React.useEffect(() => {
+      state.followRendered();
+    });
+    // Run again on mount, as Reanimated's mapper runs when it starts (a StrictMode
+    // remount stops it first).
+    React.useEffect(() => {
+      state.started = true;
+      state.run();
+      return () => state.stop();
+    }, [state]);
+  }
+  return state.derived;
+}
+
+type DerivedState = ReturnType<typeof derivedState>;
+
+function derivedState(updater: () => unknown) {
+  const held = {
+    derived: sharedValue<unknown>(undefined),
+    updater,
+    inputs: new Set<SharedValue>(),
+    /** What the last render read, followed when it commits (followRendered). */
+    rendered: null as Set<SharedValue> | null,
+    /** Between the mount effect and unmount. */
+    started: false,
+    /** Whether the updater is running: a write it makes to its own input waits. */
+    running: false,
+    ran: false,
+    last: undefined as unknown,
+    run(follow = true) {
+      // An updater that writes a value it reads does not run again inside itself. This
+      // guard is per derived value, unlike Reanimated's: its mapperRun returns while any
+      // mapper is processing and runs one topological pass, so here the final values
+      // are the same but a chain runs nested rather than in that order. And Reanimated
+      // keeps a self-written mapper dirty, to rerun on the next pass that ANY mapper
+      // input's write starts; here it reruns only on the next write to its own inputs.
+      if (held.running) return;
+      held.running = true;
+      const outer = derivedReads;
+      const read = new Set<SharedValue>();
+      derivedReads = read;
+      let next: unknown;
+      try {
+        next = held.updater();
+      } finally {
+        derivedReads = outer;
+        held.running = false;
+      }
+      read.delete(held.derived);
+      if (follow) held.follow(read);
+      else held.rendered = read;
+      if (!held.ran || !Object.is(held.last, next)) {
+        held.ran = true;
+        held.last = next;
+        held.derived.value = next;
+      }
+    },
+    /** Listen to `read`, and to nothing else. */
+    follow(read: Set<SharedValue>) {
+      for (const input of held.inputs) if (!read.has(input)) input.removeListener(held);
+      for (const input of read)
+        if (!held.inputs.has(input)) input.addListener(held, () => held.run());
+      held.inputs = read;
+    },
+    /**
+     * After a commit: follow what its render read. On an update that reads an input not
+     * followed before, run again, as Reanimated restarts a mapper whose closure changed:
+     * a child's effects run before this one, and a write they made to that input in this
+     * commit was not heard. The first commit's run is the mount effect's.
+     */
+    followRendered() {
+      const rendered = held.rendered;
+      held.rendered = null;
+      if (!rendered) return;
+      const added = [...rendered].some((input) => !held.inputs.has(input));
+      held.follow(rendered);
+      if (held.started && added) held.run();
+    },
+    stop() {
+      held.started = false;
+      for (const input of held.inputs) input.removeListener(held);
+      held.inputs.clear();
+    },
+  };
+  return held;
 }
 
 /**
@@ -199,6 +321,7 @@ export function mockCorrections(
   dir: string,
   fromRegistry = false,
   helpers: Helpers = ownHelpers(dir, fromRegistry),
+  real: Record<string, any> | null = ownIndex(dir, fromRegistry),
 ): Record<string, any> {
   const probes: Record<keyof Helpers, (f: Fn) => unknown> = {
     interpolate: (f) => f(5, [0, 10], [0, 100]),
@@ -248,13 +371,7 @@ export function mockCorrections(
     fixed.makeMutable = (init: unknown) => sharedValue(init);
   }
   if (wrong("useDerivedValue", (hook) => hook(() => 0))) {
-    // Recomputed on every render, as the mock's is; listeners hear a changed result.
-    fixed.useDerivedValue = (updater: () => unknown) => {
-      const next = updater();
-      const derived = perComponent(() => sharedValue(next));
-      if (!Object.is(derived.value, next)) derived.value = next;
-      return derived;
-    };
+    fixed.useDerivedValue = derivedValue;
   }
   for (const name of ["useScrollOffset", "useScrollViewOffset", "useTimestamp"]) {
     if (wrong(name, (hook) => hook())) {
@@ -286,6 +403,61 @@ export function mockCorrections(
         const reading = given.sensor?.value ?? given.sensor;
         return { ...given, sensor: sharedValue(reading) };
       });
+  }
+  // Layout animations and Keyframe: the mock gives one shared object per builder, with
+  // its methods returning itself, so `new FadeIn()`, `instanceof FadeIn` and a class that
+  // extends a builder fail. Reanimated's own classes, from the index the mock itself
+  // imports, wherever a real export is a builder class (BaseAnimationBuilder or a class
+  // that extends it; Keyframe by name) and the mock serves something else (#696).
+  if (real) {
+    const base = real.BaseAnimationBuilder;
+    for (const [name, own] of Object.entries(real)) {
+      const builder =
+        typeof own === "function" &&
+        (own === base ||
+          (typeof base === "function" && own.prototype instanceof base) ||
+          name === "Keyframe");
+      if (builder && name in mock && mock[name] !== own) fixed[name] = own;
+    }
+  }
+  // useAnimatedRef: the mock's is `{ current }`; Reanimated's is a function ref (React
+  // calls it with the node, and with null on unmount) with `current`, `observe` and
+  // `getTag`, kept per component (#696).
+  if (
+    typeof mock.useAnimatedRef === "function" &&
+    typeof gives("useAnimatedRef", (hook) => hook()) === "object"
+  ) {
+    fixed.useAnimatedRef = () =>
+      perComponent(() => {
+        const ref: any = (node?: unknown) => {
+          if (node !== undefined) ref.current = node;
+          return ref.current;
+        };
+        ref.current = null;
+        ref.observe = () => () => {};
+        ref.getTag = () => null;
+        return ref;
+      });
+  }
+  // Worklet runtimes, while the mock's are no-ops: createWorkletRuntime gives a runtime
+  // (its name and an id, as Reanimated's WorkletRuntime has), and runOnRuntime gives the
+  // function to call, which runs the worklet, as the mock's runOnUI does (#696).
+  const runtime = gives("createWorkletRuntime", (hook) => hook({ name: "probe" })) as any;
+  if (typeof mock.createWorkletRuntime === "function" && typeof runtime?.runtimeId !== "number") {
+    let next = 1;
+    fixed.createWorkletRuntime = (config?: string | { name?: string }) => ({
+      name: (typeof config === "string" ? config : config?.name) ?? "",
+      runtimeId: next++,
+    });
+  }
+  if (
+    typeof mock.runOnRuntime === "function" &&
+    typeof gives("runOnRuntime", (hook) => hook({}, () => {})) !== "function"
+  ) {
+    fixed.runOnRuntime =
+      (_runtime: unknown, worklet: Fn) =>
+      (...args: unknown[]) =>
+        worklet(...args);
   }
   // Reanimated's setUpTests() registers its own toHaveAnimatedStyle and
   // toHaveAnimatedProps on the global `expect` (or on Jest's `expect` package when there
@@ -420,6 +592,23 @@ function useRefOrNull<T>(): { current: T | null } | null {
 function registryHolds(file: string): boolean {
   const dispatch = (globalThis as Record<symbol, any>)[Symbol.for("vitest-native.node-dispatch")];
   return dispatch?.channel("registry").libraryHolds?.(file) === true;
+}
+
+/**
+ * Reanimated's own index, which its mock imports (`from './index'`): the module the mock
+ * loaded, from the library registry that holds it beside the mock, or from Node's cache
+ * where the index loaded through Node (per-file module loading). Never a second copy:
+ * null where neither holds it (unit tests), and the corrections that need it stay off.
+ */
+function ownIndex(dir: string, fromRegistry: boolean): Record<string, any> | null {
+  if (!fromRegistry) return null;
+  const index = path.join(dir, "src/index.ts");
+  const required = createRequire(path.join(dir, "package.json"));
+  // Without the library registry (per-file module loading), Node loaded the index for
+  // the mock already: its cached module, under Node's real-path spelling, is the same one.
+  const real = loadOrNull(() => ({ path: fs.realpathSync(index) }))?.path ?? index;
+  if (!registryHolds(index) && !required.cache[real] && !required.cache[index]) return null;
+  return loadOrNull(() => required(index));
 }
 
 /** What `load` returns, or null when it throws: not this version's layout, or not loadable here. */
@@ -647,9 +836,7 @@ export function reanimated(): Preset {
             return updater();
           }
 
-          function useDerivedValue(updater: () => any) {
-            return createSharedValue(updater());
-          }
+          const useDerivedValue = derivedValue;
 
           const { useAnimatedScrollHandler, useComposedEventHandler, useScrollOffset } =
             scrollHandlers(createSharedValue);

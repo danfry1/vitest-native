@@ -1,6 +1,7 @@
 // RNTL reinstalls fake timers in every file under hotRuntime.freshRuntime, as under
 // per-file isolation (package.json test:native:hot:fresh-runtime). `--mode fresh` and
 // `--mode perfile` pass; `--mode resident` fails from the second file on.
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 import { reactNative } from "../dist/index.mjs";
@@ -13,6 +14,9 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     reactNative({
       engine: "native",
+      // No presets: a preset whose module holds React per worker makes freshRuntime
+      // decline (#719), and these gates are about freshRuntime itself.
+      presets: [],
       hotRuntime:
         mode === "perfile" ? false : { allowUnboundedMemory: true, freshRuntime: mode === "fresh" },
     }),
