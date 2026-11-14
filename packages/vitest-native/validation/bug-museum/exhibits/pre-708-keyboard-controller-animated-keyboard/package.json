@@ -1,0 +1,10 @@
+{
+  "name": "museum-pre-708-keyboard-controller-animated-keyboard",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "react-native-keyboard-controller": "*",
+    "react-native-reanimated": "*",
+    "react-native-worklets": "*"
+  }
+}

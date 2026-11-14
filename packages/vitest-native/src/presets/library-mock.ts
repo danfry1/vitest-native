@@ -50,6 +50,7 @@ export function libraryMockModule(mock: LibraryMock, fallback: PresetModule): Pr
           for (const file of mock.alsoFiles ?? []) {
             for (const name of namesIn(path.join(dir, file))) names.add(name);
           }
+          for (const name of mock.addsNames ?? []) names.add(name);
           if (mock.keepsPresetNames) {
             for (const name of presetNames(fallback, context)) names.add(name);
           }
