@@ -16,6 +16,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BUILD_INFO, buildInfo } from "./lib/build-info.mjs";
 import { buildHash } from "./lib/hash.mjs";
+import { cliArguments } from "../../scripts/support/arguments.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "../../../..");
@@ -72,11 +73,15 @@ export function buildRef(ref, cache = path.join(os.tmpdir(), "vn-bug-museum-buil
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const ref = process.argv[2];
+  const usage = "build-ref.mjs <ref> [--cache <dir>]";
+  const { values, positionals } = cliArguments(
+    { script: "build-ref.mjs", valued: ["cache"], positionals: 1 },
+    usage,
+  );
+  const [ref] = positionals;
   if (!ref) {
-    console.error("usage: build-ref.mjs <ref> [--cache <dir>]");
+    console.error(`usage: ${usage}`);
     process.exit(2);
   }
-  const index = process.argv.indexOf("--cache");
-  console.log(buildRef(ref, index === -1 ? undefined : path.resolve(process.argv[index + 1])));
+  console.log(buildRef(ref, values.cache && path.resolve(values.cache)));
 }
