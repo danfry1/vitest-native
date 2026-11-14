@@ -2,4 +2,7 @@
 "vitest-native": patch
 ---
 
-**`instanceof View` works under jest-compat, and a method added to `View.prototype` reaches View refs, as under React Native's Jest preset.** With the native engine, `ref instanceof View` threw "Right-hand side of 'instanceof' is not callable", because React Native's View is not a class; it now answers whether the value is a View ref (Animated.View and Pressable refs included, Text and ScrollView refs not). View refs now inherit from `View.prototype`, so a suite that defines a method there (react-native-paper's Menu tests add `querySelector`) can call it on a ref; before, only the six native methods reached refs.
+**Under jest-compat, `ref instanceof View` works and a method added to `View.prototype` reaches View refs, as under React Native's Jest preset.** No action needed.
+
+- `instanceof View` used to throw "Right-hand side of 'instanceof' is not callable", because React Native's View is not a class. It is now true for View, Animated.View and Pressable refs, and false for Text and ScrollView refs.
+- View refs inherit from `View.prototype`, so a method a suite defines there (react-native-paper's Menu tests add `querySelector`) can be called on a ref.
