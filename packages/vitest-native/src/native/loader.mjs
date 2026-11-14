@@ -433,8 +433,10 @@ function resolveAfter(resolved, context) {
     if (gen > 0 && !isStamped(resolved.url)) {
       // A module Vite's runner evaluates is never Node's importer: the runner imports a
       // file's externalized modules from Vitest's module evaluator. Its import.meta.resolve
-      // does reach this hook, through Vite's own hook, which names the module as parent.
-      // That answer is a string for the module's code, so it names the real file: a
+      // does reach this hook, with the module as parent: Vitest passes it as Node's
+      // `parent` argument (its workers run with --experimental-import-meta-resolve), and
+      // Vite's own resolver hook sets it in the same way. That answer is a string for the
+      // module's code, so it names the real file: a
       // stamped one would be a path that does not exist, or a query in it.
       if (evaluatedByRunner(context.parentURL)) return resolved;
       // An ES module as published gets its generation in its file name, the spelling a
