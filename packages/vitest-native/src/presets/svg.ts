@@ -1,6 +1,5 @@
 import type { Preset } from "../types.js";
-import React from "react";
-import { asHost } from "../mocks/host.js";
+import { hosts } from "../mocks/host-classes.js";
 import { builtInPreset } from "./built-in.js";
 
 // react-native-svg renders native SVG host components. Shadow each element with a
@@ -43,7 +42,8 @@ export function svg(): Preset {
     modules: {
       "react-native-svg": {
         exports: [...SVG_COMPONENTS, "SvgXml", "SvgUri", "SvgCss", "SvgCssUri"],
-        factory: () => {
+        factory: ({ React }) => {
+          const { asHost } = hosts(React);
           const make = (name: string) => {
             const C = React.forwardRef((props: any, ref: any) =>
               React.createElement(asHost(name), { ...props, ref }, props.children),

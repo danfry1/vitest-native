@@ -1,5 +1,4 @@
 import type { Preset } from "../types.js";
-import { useState } from "react";
 import { builtInPreset } from "./built-in.js";
 
 // react-native-mmkv pulls react-native-nitro-modules, which throws at import
@@ -22,7 +21,8 @@ export function mmkv(): Preset {
           "useMMKVListener",
           "Mode",
         ],
-        factory: () => {
+        factory: ({ React }) => {
+          const { useState } = React;
           class MMKV {
             _store = new Map<string, string | number | boolean | Uint8Array>();
             set(key: string, value: string | number | boolean | Uint8Array) {

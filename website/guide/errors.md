@@ -105,6 +105,10 @@ The message says which.
 
 The Skia preset's mock was built before CanvasKit loaded. Inside a test run the setup file loads it first; a mock built outside a test run needs `await presets.skia().prepare()` first.
 
+### `PRESET_REACT_MISMATCH` {#PRESET_REACT_MISMATCH}
+
+Under the native engine, a preset builds its mock with the React that `react-native` uses, and the project or React Native Testing Library resolves a different copy of React. Hooks and contexts from one copy fail in a tree the other renders. The message names both paths. Install one copy of `react`: dedupe it in the workspace, or align the versions the packages ask for.
+
 ### `NITRO_HYBRID_OBJECT_UNAVAILABLE` {#NITRO_HYBRID_OBJECT_UNAVAILABLE}
 
 A library asked Nitro for a native HybridObject, which has no implementation in tests. Use the library's own test mode if it has one, or mock the library with `vi.mock()`.
@@ -142,6 +146,10 @@ A `jest.*` API with no Vitest equivalent was called (such as `jest.createMockFro
 ### `JEST_COMPAT_SETUP_MISSING` {#JEST_COMPAT_SETUP_MISSING}
 
 A test file uses `jest.mock()` factories, but the jest-compat setup is not loaded. Add `jestCompatSetup` from `vitest-native/jest-compat` to `test.setupFiles`, ahead of any setup file that calls `jest.mock()`. See [jest-compat](/guide/jest-compat).
+
+### `JEST_BINDING_NOT_FOLLOWED` {#JEST_BINDING_NOT_FOLLOWED}
+
+`jestMockTransform()` met a `jest.mock`, `unmock`, `doMock` or `doUnmock` call through a further top-level name for the jest object, such as `const j = jest; j.mock(…)` or `const { mock } = jest; mock(…)`. It would not be hoisted or registered, so the test file fails instead of running without the mock. The message names the binding and both lines. Call the method on the jest object itself: the global `jest`, or `jest` imported from `@jest/globals` under any name. Jest does not hoist such a call either.
 
 ### `JEST_MOCK_FACTORY_CYCLE` {#JEST_MOCK_FACTORY_CYCLE}
 

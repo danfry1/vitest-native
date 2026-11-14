@@ -1,7 +1,6 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
-import React from "react";
-import { hostComponent as hostClass, asHost } from "../mocks/host.js";
+import { hosts } from "../mocks/host-classes.js";
 import { builtInPreset } from "./built-in.js";
 import { activeReactNative } from "./active-react-native.js";
 
@@ -46,7 +45,8 @@ export function screens(): Preset {
           "NativeScreen",
           "NativeScreenContainer",
         ],
-        factory: () => {
+        factory: ({ React }) => {
+          const { hostComponent: hostClass, asHost } = hosts(React);
           let screensEnabledFlag = true;
           let freezeEnabledFlag = false;
 

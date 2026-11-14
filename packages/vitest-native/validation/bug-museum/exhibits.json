@@ -740,6 +740,15 @@
       }
     },
     {
+      "id": "env-jest-renamed-jest-mock",
+      "class": "env-contract",
+      "title": "jest.mock through a renamed jest from @jest/globals is ignored",
+      "source": "react-native-paper bake-off (#833)",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/jest-mock-transform-aliased-jest",
+      "bugSignature": "^renamed\\.test\\.ts: AssertionError: AccessibilityInfo from the renamed jest's mock: expected undefined to be 'mocked'"
+    },
+    {
       "id": "env-permissive-expo-dev-launcher",
       "class": "env-contract",
       "title": "Importing expo throws under nativeModules: 'permissive'",
@@ -1307,6 +1316,15 @@
       "fixedBy": "#753",
       "fixRef": "origin/fix/reanimated-derived-value-follows",
       "bugSignature": "^app\\.test\\.tsx: AssertionError: expected 10 to be 60"
+    },
+    {
+      "id": "pre-351-gh-buttons-unpressable",
+      "class": "presets",
+      "title": "Gesture Handler 3's buttons cannot be pressed from Testing Library",
+      "source": "#351 (rc.4 report)",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/gesture-handler-button-host",
+      "bugSignature": "^app\\.test\\.tsx: AssertionError: a Gesture Handler 3 button was not pressed"
     },
     {
       "id": "pre-banner-names-presets",
