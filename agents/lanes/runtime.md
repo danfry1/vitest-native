@@ -1,6 +1,6 @@
 # Lane: runtime
 
-The native engine: ownership, resolution, the Node front door, loaders, workers, the resident set and the hot runtime. It is the most tightly coupled code in the repository, so **only one worker runs in this lane at a time.** Paths are listed in the root `AGENTS.md`.
+The native engine: ownership, resolution, the Node front door, loaders, workers, the resident set and the hot runtime. It is the most tightly coupled code in the repository, so **only one worker runs in this lane at a time.** `agents/lanes.json` lists the files it owns.
 
 **Where to look:**
 - `src/plugin.ts`, `src/context.mjs`, `src/node-dispatch.mjs`, `src/cjs-bridge.ts`

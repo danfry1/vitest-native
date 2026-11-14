@@ -22,7 +22,7 @@ CI, scripts, dependencies, the build, changesets and releasing. This lane owns t
 - **Credit external contributors** with a final changeset line: `Thanks @handle for … (#N).` Never name private reporters.
 
 ## Conventions
-- **Never use `bunx` or `npx` where the repo runs commands** (CI enforces this). Build with `bun ../../node_modules/.bin/tsdown && node scripts/copy-static-types.mjs`.
+- **Never use `bunx` or `npx` where the repo runs commands** (`tests/no-bunx-npx.test.ts` enforces this). Build with `bun run build`. It runs `bun --bun tsdown`, then copies the static types and writes the build stamp.
 - **Pin npm through the setup action,** never with `npm install -g` in a workflow.
 - **For a scratch install:** `--minimum-release-age=604800 --ignore-scripts` with a frozen lockfile, pinned to the repo lockfile's versions. A scratch directory outside the repo doesn't read `bunfig.toml`.
 - **Changesets must pass `check-changeset --lint`.** It reads the committed head, so run it after `git commit`. Changes to `package.json` fields, `tsdown.config.ts`, `copy-static-types` or production dependencies all need a changeset.

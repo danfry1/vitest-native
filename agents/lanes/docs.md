@@ -16,5 +16,3 @@ The website, the READMEs, `CONTRIBUTING.md` and the package's `docs/`. Feature P
 - **Use the user's vocabulary.** No private paths, no internal terms.
 - **Run oxfmt only on paths that `format:check` covers,** and format only the lines you changed. On `website/`, it rewrote guide examples.
 
-## Open
-- `CONTRIBUTING.md` still tells contributors to run `bunx changeset`, and says `build` runs `bunx --bun tsdown`. Both contradict the no-`bunx` rule that CI enforces. Update it.

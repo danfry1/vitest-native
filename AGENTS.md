@@ -1,105 +1,182 @@
-# vitest-native: agent guide
+# vitest-native: guide for agents and contributors
 
-Read this before changing anything. Then read the file for the lane your work is in (`agents/lanes/<lane>.md`). The workflow follows the agent workflow standard (https://danfry.dev/standards/agents.md).
+Read this before changing anything, whether you are a person or a coding agent.
+Then read the file for the lane your change is in. It is written for any tool.
+Tool-specific setup lives in thin adapter files; `CLAUDE.md` only imports this
+file.
 
-## Workflow
+It follows the [agent workflow standard](https://github.com/danfry1/standards/blob/main/agents.md).
+Decisions cited as "ADR NNNN" are recorded in `docs/adr/`.
 
-- An **issue is the spec and a pull request is the deliverable**. Nothing goes to `main` without a PR, a green check and the maintainer's merge.
-- A worker handles **one issue, in one worktree, producing one PR**, and is named `<lane>-<issue>` (e.g. `runtime-812`). It ends when its PR merges.
-- **Stay inside the brief.** Before you change files outside your lane, add a dependency, or change a hotspot file you don't own (below), send a `QUESTION`. An improvement you notice along the way becomes a `FOLLOW-UP`, not part of your diff.
-- **Report to the lead in one line** with `SendMessage` (session name `lead`). Never type into another agent's terminal.
-  ```
-  [<lane>-<n>] PR #<pr> opened · closes #<n> · check <green|red>
-  [<lane>-<n>] QUESTION: <ambiguity> · recommend: <answer>
-  [<lane>-<n>] BLOCKED: <what>
-  [<lane>-<n>] FOLLOW-UP: <suggested issue>
-  ```
-- **Before a PR is ready:** tests written first and mutation-checked, the full check clean, and a fresh read-only review. That review checks scope, names the test behind each acceptance criterion, and tries to break the change.
-- **When something you learned will stay true**, add it to your lane's file in the same PR.
+## How a change is made
+
+- **An issue is the spec, and a pull request is the deliverable.** Nothing
+  reaches `main` without a pull request, a green check and a maintainer's
+  merge.
+- **One issue, one branch, one pull request.** Name the branch
+  `<issue>-<slug>`. If you were given an issue to work on, stay inside it.
+  Before changing files outside your lane, adding a dependency, or editing a
+  hotspot file (below), ask. Improvements you notice along the way become a
+  suggestion for a new issue, not part of your diff.
+- **Before a pull request is ready:**
+  - tests are written first and mutation-checked;
+  - `bun run test`, `bun run typecheck`, `bun run lint` and
+    `bun run format:check` pass;
+  - a changeset is added;
+  - someone other than the author has reviewed it, a person or a fresh agent.
+    The reviewer checks scope against the issue and names the test that proves
+    each acceptance criterion.
+- **When you learn something that will stay true,** add it to your lane's
+  file in the same pull request.
+
+### Working alone
+
+Everything above applies to a single person or a single agent. Pick an issue,
+branch, write the tests first, run the checks, and open a pull request.
+
+### Working as one of several agents
+
+When several agents work at once:
+
+- each works in its own git worktree, on one issue;
+- at most one agent works in each lane, and at most three or four work in total;
+- changes to the lockfile, root config or CI run on their own.
+
+Report to whoever assigned the work, through the channel they gave you. Keep
+each report to one line, and send one only at these points:
+
+```
+[<lane>-<issue>] PR #<n> opened · closes #<issue> · check <green|red>
+[<lane>-<issue>] QUESTION: <what is unclear> · recommend: <your answer>
+[<lane>-<issue>] BLOCKED: <what is stopping you>
+[<lane>-<issue>] FOLLOW-UP: <a suggested new issue>
+```
 
 ## Lanes
 
+`agents/lanes.json` says which lane owns every tracked file.
+`tests/agent-lanes.test.ts` fails if any file has no owner. Each pull request
+gets a `lane:<name>` label per lane it touches
+(`node .github/scripts/lanes.mjs --pr <n>`). Topic labels such as
+`area:ownership` stay as they are.
+
+| Lane | Owns |
+| --- | --- |
+| [compat](agents/lanes/compat.md) | Jest compatibility, presets, mocks, matchers, and the library-support files in `src/native/` |
+| [cli](agents/lanes/cli.md) | `src/cli/` |
+| [runtime](agents/lanes/runtime.md) | The rest of `src/native/`, the top-level `src/` modules, and `tests-native/` |
+| [evidence](agents/lanes/evidence.md) | `validation/`, `crosscheck/`, `consumer-tests/`, `ecosystem-probe/`, the ratchet files, `/bench/` and `/apps/` |
+| [docs](agents/lanes/docs.md) | `/website/` outside the guide pages, `docs/`, the READMEs and the agent guide |
+| [delivery](agents/lanes/delivery.md) | CI, scripts, lint rules, manifests, the lockfile and root config |
+
 Paths are relative to `packages/vitest-native/` unless they start with `/`.
 
-| Lane | Paths | Label | Workers at once |
-| --- | --- | --- | --- |
-| [runtime](agents/lanes/runtime.md) | `src/native/**`, `src/plugin.ts`, `src/types.ts`, `src/setup.ts`, `src/resolve.ts`, `src/cjs-bridge.ts`, `src/fs-module-cache.ts`, `src/serializer.ts`, `src/context.mjs`, `src/node-dispatch.mjs`, `tests-native/**` | `area:runtime` | 1 |
-| [compat](agents/lanes/compat.md) | `src/jest-compat/**`, `src/presets/**`, `src/preset-map.ts`, `src/mocks/**`, `src/matchers/**`, `src/rntl-support.mjs` | `area:compat` | 1 |
-| [cli](agents/lanes/cli.md) | `src/cli/**` | `area:cli` | 1 |
-| [evidence](agents/lanes/evidence.md) | `validation/**`, `crosscheck/**`, `consumer-tests/**`, `ecosystem-probe/**`, `/bench/**` | `area:evidence` | 1 |
-| [delivery](agents/lanes/delivery.md) | `/.github/**`, `scripts/**`, `/package.json`, `package.json`, `/bun.lock`, `tsdown.config.ts`, `package-budget.json`, `/.changeset/config.json` | `area:delivery` | 1, never alongside another dependency change |
-| [docs](agents/lanes/docs.md) | `/website/**`, `README.md`, `/README.md`, `/CONTRIBUTING.md`, `docs/**` | `area:docs` | 1 (docs-only work) |
+**Shared, with no lane:** `tests/`, changesets and `/website/guide/`. A change
+adds its own tests, its own changeset, and its own guide page.
 
-**Hotspot files.** Many changes need these, so they have a single owner:
-- `package.json` and `bun.lock` belong to **delivery**. Other lanes ask with a `QUESTION`.
-- `plugin.ts` and `types.ts` belong to **runtime**. A new option from another lane waits until runtime work in progress has merged.
-- `tests/native-unit.test.ts` is shared. Add new tests in a separate file per module, not to this file.
-- Feature PRs update their own docs page and add a `.changeset/*.md`, since each changeset is a new file and can't conflict.
+**Hotspot files.** Many changes need these, so each has one owner:
 
-**Viewpoints aren't lanes:**
-- Architecture and ownership are covered by the reviewer on every PR.
-- Ecosystem adoption and performance against `bench/` are weekly sweeps that **file issues**; they don't write code.
+- `package.json` and `/bun.lock` belong to **delivery**. Other lanes ask.
+- `src/plugin.ts` and `src/types.ts` belong to **runtime**. A new option from
+  another lane waits until runtime work in progress has merged.
+- `tests/native-unit.test.ts` is shared and large. Add new tests in a separate
+  file per module, not to this file.
 
 ## Rules for every lane
 
-### Invariants (from the ADRs, checked against `main`)
-- **Fail loudly, by name. Never fall back silently.** A file that passes under Jest may fail here only through a named limit with a remedy. Error codes live in `src/errors.mjs`. (ADR 0008, 0017)
-- **One owner per module instance.** The same file evaluated by Vite and by Node is two instances. (ADR 0004; `src/native/ownership.mjs`)
-- **Every behaviour change goes behind the flag table** in `src/flags.ts` (`{name, adr, since, decideBy}`). At most 2 flags are live, and a flag past its `decideBy` date blocks release. Refactors ship without a flag. (ADR 0001, 0016)
-- **The structural scorecard's net total never rises between releases** without a signed exception. (ADR 0002; `scorecard.json`)
-- **Every new public option has an ADR** and a section in `website/guide/plugin-options.md`. (ADR 0016)
+### Invariants
 
-### Settled decisions (don't reopen them; ADR 0017)
+- **Fail loudly, by name. Never fall back silently.** A file that passes under
+  Jest may fail here only through a named limit with a remedy. Error codes live
+  in `src/errors.mjs`. (ADR 0008, 0017)
+- **One owner per module instance.** The same file evaluated by Vite and by
+  Node is two instances. (ADR 0004)
+- **Every behaviour change goes behind the flag table** in `src/flags.ts`
+  (`{name, adr, since, decideBy}`). At most 2 flags are live, and a flag past
+  its `decideBy` date blocks release. Refactors ship without a flag.
+  (ADR 0001, 0016)
+- **The structural scorecard's net total never rises between releases**
+  without a signed exception. (ADR 0002; `scorecard.json`)
+- **Every new public option has an ADR,** and a section in
+  `/website/guide/plugin-options.md`. (ADR 0016)
+
+### Settled decisions (ADR 0017; don't reopen them)
+
 - No parallel v2 runtime.
 - No fresh renderer per file.
 - No realm or vm-pool isolation.
 - Worker-per-file is not the default.
-- No single Vite graph for RN.
-- No Oxc for RN, Flow or codegen specs.
+- No single Vite graph for React Native.
+- No Oxc for React Native, Flow or codegen specs.
 - No fetching at run time.
 - No Hermes, Fabric or Fantom.
 - No react-native-web.
-- No patching of dependencies, React or scheduler internals.
-- Never lead with speed. Never claim Jest "always mocks RN".
+- No patching of dependencies, or of React or scheduler internals.
 
 ### Conventions
-- Don't reassign members of objects you don't own (`vi`, `expect`, React Native exports). Add to our own `jest` object, and read state from its owner. Stacked wrappers have caused infinite loops. (Enforced by no-monkey-patching.)
-- Use closing keywords (`fixes #N`) only for what the PR itself resolves. For anything else write "fixed by #N". A squash-merge once closed an unrelated issue.
-- In a `"type": "module"` package, CommonJS goes in `.cjs` files.
-- Recorders must refuse impossible results, such as an all-fail baseline or a tiny RSS, so bad measurements never become data.
-- PR text and changesets are neutral and in the user's vocabulary. Credit outside reporters and contributors with a `Thanks @handle for … (#N).` line.
+
+- **Don't reassign members of objects you don't own** (`vi`, `expect`, React
+  Native exports). Add to our own `jest` object, and read state from its
+  owner. The no-monkey-patching lint rule enforces this.
+- **Use closing keywords (`fixes #N`) only for what the pull request itself
+  resolves.** For anything else, write "fixed by #N".
+- **In a `"type": "module"` package, CommonJS goes in `.cjs` files.**
+- **Recorders refuse impossible results,** such as an all-fail baseline or a
+  tiny RSS, so bad measurements never become data.
+- **Pull request text and changesets are neutral and in the user's
+  vocabulary.** Credit outside reporters and contributors with a final
+  `Thanks @handle for … (#N).` line.
+- **Install nothing new without the maintainer's approval.** Pin an exact
+  version that was released at least 7 days ago.
+- **Never force-push or rebase a pushed branch.** Merge `origin/main` instead.
 
 ### Traps
-- **After every merge, compare files blob by blob.** A file that matches the branch's pre-merge version but differs from main's is a silent revert. Start data files from main and re-apply your change; never "take ours".
-- **`package.json` conflicts:** merge both sides' additions, then check that every script it names still exists.
-- **Never use `git stash`** for mutation checks. The stash list is shared across worktrees. Mutate with `git show origin/main:<path> > <path>` and restore from a copy.
-- **Pass shell flags as literals or arrays.** zsh doesn't word-split an unquoted variable.
-- **Wait on a process or PID, never on command-line text.** `pgrep -f 'node .*vitest(\.mjs)? run'`, not a pattern that matches your own shell.
-- **Never undo a step in a prepared environment with `git checkout` or `git reset`.** Throw the copy away. Diff `package.json` and the lockfile around every install.
 
-### Working rules
-- **Install nothing without a named approval.** Pin an exact version released at least 7 days ago. A different version or an extra peer dependency needs a new approval.
-- **Never force-push or rebase a pushed branch.** Merge `origin/main` instead.
-- **One PR in review per worker** at a time.
-- **Heavy runs (soak, perf, full native matrix) claim the shared machine first** with `~/dev/vitest-native-planning/coordination/slot-run.sh <worker> "<what, ~how long>" [--timed] [--wait] -- <command>`. It runs the command only if the claim succeeds (exit 75 means not claimed), and frees the slot on exit. Nothing heavy runs during a soak or timed run.
-- **Measure counts first** (resolutions, evaluations, loads). Wall-clock time is only a tripwire.
-- **For long or timed runs, use AC power, keep the lid open, and run under `caffeinate -dims`.** Check `pmset -g log` before believing any timeout: sleep has produced fake 770 s stalls.
+- **After every merge, compare files blob by blob.** A file that matches the
+  branch's pre-merge version but differs from main's is a silent revert. Start
+  data files from main and re-apply your change; never "take ours".
+- **When `package.json` conflicts,** merge both sides' additions, then check
+  that every script it names still exists.
+- **Never use `git stash` for mutation checks.** The stash list is shared
+  across worktrees. Mutate with `git show origin/main:<path> > <path>`, and
+  restore from a copy.
+- **Pass shell flags as literals or arrays.** zsh doesn't word-split an
+  unquoted variable.
+- **Wait on a process or a PID, never on command-line text,** which can match
+  your own shell.
+- **Never undo a step in a prepared environment with `git checkout` or
+  `git reset`.** Throw the copy away instead, and diff `package.json` and the
+  lockfile around every install.
+- **Long and timed runs need a machine that won't sleep.** On macOS, check
+  `pmset -g log` before believing any timeout.
 
 ### Verification
-- **Read the `Test Files` line, not only `Tests`.** It must be non-empty and show no skipped files. Collection failures and empty globs hide from the `Tests` line.
-- **Mutation-check every new regression test:** turn the fix off, watch the test fail, then restore it.
-- **Loops and classifiers count what they actually checked** and assert a minimum. A swallowed error needs a counted reason. In one test, 294 of 296 cases asserted nothing.
-- **Run gates from inside `packages/vitest-native`, with `set -o pipefail`.** Never pipe a gate into `tail`, and make a commit depend on the gate's own exit code.
-- **Check a new probe or measurement against a known value once** before trusting it, and confirm which loader loaded the file.
-- **Speed claims need repeated runs, medians and the raw output kept.** One sample proves nothing.
-- **Run the whole unit suite** (`bun run test`) before pushing any `src` change.
+
+- **Mutation-check every new regression test:** turn the fix off, watch the
+  test fail, then restore it.
+- **Read the `Test Files` line, not only `Tests`.** It must be non-empty and
+  show no skipped files.
+- **Loops and classifiers count what they actually checked,** and assert a
+  minimum.
+- **Run gates from inside `packages/vitest-native`, with `set -o pipefail`.**
+  Never pipe a gate into `tail`, and make a commit depend on the gate's own
+  exit code.
+- **Check any new probe or measurement against a known value once** before
+  trusting it.
+- **Speed claims need repeated runs, medians and the raw output kept.** Count
+  resolutions, evaluations and loads first; wall-clock time is only a
+  tripwire.
 
 ## Commands
 
 Run these from the repository root unless noted.
 
-- `bun install --frozen-lockfile` first, and again after merging `main` into a long-lived branch.
-- `bun run test`, `bun run typecheck`, `bun run lint` (CI uses `oxlint --deny-warnings`), `bun run format:check`.
-- `bun run test:native` before pushing anything that changes a served mock or the native engine.
-- Never use `bunx` or `npx` where the repo runs commands: they fetch packages, and CI enforces this.
-- Commit no `.vitest/`, `.tmp/` or `coverage/` output.
+- `bun install --frozen-lockfile` first, and again after merging `main` into a
+  long-lived branch.
+- `bun run test`, `bun run typecheck`, `bun run lint`, `bun run format:check`.
+- `bun run test:native` before pushing a change to a served mock or the native
+  engine.
+- `bun run build` after merges, because the native configs import `dist/`.
+- Never use `bunx` or `npx`: they fetch packages, and
+  `tests/no-bunx-npx.test.ts` enforces this.
+- Don't commit `.vitest/`, `.tmp/` or `coverage/` output.

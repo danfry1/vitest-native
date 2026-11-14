@@ -1,8 +1,8 @@
 # Lane: evidence
 
-The proof apparatus: the bug museum, cross-check, consumer tests, the ecosystem probe and benchmarks. This lane decides what counts as proof. Weekly ecosystem and performance sweeps file their issues here or in the lane that owns the fix.
+The proof apparatus: the bug museum, cross-check, consumer tests, the ecosystem probe, benchmarks and the example app. This lane decides what counts as proof.
 
-**Where to look:** `validation/` (`bug-museum`, `config-axes`, `vitest-semantics`, `ownership-cost`), `crosscheck/`, `consumer-tests/`, `ecosystem-probe/`, repo-root `bench/`.
+**Where to look:** `validation/bug-museum/`, `validation/config-axes/`, `validation/vitest-semantics/`, `validation/ownership-cost/`, `crosscheck/`, `consumer-tests/`, `ecosystem-probe/`, `/bench/`, `/apps/example/`.
 
 ## Invariants
 - **Deterministic counts are the hard gate; timings are only tripwires.** Budgets are cumulative against fixed anchors, never ratios per PR. (ADR 0002)
@@ -12,7 +12,7 @@ The proof apparatus: the bug museum, cross-check, consumer tests, the ecosystem 
 
 ## Settled decisions
 - **Run untrusted apps only in the hardened container.** If the release-age floor trips, stop. Never lower it.
-- **Performance runs go to `perf-evidence/` in the planning repo,** with raw output and SHAs, unflattering runs included. Bake-off numbers are tripwires only.
+- **Keep the raw output and SHAs of every performance run,** unflattering runs included, alongside the result. Bake-off numbers are tripwires only.
 
 ## Working rules
 - **Every fix gets an exhibit** that fails as the bug on main, passes with the fix, and passes the control. For landed fixes, use `preFixRef = merge^`, and pin buggy SHAs rather than branches. Commit a refresh only if no proof gets worse.
