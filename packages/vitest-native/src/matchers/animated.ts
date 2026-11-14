@@ -5,11 +5,11 @@
  * (`setUpTests()`), so they are unavailable under Vitest by default — calling
  * `expect(node).toHaveAnimatedStyle(...)` throws `Invalid Chai property`.
  *
- * vitest-native's reanimated preset resolves animated hooks synchronously:
- * `useAnimatedStyle(updater)` returns `updater()` and the result is passed
- * through as the element's `style` prop (and `animatedProps` is passed through
- * verbatim). These matchers therefore read straight from the rendered element's
- * props, flattening style arrays the same way React Native does.
+ * vitest-native's reanimated preset gives `useAnimatedStyle(updater)` the updater's
+ * result, which is passed through as the element's `style` prop (and `animatedProps`
+ * verbatim), and rewrites it in place when a shared value the updater read changes
+ * (presets/reanimated.ts, animatedStyle). These matchers therefore read straight from
+ * the rendered element's props, flattening style arrays the same way React Native does.
  */
 
 type StyleLike = Record<string, unknown> | StyleLike[] | null | undefined | false;

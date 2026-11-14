@@ -118,6 +118,23 @@ it("a reaction can write a shared value that the component reads", async () => {
   expect(done.get()).toBe(true);
 });
 
+it("a shared value only the reaction reads does not run it", async () => {
+  let progress!: SharedValue<number>;
+  let scale!: SharedValue<number>;
+  const react = vi.fn((prepared: number) => prepared * scale.get());
+  function Watcher() {
+    progress = useSharedValue(0);
+    scale = useSharedValue(1);
+    useAnimatedReaction(() => progress.get(), react);
+    return null;
+  }
+  await render(<Watcher />);
+  scale.set(2);
+  expect(react).toHaveBeenCalledTimes(1);
+  progress.set(1);
+  expect(react).toHaveBeenCalledTimes(2);
+});
+
 it("an unmounted component's style and reaction stop following", async () => {
   let progress!: SharedValue<number>;
   const updater = vi.fn(() => ({ opacity: progress.get() }));

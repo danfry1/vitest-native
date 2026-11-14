@@ -1,0 +1,13 @@
+{
+  "name": "museum-pre-754-reanimated-animated-style-stale",
+  "private": true,
+  "dependencies": {
+    "react": "*",
+    "react-native": "*",
+    "react-native-reanimated": "*",
+    "react-native-worklets": "*"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "*"
+  }
+}
