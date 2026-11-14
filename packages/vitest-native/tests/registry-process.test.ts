@@ -288,6 +288,36 @@ describe("bounded registry compiler process", () => {
     expect(result.error).toContain("exceeded 100ms");
   });
 
+  it("quotes the last lines a timed-out compiler wrote, stderr first (#825)", async () => {
+    const hangs = (stream: string) =>
+      compiler(
+        `hangs-${stream}`,
+        `
+          for (let n = 1; n <= 12; n++) process.${stream}.write("line " + n + "\\n");
+          process.${stream}.write("waiting for input\\n");
+          setInterval(() => {}, 1_000);
+        `,
+      );
+    const lines = (error: string) => error.split("compiler's last output:\n")[1];
+
+    const stderr = await compileRegistryInChild(hangs("stderr"), {}, { timeoutMs: 1_500 });
+    expect(stderr.error).toMatch(/^compiler exceeded 1500ms/);
+    // The last ten: the earlier lines are dropped, and the newest is last.
+    expect(lines(stderr.error!)).toBe(
+      [4, 5, 6, 7, 8, 9, 10, 11, 12].map((n) => `  line ${n}`).join("\n") + "\n  waiting for input",
+    );
+
+    const stdout = await compileRegistryInChild(hangs("stdout"), {}, { timeoutMs: 1_500 });
+    expect(lines(stdout.error!)).toMatch(/ {2}line 12\n {2}waiting for input$/);
+
+    const silent = await compileRegistryInChild(
+      compiler("silent", `setInterval(() => {}, 1_000);`),
+      {},
+      { timeoutMs: 100 },
+    );
+    expect(silent.error).not.toContain("last output");
+  });
+
   it("turns a synchronous spawn failure into a structured result", async () => {
     const result = await compileRegistryInChild(
       "ignored.mjs",

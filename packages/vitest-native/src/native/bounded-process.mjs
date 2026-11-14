@@ -20,6 +20,19 @@ const MAX_OUTPUT_BYTES = 1024 * 1024;
 const LOG_TAIL_BYTES = 64 * 1024;
 const DEFAULT_TIMEOUT_MS = 120_000;
 const OOM_RE = /heap out of memory|reached heap limit|allocation failed.*heap/i;
+// How much of a helper's output a timeout error quotes.
+const OUTPUT_LINES = 10;
+
+/** The last lines `log` holds, quoted as `label`'s output, or nothing when it is empty. */
+export function lastOutput(label, log) {
+  const lines = log
+    .trimEnd()
+    .split("\n")
+    .filter((line) => line.trim() !== "");
+  if (lines.length === 0) return "";
+  const shown = lines.slice(-OUTPUT_LINES).map((line) => `  ${line}`);
+  return `\n${label}'s last output:\n${shown.join("\n")}`;
+}
 
 // Refused (sandbox, platform) or exited: keep the default priority. Others throw.
 const PRIORITY_REFUSED = new Set(["EACCES", "EPERM", "ESRCH", "ENOSYS"]);
@@ -163,14 +176,17 @@ function attempt(
       child.kill("SIGKILL");
       finish({ ok: false, oom: false, cancelled: true, error: `${label} was cancelled`, heapMb });
     };
-    const finish = (result) => {
+    const finish = (result, output = "") => {
       if (settled) return;
       settled = true;
       clearInterval(timer);
       // A failure says when the machine slept meanwhile: what looked like a slow helper
       // was a suspended one.
       if (!result.ok && typeof result.error === "string") {
-        result = { ...result, error: result.error + suspendedNote(suspension.suspendedMs) };
+        result = {
+          ...result,
+          error: result.error + suspendedNote(suspension.suspendedMs) + output,
+        };
       }
       signal?.removeEventListener("abort", onAbort);
       resolve(result);
@@ -246,12 +262,17 @@ function attempt(
       suspension.tick();
       if (performance.now() - started - suspension.suspendedMs <= timeoutMs) return;
       child.kill("SIGKILL");
-      finish({
-        ok: false,
-        oom: false,
-        heapMb,
-        error: `${label} exceeded ${timeoutMs}ms`,
-      });
+      finish(
+        {
+          ok: false,
+          oom: false,
+          heapMb,
+          error: `${label} exceeded ${timeoutMs}ms`,
+        },
+        // What the helper was doing when it ran out of time (#825): a plugin that loops, a
+        // module waiting on the network, a toolchain prompting for input.
+        lastOutput(label, stderr.trim() ? stderr : stdout),
+      );
     }, pollMs);
     timer.unref?.();
   });
