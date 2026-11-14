@@ -27,6 +27,23 @@ function installedBin(root, name, bin = name) {
   return path.join(dir, entry);
 }
 
+/**
+ * Runs the `vitest-native` command npm linked when it installed the packed tarball, the
+ * way a user's package script or `npx vitest-native` reaches it. installedBin() reads the
+ * manifest's path and runs that file directly, so it passes even when npm linked no
+ * command: npm rewrites a bin entry while publishing and drops one it cannot use.
+ */
+function runLinkedBin(root) {
+  const manifestPath = path.join(root, "package.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  manifest.scripts = { ...manifest.scripts, "vitest-native-bin": "vitest-native --help" };
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  const output = runCaptured("npm", ["run", "--silent", "vitest-native-bin"], root);
+  if (!output.includes("Usage:\n  vitest-native init")) {
+    throw new Error("the linked vitest-native command did not print its usage");
+  }
+}
+
 function run(command, args, cwd) {
   console.log(`\n> ${command} ${args.join(" ")}`);
   const result = spawnSync(command, args, {
@@ -562,6 +579,7 @@ try {
     // engine detection, and preset scanning against the fixture's real installs;
     // migrate analyzes a minimal Jest config planted for the smoke).
     const cliFixture = path.join(tempRoot, "bare");
+    runLinkedBin(cliFixture);
     run(process.execPath, [installedBin(cliFixture, "vitest-native"), "doctor"], cliFixture);
 
     // `init` writes the config a new user starts from, so run a suite against exactly

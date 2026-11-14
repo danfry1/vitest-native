@@ -24,7 +24,7 @@
     "directory": "packages/vitest-native"
   },
   "bin": {
-    "vitest-native": "./dist/cli.mjs"
+    "vitest-native": "dist/cli.mjs"
   },
   "files": [
     "dist",
@@ -179,6 +179,7 @@
     "check:size": "node scripts/check-package-size.mjs",
     "check:structure": "node scripts/structural-scorecard.mjs",
     "check:exports": "node scripts/check-exports.mjs",
+    "check:publish-manifest": "node scripts/check-publish-manifest.mjs",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "prepublishOnly": "bun run build && bun run check:size && bun run test && bun run test:native && bun run test:native:forks && bun run test:native:navigation && bun run test:native:android && bun run test:native:advice && bun run test:native:hot && bun run test:native:hot:isolation && bun run test:native:hot:state-manifest && bun run test:native:hot:soak && bun run validate:hot-parity && bun run validate:registry-process && bun run fidelity:check && bun run test:consumers && bun run lint && bun run typecheck",
