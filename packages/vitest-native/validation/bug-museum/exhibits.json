@@ -692,7 +692,9 @@
       "requires": {
         "layout": "pnpm"
       },
-      "pnpmShaped": ["museum-counter"],
+      "pnpmShaped": [
+        "museum-counter"
+      ],
       "bugSignature": "^b\\.test\\.ts: AssertionError: this file's museum-counter starts fresh: expected 2 to be 1",
       "control": {
         "why": "Without peers, pnpm's directory name is museum-counter@1.0.0 alone and carries no package names: the decoy, the bug's precondition, is gone.",
@@ -1550,7 +1552,9 @@
       "requires": {
         "layout": "pnpm"
       },
-      "pnpmShaped": ["museum-peer-lib"],
+      "pnpmShaped": [
+        "museum-peer-lib"
+      ],
       "bugSignature": "^native-ext\\.test\\.ts: AssertionError: expected 'web' to be 'native'",
       "control": {
         "why": "Without the reanimated peer, pnpm's directory name carries no reanimated substring.",
@@ -1584,7 +1588,10 @@
       "requires": {
         "layout": "pnpm"
       },
-      "pnpmShaped": ["react-native-worklets", "react-native-reanimated"],
+      "pnpmShaped": [
+        "react-native-worklets",
+        "react-native-reanimated"
+      ],
       "bugSignature": "^render\\.test\\.tsx: Cannot find module 'react-native-web/",
       "fixVerification": "requires-CI: a real pnpm install. Locally the fix cannot be shown: a COPY of reanimated outside bun's store fails to load its JS implementation on any build, with or without worklets in the directory name (Cannot read properties of undefined (reading 'get') in worklets' NativeWorkletsModule), so the local pnpm simulation reaches the bug but not a passing run.",
       "status": {
@@ -1695,10 +1702,14 @@
       "fixedBy": "#390 (merged)",
       "runs": [
         {
-          "files": ["lazy-global.test.ts"]
+          "files": [
+            "lazy-global.test.ts"
+          ]
         },
         {
-          "files": ["lazy-global.test.ts"]
+          "files": [
+            "lazy-global.test.ts"
+          ]
         }
       ],
       "bugSignature": "^run 2: lazy-global\\.test\\.ts: AssertionError: Babel compiled a file while it was still loading",
@@ -1809,11 +1820,19 @@
       "fixedBy": "#347 (merged)",
       "runs": [
         {
-          "args": ["--project", "native"],
-          "files": ["native.test.tsx"]
+          "args": [
+            "--project",
+            "native"
+          ],
+          "files": [
+            "native.test.tsx"
+          ]
         },
         {
-          "files": ["native.test.tsx", "plain.test.ts"]
+          "files": [
+            "native.test.tsx",
+            "plain.test.ts"
+          ]
         }
       ],
       "bugPreventsEveryFile": "Vitest rejects the two projects' configuration before it starts any test file, so run 2 loses both files by design.",
