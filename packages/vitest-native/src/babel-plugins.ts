@@ -97,8 +97,10 @@ const KNOWN_PLUGINS: KnownPlugin[] = [
     names: ["babel-plugin-react-compiler"],
     verdict: "unneeded",
     reason: () =>
-      `React Compiler only adds memoization to components that follow the Rules of React ` +
-      `(react.dev/learn/react-compiler); they render the same without it.`,
+      `tests run without it. Where projectBabel: 'auto' compiles a file with Babel for another ` +
+      `entry, it applies the compiler there too, and a memoized child given the same props ` +
+      `skips re-rendering: a test that reads a value React does not track during render (a ` +
+      `shared value, a ref, a module variable) can see that child keep its earlier value.`,
   },
 ];
 
