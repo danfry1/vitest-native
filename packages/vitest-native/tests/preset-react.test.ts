@@ -1,4 +1,7 @@
+import fs from "node:fs";
 import Module from "node:module";
+import os from "node:os";
+import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { assertOneReact, presetFactoryContext, rendererRequire } from "../src/preset-react.mjs";
 import { nestedReactProjects } from "./support/nested-react";
@@ -33,6 +36,31 @@ describe("a preset factory's React", () => {
         ),
       }),
     );
+  });
+
+  it("has nothing to check where the anchor or the project resolves no React", () => {
+    // Called from a resolver for any deduped name (react-is from prop-types, say): a
+    // missing React is not a second copy, and the check must not throw Node's
+    // MODULE_NOT_FOUND from inside that resolution.
+    expect(() => assertOneReact(projects.project({ projectReact: false }))).not.toThrow();
+    const rnOnly = projects.project({ projectReact: false, rnReact: true });
+    expect(() => assertOneReact(rnOnly)).not.toThrow();
+  });
+
+  it("has nothing to hold the project to where react-native's directory resolves no React", () => {
+    // An isolated install (pnpm, bun) whose react-native lacks its React peer: the
+    // project has React, the anchor has none, and there is no copy to compare.
+    const root = projects.project({ rn: false });
+    const store = fs.mkdtempSync(path.join(os.tmpdir(), "vn-isolated-rn-"));
+    try {
+      const rn = path.join(store, "react-native");
+      fs.mkdirSync(rn);
+      fs.writeFileSync(path.join(rn, "package.json"), JSON.stringify({ name: "react-native" }));
+      fs.symlinkSync(rn, path.join(root, "node_modules/react-native"), "junction");
+      expect(() => assertOneReact(root)).not.toThrow();
+    } finally {
+      fs.rmSync(store, { recursive: true, force: true });
+    }
   });
 
   it("fails when React Native Testing Library resolves another copy", () => {

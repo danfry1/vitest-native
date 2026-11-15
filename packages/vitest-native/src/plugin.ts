@@ -45,6 +45,7 @@ import {
 import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.js";
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { JSX_TRANSFORM, nativeEngineConfig } from "./native/apply.js";
+import { REACT_DEDUPE } from "./native/react-dedupe.mjs";
 import {
   isPackageJsFile,
   isProjectJsFile,
@@ -3285,7 +3286,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           // Single React instance across test code, the mock, and the renderer —
           // avoids a null hooks dispatcher from duplicate react copies in some
           // consumer projects (e.g. mock FlatList's useImperativeHandle).
-          dedupe: ["react", "react-test-renderer", "test-renderer", "react-is"],
+          dedupe: [...REACT_DEDUPE],
         },
         test: {
           setupFiles: [setupFilePath, presetReadyPath],
