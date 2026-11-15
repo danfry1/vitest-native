@@ -60,6 +60,7 @@ const SCHEMA = {
   presetNames: { valid: strings },
   nodeMocks: { valid: (v) => v === true },
   restoreMocks: { valid: (v) => v === true },
+  fakeTimersApis: { valid: (v) => v === true },
   presetConfig: { valid: object },
   presetExports: { valid: object },
   presetModules: { valid: strings },

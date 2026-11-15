@@ -2326,6 +2326,15 @@
       "fixedBy": "open",
       "fixRef": "origin/fix/navigation-preset-gaps",
       "bugSignature": "^header\\.test\\.tsx: TypeError: .*useAnimatedHeaderHeight\\) is not a function"
+    },
+    {
+      "id": "pre-835-jest-fake-timers-queue-microtask",
+      "class": "env-contract",
+      "title": "jest.useFakeTimers() leaves queueMicrotask real under jest-compat",
+      "source": "#835",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/jest-fake-timers-microtask",
+      "bugSignature": "^microtask\\.test\\.ts: AssertionError: expected \"vi\\.fn\\(\\)\" to not be called at all"
     }
   ]
 }
