@@ -1,8 +1,8 @@
-import React from "react";
-import { hostComponent } from "../host.js";
+import { hosts } from "../host-classes.js";
 import { vi } from "vitest";
 
-export function createFlatListMock() {
+export function createFlatListMock(React: typeof import("react")) {
+  const { hostComponent } = hosts(React);
   const FlatList = React.forwardRef((props: any, ref: any) => {
     const {
       data,

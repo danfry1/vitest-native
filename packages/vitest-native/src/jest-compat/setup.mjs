@@ -307,13 +307,12 @@ function restoreAllMocks() {
 if (projectContext()?.restoreMocks === true) beforeEach(restoreReplacedProperties);
 afterAll(restoreReplacedProperties);
 
-globalThis.jest = installJestObject(vi, {
-  resetModules,
-  isolateModules,
-  isolateModulesAsync,
-  replaceProperty,
-  restoreAllMocks,
-});
+globalThis.jest = installJestObject(
+  vi,
+  { resetModules, isolateModules, isolateModulesAsync, replaceProperty, restoreAllMocks },
+  // The project's test.fakeTimers names the APIs to fake: jest.useFakeTimers() keeps it.
+  { projectFakesTimerApis: projectContext()?.fakeTimersApis === true },
+);
 
 // Two identical errors whose class assigns methods as instance fields (zod 3's
 // ZodError) are never equal under Vitest, which compares an error's own properties and

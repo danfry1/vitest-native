@@ -121,6 +121,43 @@ describe("jest.useFakeTimers takes Jest's options", () => {
     expect(globalThis.Date).not.toBe(native.Date);
   });
 
+  it("queueMicrotask waits for the timers to run, as in Jest (#835)", async () => {
+    jest.useFakeTimers();
+    const queued = vi.fn();
+    queueMicrotask(queued);
+    await realDelay(5);
+    expect(queued).not.toHaveBeenCalled();
+    jest.runAllTimers();
+    expect(queued).toHaveBeenCalledTimes(1);
+  });
+
+  it("doNotFake: ['queueMicrotask'] keeps it real", async () => {
+    jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
+    const queued = vi.fn();
+    queueMicrotask(queued);
+    await realDelay(5);
+    expect(queued).toHaveBeenCalledTimes(1);
+  });
+
+  it("react-native-worklets' Jest mock reports scheduleOnRN calls after the timers run", async () => {
+    // Its runOnJS, and scheduleOnRN through it, queue the call with queueMicrotask.
+    type Worklets = {
+      scheduleOnRN: (fn: (...args: unknown[]) => void, ...args: unknown[]) => void;
+    };
+    const loaded =
+      (await import("react-native-worklets/lib/module/mock.js")) as Partial<Worklets> & {
+        default?: Worklets;
+      };
+    const { scheduleOnRN } = (loaded.scheduleOnRN ? loaded : loaded.default) as Worklets;
+    jest.useFakeTimers();
+    const finished = vi.fn();
+    scheduleOnRN(finished, true);
+    await realDelay(5);
+    expect(finished).not.toHaveBeenCalled();
+    jest.runAllTimers();
+    expect(finished).toHaveBeenCalledWith(true);
+  });
+
   it("legacyFakeTimers fakes the timer functions, leaves Date real, and warns once", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     jest.useFakeTimers({ legacyFakeTimers: true });

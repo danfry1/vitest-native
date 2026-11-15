@@ -1,0 +1,8 @@
+{
+  "name": "museum-res-esbuild-reexport-jsx",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "museum-badge": "1.0.0"
+  }
+}

@@ -53,7 +53,7 @@ function presetModules(): [string, Record<string, unknown>][] {
     for (const [moduleName, module] of Object.entries(preset.modules)) {
       let exports: unknown;
       try {
-        exports = module.factory();
+        exports = module.factory({ React });
       } catch {
         continue;
       }

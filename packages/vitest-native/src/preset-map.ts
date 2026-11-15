@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { METRO_ASSET_EXTS } from "./native/assets.mjs";
 import type * as Presets from "./presets/index.js";
+import type { PresetFactoryContext } from "./types.js";
 
 /** Valid preset factory names exported from `presets/index.ts`. */
 export type PresetName = keyof typeof Presets;
@@ -179,8 +180,13 @@ export interface LibraryMock {
    * Corrections for names the library's mock gets wrong, as a copy of the loaded mock;
    * the mock module itself is left as the library ships it. Each is the library's own
    * code where it has one (see reanimated.ts), and every one is listed where it is made.
+   * Given the factory context, for corrections that make components or hooks.
    */
-  extend?: (mock: Record<string, any>, packageDir: string) => Record<string, any>;
+  extend?: (
+    mock: Record<string, any>,
+    packageDir: string,
+    context: PresetFactoryContext,
+  ) => Record<string, any>;
   /**
    * Whether the mock's module body sets up globals of the test environment
    * (worklets' sets `requestAnimationFrame`). Such a mock is built as each file is set

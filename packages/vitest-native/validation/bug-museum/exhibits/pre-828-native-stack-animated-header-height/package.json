@@ -1,0 +1,8 @@
+{
+  "name": "museum-pre-828-native-stack-animated-header-height",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@react-navigation/native-stack": "*"
+  }
+}

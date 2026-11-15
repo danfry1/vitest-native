@@ -105,6 +105,10 @@ The message says which.
 
 The Skia preset's mock was built before CanvasKit loaded. Inside a test run the setup file loads it first; a mock built outside a test run needs `await presets.skia().prepare()` first.
 
+### `PRESET_REACT_MISMATCH` {#PRESET_REACT_MISMATCH}
+
+Under the native engine, a preset builds its mock with the React that `react-native` uses, and the project or React Native Testing Library resolves a different copy of React. Hooks and contexts from one copy fail in a tree the other renders. The message names both paths. Install one copy of `react`: dedupe it in the workspace, or align the versions the packages ask for.
+
 ### `NITRO_HYBRID_OBJECT_UNAVAILABLE` {#NITRO_HYBRID_OBJECT_UNAVAILABLE}
 
 A library asked Nitro for a native HybridObject, which has no implementation in tests. Use the library's own test mode if it has one, or mock the library with `vi.mock()`.
@@ -115,7 +119,7 @@ vitest-native's module loader was given a step it does not know. Usually two cop
 
 ### `SOURCE_EVALUATED_TWICE` {#SOURCE_EVALUATED_TWICE}
 
-One file ran twice in the same worker: Vite loaded it for the test's imports, and Node loaded it through a `require()`. The two copies don't share state, so a store or cache written through one is not seen by the other. The message names the file, which side loaded it first, how the second load reached it, and the fix for that case. Files Node loaded through the same first `require()` share one cause: a `jest.mock` factory that requires a module importing 600 others is one cause, not 600 warnings. With [`ownership`](/guide/plugin-options#ownership) at its default, `'warn'`, the first file of each cause is printed in full, once per worker, and the end of the run lists each cause with its file count, its test files and the fix. With `'error'` it fails the test file. To accept a file that runs twice on purpose, list it in `ownership.allow: [{ path, reason }]`. An installed package's TypeScript source that a test both requires and imports runs twice unless [`experimental.nodeMocks`](/guide/plugin-options#experimental) is on: with it, Node loads the file once for both, and a `vi.mock` still reaches it.
+One file ran twice in the same worker: Vite loaded it for the test's imports, and Node loaded it through a `require()`. The two copies don't share state, so a store or cache written through one is not seen by the other. The message names the file, which side loaded it first, how the second load reached it, and the fix for that case. Files Node loaded through the same first `require()` share one cause: a `jest.mock` factory that requires a module importing 600 others is one cause, not 600 warnings. With [`ownership`](/guide/plugin-options#ownership) at its default, `'warn'`, the first file of each cause is printed in full, once per worker, and the end of the run lists each cause with its file count, its test files and the fix. Causes that start in one installed package by the same route are one line naming the package, and [`diagnostics: true`](/guide/plugin-options#diagnostics) lists every file of every cause with how Node reached it. With `'error'` it fails the test file. To accept a file that runs twice on purpose, list it in `ownership.allow: [{ path, reason }]`. An installed package's TypeScript source that a test both requires and imports runs twice unless [`experimental.nodeMocks`](/guide/plugin-options#experimental) is on: with it, Node loads the file once for both, and a `vi.mock` still reaches it.
 
 ### `LIBRARY_REGISTRY_FAILED` {#LIBRARY_REGISTRY_FAILED}
 
@@ -142,6 +146,10 @@ A `jest.*` API with no Vitest equivalent was called (such as `jest.createMockFro
 ### `JEST_COMPAT_SETUP_MISSING` {#JEST_COMPAT_SETUP_MISSING}
 
 A test file uses `jest.mock()` factories, but the jest-compat setup is not loaded. Add `jestCompatSetup` from `vitest-native/jest-compat` to `test.setupFiles`, ahead of any setup file that calls `jest.mock()`. See [jest-compat](/guide/jest-compat).
+
+### `JEST_BINDING_NOT_FOLLOWED` {#JEST_BINDING_NOT_FOLLOWED}
+
+`jestMockTransform()` met a `jest.mock`, `unmock`, `doMock` or `doUnmock` call through a further top-level name for the jest object, such as `const j = jest; j.mock(…)` or `const { mock } = jest; mock(…)`. It would not be hoisted or registered, so the test file fails instead of running without the mock. The message names the binding and both lines. Call the method on the jest object itself: the global `jest`, or `jest` imported from `@jest/globals` under any name. Jest does not hoist such a call either.
 
 ### `JEST_MOCK_FACTORY_CYCLE` {#JEST_MOCK_FACTORY_CYCLE}
 
