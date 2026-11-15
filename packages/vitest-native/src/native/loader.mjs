@@ -17,7 +17,7 @@ import {
   needsTransform,
 } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
-import { anchoredImportParent, inViteSpelling } from "./react-dedupe.mjs";
+import { anchoredImportParent, inViteSpelling, isDeduped } from "./react-dedupe.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
 import {
   extensionsFor,
@@ -345,9 +345,10 @@ function resolveBefore(specifier, context, presets = true) {
   // place of the importer, by this realm's own rule for which build: the shared resolver's
   // under an ownership model (`require` wins, as below), else Node's with this import's
   // conditions (resolvePlain, resolveDeduped).
-  const dedupeFrom = parent
-    ? anchoredImportParent(specifier, projectContext()?.projectRoot ?? PROJECT_ROOT)
-    : null;
+  const dedupeFrom =
+    parent && isDeduped(specifier)
+      ? anchoredImportParent(specifier, projectContext()?.projectRoot ?? PROJECT_ROOT)
+      : null;
   if (dedupeFrom) {
     const from = fileURLToPath(dedupeFrom);
     const shared =

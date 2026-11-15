@@ -6,6 +6,7 @@
 import Module, { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   REACT_DEDUPE,
@@ -14,6 +15,8 @@ import {
   isDeduped,
 } from "../src/native/react-dedupe.mjs";
 import { renderInitConfig } from "../src/cli/init.js";
+import { reactNative } from "../src/index.js";
+import { runPluginConfig } from "./plugin-config.js";
 import { analyzeJestConfig } from "../src/cli/migrate.js";
 import { fixture } from "./support/migrate-fixtures.js";
 import { nestedReactProjects } from "./support/nested-react.js";
@@ -64,7 +67,7 @@ describe("Node's React dedupe", () => {
       expect.objectContaining({
         code: "PRESET_REACT_MISMATCH",
         message: expect.stringMatching(
-          /Node.s dedupe serves the React react-native uses .*react-native[\\/]node_modules[\\/]react/,
+          /vitest-native serves the React react-native uses .*react-native[\\/]node_modules[\\/]react/,
         ),
       }),
     );
@@ -75,6 +78,20 @@ describe("Node's React dedupe", () => {
     expect(() => dedupeFor(root)("react", parentAt(libIndex(root)))).toThrowError(
       expect.objectContaining({ code: "PRESET_REACT_MISMATCH" }),
     );
+  });
+
+  it("serves a subpath from the same copy", () => {
+    const root = projects.project({ libReact: true });
+    const fromLib = parentAt(libIndex(root));
+    expect(copyOf(nodeResolve("react/jsx-runtime", fromLib))).toBe("lib");
+    expect(copyOf(dedupeFor(root)("react/jsx-runtime", fromLib))).toBe("project");
+  });
+
+  it("leaves a request to Node where the anchor resolves no React", () => {
+    // No React at the project's top, so none where react-native resolves: the one-React
+    // check has nothing to compare, and Node's answer stands.
+    const root = projects.project({ projectReact: false, libReact: true });
+    expect(copyOf(dedupeFor(root)("react", parentAt(libIndex(root))))).toBe("lib");
   });
 
   it("holds the project to the anchor's copy even where no request is redirected", () => {
@@ -172,6 +189,17 @@ describe("Node's React dedupe lists", () => {
       fixture({ "package.json": { jest: { preset: "react-native" } } }),
     ).suggestedConfig;
     expect(migrated).toContain(line);
+  });
+
+  it("is Vite's resolve.dedupe under both engines", async () => {
+    // This package's own root: the native engine needs React Native's toolchain installed.
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    for (const engine of ["mock", "native"] as const) {
+      const config = (await runPluginConfig(reactNative({ engine }), { root })) as {
+        resolve?: { dedupe?: string[] };
+      };
+      expect(config.resolve?.dedupe, engine).toEqual([...REACT_DEDUPE]);
+    }
   });
 
   it("dedupes Vite's list, names and subpaths", () => {

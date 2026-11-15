@@ -5,6 +5,8 @@ import os from "node:os";
 import path from "node:path";
 
 export interface NestedReactLayout {
+  /** React installed at the project's top (default true). */
+  projectReact?: boolean;
   /** react-native installed (default true). */
   rn?: boolean;
   /** react-native nests its own React (`copy: "rn"`). */
@@ -25,10 +27,17 @@ function pkg(dir: string, name: string, copy?: string) {
     path.join(dir, "index.js"),
     `module.exports = ${JSON.stringify(copy ? { copy } : {})};`,
   );
+  // A subpath, as React's own: `react/jsx-runtime` names the same copy.
+  if (name === "react") {
+    fs.writeFileSync(
+      path.join(dir, "jsx-runtime.js"),
+      `module.exports = ${JSON.stringify({ copy })};`,
+    );
+  }
 }
 
 /**
- * A project root with React at its top (`copy: "project"`) and `shadowed-lib`, a package
+ * A project root with React at its top (`copy: "project"`, unless `projectReact: false`) and `shadowed-lib`, a package
  * that nests its own React (`copy: "nested"`), plus what `layout` asks for. `dispose`
  * removes every root it made.
  */
@@ -40,7 +49,7 @@ export function nestedReactProjects() {
       roots.push(root);
       const modules = path.join(root, "node_modules");
       fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "app" }));
-      pkg(path.join(modules, "react"), "react", "project");
+      if (layout.projectReact !== false) pkg(path.join(modules, "react"), "react", "project");
       if (layout.rn !== false) pkg(path.join(modules, "react-native"), "react-native");
       if (layout.rnReact) {
         pkg(path.join(modules, "react-native/node_modules/react"), "react", "rn");

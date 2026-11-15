@@ -9,6 +9,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import React from "react";
+import * as jsxRuntime from "react/jsx-runtime";
 import { Text } from "react-native";
 import { render, screen } from "@testing-library/react-native";
 import { createRoot } from "test-renderer";
@@ -28,6 +29,9 @@ write(
   path.join(lib, "index.js"),
   `const React = require("react");
 exports.React = React;
+// A subpath: the automatic JSX runtime a compiled library requires.
+exports.jsxRuntime = require("react/jsx-runtime");
+exports.importJsxRuntime = () => import("./esm.mjs").then((m) => m.jsxRuntime);
 // Node's ESM resolver, not require's: a module this library imports.
 exports.importReact = () => import("./esm.mjs").then((m) => m.React);
 // A dual package (test-renderer: import → dist/index.js, require → dist/index.cjs).
@@ -37,10 +41,14 @@ exports.Counter = function Counter(props) {
   return React.createElement(props.as, null, "count " + n);
 };`,
 );
-write(path.join(lib, "esm.mjs"), 'import React from "react";\nexport { React };\n');
+write(
+  path.join(lib, "esm.mjs"),
+  'import React from "react";\nimport jsxRuntime from "react/jsx-runtime";\nexport { React, jsxRuntime };\n',
+);
 const nested = path.join(lib, "node_modules", "react");
 write(path.join(nested, "package.json"), JSON.stringify({ name: "react", main: "index.js" }));
 write(path.join(nested, "index.js"), 'module.exports = { copy: "nested" };');
+write(path.join(nested, "jsx-runtime.js"), 'module.exports = { copy: "nested" };');
 
 describe("a Node-owned library with its own nested React", () => {
   const loaded = createRequire(path.join(lib, "index.js"))(path.join(lib, "index.js"));
@@ -51,6 +59,13 @@ describe("a Node-owned library with its own nested React", () => {
 
   it("gets the same React through import", async () => {
     expect(await loaded.importReact()).toBe(React);
+  });
+
+  it("gets the same copy's subpaths through require and import", async () => {
+    const jsx = (jsxRuntime as { jsx?: unknown; default?: { jsx?: unknown } }).jsx;
+    expect(jsx).toBeTypeOf("function");
+    expect(loaded.jsxRuntime.jsx).toBe(jsx);
+    expect((await loaded.importJsxRuntime()).jsx).toBe(jsx);
   });
 
   it("gets a dual package's import build through import, the one the test imports", async () => {

@@ -80,14 +80,31 @@ function requireFrom(fromRoot, request) {
   return path.isAbsolute(file) ? createRequire(file) : fromRoot;
 }
 
+/** The React file a require from `from` resolves, or null where React is not installed. */
+function reactOf(from) {
+  try {
+    return from.resolve("react");
+  } catch (error) {
+    if (error?.code === "MODULE_NOT_FOUND") return null;
+    throw error;
+  }
+}
+
+/**
+ * The first copy of React that differs from the anchor's, or null. Where the anchor
+ * resolves no React there is no copy to hold anyone to, and a side that resolves none has
+ * no second copy: neither is a mismatch. The run then fails, if it does, where React is
+ * first required, with Node's own error for the missing package.
+ */
 function findMismatch(fromRoot, fromRenderer) {
-  const react = fromRenderer.resolve("react");
+  const react = reactOf(fromRenderer);
+  if (react === null) return null;
   const others = [["the project", fromRoot]];
   const rntl = requireFrom(fromRoot, "@testing-library/react-native/package.json");
   if (rntl !== fromRoot) others.push(["@testing-library/react-native", rntl]);
   for (const [who, from] of others) {
-    const theirs = from.resolve("react");
-    if (theirs !== react) return { react, who, theirs };
+    const theirs = reactOf(from);
+    if (theirs !== null && theirs !== react) return { react, who, theirs };
   }
   return null;
 }

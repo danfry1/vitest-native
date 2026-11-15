@@ -106,7 +106,7 @@ function anchorOf(root) {
  */
 function anchorFor(request, root) {
   if (anchoring || !isDeduped(request)) return null;
-  asNode(() => assertOneReact(root, "Node's dedupe serves"));
+  asNode(() => assertOneReact(root, "vitest-native serves"));
   return anchorOf(root);
 }
 
@@ -175,8 +175,9 @@ export function installReactDedupe(projectRoot, dispatch = nodeDispatch()) {
     "dedupe",
     (next) =>
       function (request, parent, ...rest) {
-        // The main module, and a caller choosing its own lookup paths, are Node's.
-        if (rest[0] === true || explicitPaths(rest[1], parent)) {
+        // Other packages, the main module, and a caller choosing its own lookup paths,
+        // are Node's. The name test comes first: most requests stop there.
+        if (!isDeduped(request) || rest[0] === true || explicitPaths(rest[1], parent)) {
           return next(request, parent, ...rest);
         }
         return anchoredFile(request, currentRoot(projectRoot)) ?? next(request, parent, ...rest);
