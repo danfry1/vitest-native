@@ -76,6 +76,7 @@ export const SECTIONS: Section[] = [
     link: '/releases/',
     pages: [
       { text: 'All releases', link: '/releases/' },
+      { text: '0.15', link: '/releases/0.15' },
       { text: '0.14', link: '/releases/0.14' },
     ],
   },

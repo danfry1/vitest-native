@@ -30,6 +30,7 @@ import { residentProblems } from "./resident-health.mjs";
 import { enableV8CompileCache } from "./compile-cache.mjs";
 import { installOwnershipLedger } from "./ownership-ledger.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import { hotDiagnostic } from "./hot-diagnostic.mjs";
 import { activeRegistry, markBootContext, requireProjectContext } from "../context.mjs";
 
 if (isMainThread || !parentPort) {
@@ -50,7 +51,7 @@ const sourceExts = context.sourceExts ?? ["js", "jsx", "json", "ts", "tsx"];
 if (diagnostics) {
   // One line per worker boot: under a hot pool, N files sharing a worker print
   // this once, not N times — the "RN loads once" proof.
-  console.log(`[vitest-native] hot worker boot (pid ${process.pid}, tid ${threadId})`);
+  hotDiagnostic(`hot worker boot (pid ${process.pid}, tid ${threadId})`);
 }
 
 // --- One-time worker init: load RN into the resident Node require cache ---
@@ -155,9 +156,7 @@ globalThis.__vitest_native_hot_reset = (file) => {
   const dropped = resetModules();
   hotReset(file);
   if (diagnostics) {
-    console.log(
-      `[vitest-native] hot reset: dropped ${dropped} modules, released ${released} module generations`,
-    );
+    hotDiagnostic(`hot reset: dropped ${dropped} modules, released ${released} module generations`);
   }
 };
 globalThis.__vitest_native_hot_bless = bless;
