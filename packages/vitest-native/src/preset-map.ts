@@ -168,6 +168,11 @@ export interface LibraryMock {
   alsoFiles?: string[];
   /** The export the mock module is, when it is not the whole module ("default"). */
   exportKey?: string;
+  /**
+   * Names `extend` adds to the mock: public exports of the package its mock leaves out.
+   * They are export names of the module as the mock file's are.
+   */
+  addsNames?: string[];
   /** Whether the installed package can run its mock here; by default, whether `entry` resolves. */
   available?: (packageDir: string, projectRoot: string) => boolean;
   /**
