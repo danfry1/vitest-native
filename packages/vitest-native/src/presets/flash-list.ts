@@ -1,6 +1,5 @@
 import type { Preset } from "../types.js";
-import React from "react";
-import { hostComponent as hostClass } from "../mocks/host.js";
+import { hosts } from "../mocks/host-classes.js";
 import { builtInPreset } from "./built-in.js";
 
 // @shopify/flash-list (v2) is a FlatList-replacement backed by a native recycler
@@ -25,7 +24,8 @@ export function flashList(): Preset {
           "useFlashListContext",
           "useBenchmark",
         ],
-        factory: () => {
+        factory: ({ React }) => {
+          const { hostComponent: hostClass } = hosts(React);
           const renderElement = (Component: any) => {
             if (Component == null) return null;
             if (React.isValidElement(Component)) return Component;

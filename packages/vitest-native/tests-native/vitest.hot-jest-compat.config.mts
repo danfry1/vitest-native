@@ -4,6 +4,7 @@
 // default sequencer orders by cached duration, which let a mock from whichever file
 // ran last go unobserved, and 99 — which mocks nothing and checks every surface — has
 // to run after the others.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

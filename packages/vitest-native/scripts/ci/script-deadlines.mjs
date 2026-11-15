@@ -18,8 +18,10 @@ const MINUTE = 60_000;
 export const SCRIPT_DEADLINES = {
   // win 558.1 s (90f96474; later runs exceed 600 s), mac 412.8 s, linux 407.5 s.
   "test:native:ownership": { win32: 20 * MINUTE, darwin: 14 * MINUTE, linux: 14 * MINUTE },
-  // win 303.1 s, mac 153.5 s, linux 191.7 s.
-  "test:native:project-babel": { win32: 11 * MINUTE, darwin: 6 * MINUTE, linux: 7 * MINUTE },
+  // Linux re-measured on 2026-11-14: 155 runs of the ubuntu legs from 13 November had
+  // grown to 157-316 s, against a 420 s deadline.
+  // win 303.1 s, mac 153.5 s, linux 316.1 s.
+  "test:native:project-babel": { win32: 11 * MINUTE, darwin: 6 * MINUTE, linux: 11 * MINUTE },
 };
 
 /** The deadline for `script` on `platform`, else the run's default. */

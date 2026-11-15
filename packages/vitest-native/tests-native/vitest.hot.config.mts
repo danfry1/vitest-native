@@ -2,6 +2,7 @@
 // workers + per-file module-runner isolation via the custom pool). M0 smoke /
 // M2 gate config — same suite as vitest.config.mts, hotRuntime flipped on.
 // Run: bun vitest run --config tests-native/vitest.hot.config.mts
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
@@ -45,6 +46,7 @@ export default defineConfig({
       "tests-native/android.test.ts",
       "tests-native/navigation-params.test.tsx",
       "tests-native/registry-background.test.ts",
+      // Each runs an app as its own Vitest run, which this config does not reach.
       ...SPAWNS_OWN_RUN,
     ],
   },

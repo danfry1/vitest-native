@@ -1,3 +1,4 @@
+import { placeSetupFiles } from "../setup-files.js";
 import type { Plugin } from "vite";
 import fs from "node:fs";
 import { createRequire, isBuiltin } from "node:module";
@@ -19,8 +20,17 @@ const WITH_FACTORY = new Set(["mock", "doMock"]);
 // The ones that remove a mock, which the Node-side registry must forget too.
 const UNMOCK = new Set(["unmock", "doUnmock"]);
 const TRANSFORMABLE = /\.(?:[cm]?[jt]sx?)$/;
-// Cheap pre-filter so we only parse files that actually use jest mock calls.
+// Cheap pre-filter, so only files that may make a jest mock call are parsed: `jest.mock(`,
+// or a file that names `jest` (the global, an import of it, '@jest/globals') and one of
+// the hoisted methods, reached some other way (`mockJest.mock(`, `const hoist =
+// jest.doMock`).
 const HAS_JEST_MOCK = /\bjest\s*\.\s*(?:mock|unmock|doMock|doUnmock)\s*\(/;
+const NAMES_JEST = /\bjest\b/;
+// Not `.mock.calls` and the like: a mock function's record, not a call to the method.
+const NAMES_MOCK_METHOD = /\b(?:mock|unmock|doMock|doUnmock)\b(?!\s*\.)/;
+// The modules whose `jest` export is the `jest` object: Jest's own, and the shim
+// jestCompatAliases() serves for it.
+const JEST_SOURCES = new Set(["@jest/globals", "vitest-native/jest-compat/jest-globals"]);
 
 // The globals the setup installs, reached through one hoisted accessor per file. A run
 // without the setup otherwise failed inside a mock factory with "__vnJestMocked is not
@@ -52,6 +62,291 @@ function walk(node: any, fn: (n: any) => boolean | void): void {
       walk(child, fn);
     }
   }
+}
+
+/**
+ * What a file calls `jest`, as babel-plugin-jest-hoist decides it: the global `jest`, and
+ * every Program-level binding of `jest` imported or required from JEST_SOURCES, under
+ * whatever local name (`import { jest as mockJest }`, the usual way to satisfy jest-hoist's
+ * rule that a factory only reads variables prefixed `mock`), or as `<namespace>.jest`.
+ */
+interface JestBindings {
+  /** Whether `node` is the jest object: `jest`, `mockJest`, `globals.jest`. */
+  isJest(node: any): boolean;
+}
+
+/** Whether `node` is a `require('<literal>')` of one of JEST_SOURCES. */
+function jestSourceOf(node: any): boolean {
+  const spec = node?.type === "CallExpression" ? requireSpec(node) : null;
+  return spec !== null && JEST_SOURCES.has(spec);
+}
+
+function propertyName(node: any): string | null {
+  if (node?.type === "Identifier") return node.name;
+  if (node?.type === "Literal" && typeof node.value === "string") return node.value;
+  return null;
+}
+
+/** The names a declaration pattern binds. */
+function patternNames(pattern: any, into: string[] = []): string[] {
+  if (!pattern) return into;
+  if (pattern.type === "Identifier") into.push(pattern.name);
+  else if (pattern.type === "ObjectPattern") {
+    for (const property of pattern.properties) {
+      patternNames(property.type === "RestElement" ? property.argument : property.value, into);
+    }
+  } else if (pattern.type === "ArrayPattern") {
+    for (const element of pattern.elements) patternNames(element, into);
+  } else if (pattern.type === "AssignmentPattern") patternNames(pattern.left, into);
+  else if (pattern.type === "RestElement") patternNames(pattern.argument, into);
+  return into;
+}
+
+/** The `var` names a function body declares, outside its nested functions. */
+function varNames(body: any): string[] {
+  const found: string[] = [];
+  walk(body, (node) => {
+    if (FUNCTION.has(node.type) || node.type === "ClassBody") return false;
+    if (node.type === "VariableDeclaration" && node.kind === "var") {
+      for (const declarator of node.declarations) patternNames(declarator.id, found);
+    }
+  });
+  return found;
+}
+
+/** The names a block's own statements declare with let, const, class or function. */
+function blockNames(statements: any[]): string[] {
+  const found: string[] = [];
+  for (const statement of statements) {
+    const declaration =
+      statement.type === "ExportNamedDeclaration" ? statement.declaration : statement;
+    if (declaration?.type === "VariableDeclaration" && declaration.kind !== "var") {
+      for (const declarator of declaration.declarations) patternNames(declarator.id, found);
+    } else if (
+      (declaration?.type === "FunctionDeclaration" || declaration?.type === "ClassDeclaration") &&
+      declaration.id
+    ) {
+      found.push(declaration.id.name);
+    }
+  }
+  return found;
+}
+
+/**
+ * The identifiers named in `watched` that a scope inside the Program declares again (a
+ * parameter, a local, a catch binding): those refer to the local, not to the
+ * Program-level binding of that name.
+ */
+function shadowedIdentifiers(ast: any, watched: Set<string>): WeakSet<any> {
+  const shadowed = new WeakSet<any>();
+  const scopes: Set<string>[] = [];
+  const visit = (node: any): void => {
+    if (!node || typeof node.type !== "string") return;
+    let scope: string[] | null = null;
+    if (FUNCTION.has(node.type)) {
+      const declared: string[] = node.params.flatMap((param: any) => patternNames(param));
+      if (node.type === "FunctionExpression" && node.id) declared.push(node.id.name);
+      if (node.body.type === "BlockStatement") {
+        declared.push(...varNames(node.body), ...blockNames(node.body.body));
+      }
+      scope = declared;
+    } else if (node.type === "BlockStatement" || node.type === "StaticBlock") {
+      scope = blockNames(node.body);
+    } else if (node.type === "CatchClause") {
+      scope = patternNames(node.param);
+    } else if (
+      (node.type === "ForStatement" ||
+        node.type === "ForInStatement" ||
+        node.type === "ForOfStatement") &&
+      (node.init ?? node.left)?.type === "VariableDeclaration" &&
+      (node.init ?? node.left).kind !== "var"
+    ) {
+      scope = (node.init ?? node.left).declarations.flatMap((d: any) => patternNames(d.id));
+    }
+    const pushed = scope !== null && scope.some((name) => watched.has(name));
+    if (pushed) scopes.push(new Set(scope));
+    if (node.type === "Identifier" && watched.has(node.name)) {
+      if (scopes.some((names) => names.has(node.name))) shadowed.add(node);
+    }
+    for (const key in node) {
+      if (key === "type" || key === "start" || key === "end" || key === "loc") continue;
+      const child = node[key];
+      if (Array.isArray(child)) for (const c of child) visit(c);
+      else if (child && typeof child.type === "string") visit(child);
+    }
+    if (pushed) scopes.pop();
+  };
+  // A function body's block is its function's scope, already pushed: visiting it again as
+  // a block only repeats the same names, which is harmless.
+  visit(ast);
+  return shadowed;
+}
+
+/**
+ * The file's jest bindings. A Program-level further name for a jest object (`const j =
+ * mockJest`) or for one of its hoisted methods (`const { mock } = jest`) that a mock call
+ * then goes through is one Jest would not hoist either, and this transform would leave
+ * unapplied without a word, so it fails, naming the binding and its line. A name a scope
+ * declares again, or that is reassigned, is not that binding and is left alone, and so is
+ * `requireActual` under any name: it is never hoisted and works at run time as it is.
+ */
+function jestBindings(ast: any, code: string, id: string): JestBindings {
+  const names = new Set(["jest"]);
+  const namespaces = new Set<string>();
+  const program = ast.body.map((statement: any) =>
+    statement.type === "ExportNamedDeclaration" && statement.declaration
+      ? statement.declaration
+      : statement,
+  );
+
+  for (const statement of program) {
+    if (statement.type === "ImportDeclaration") {
+      const fromJest = JEST_SOURCES.has(statement.source.value);
+      for (const specifier of statement.specifiers) {
+        // `jest` imported from anything else is that module's, not the jest object.
+        if (!fromJest) {
+          if (specifier.local.name === "jest") names.delete("jest");
+        } else if (specifier.type === "ImportNamespaceSpecifier") {
+          namespaces.add(specifier.local.name);
+        } else if (
+          specifier.type === "ImportSpecifier" &&
+          propertyName(specifier.imported) === "jest"
+        ) {
+          names.add(specifier.local.name);
+        }
+      }
+    } else if (statement.type === "VariableDeclaration") {
+      // `const { jest: mockJest } = require('@jest/globals')`, `const g = require(…)`, and
+      // `const mockJest = require(…).jest`.
+      for (const declarator of statement.declarations) {
+        const init = declarator.init;
+        if (!init) continue;
+        if (jestSourceOf(init)) {
+          if (declarator.id.type === "Identifier") namespaces.add(declarator.id.name);
+          else if (declarator.id.type === "ObjectPattern") {
+            for (const property of declarator.id.properties) {
+              if (
+                property.type === "Property" &&
+                propertyName(property.key) === "jest" &&
+                property.value.type === "Identifier"
+              ) {
+                names.add(property.value.name);
+              }
+            }
+          }
+        } else if (
+          init.type === "MemberExpression" &&
+          jestSourceOf(init.object) &&
+          propertyName(init.property) === "jest" &&
+          declarator.id.type === "Identifier"
+        ) {
+          names.add(declarator.id.name);
+        }
+      }
+    }
+  }
+
+  // Further Program-level names for a jest object, or for one of its hoisted methods.
+  const aliases = new Map<string, any>();
+  const methodAliases = new Map<string, any>();
+  const plainJest = (node: any) =>
+    (node?.type === "Identifier" && names.has(node.name)) ||
+    (node?.type === "MemberExpression" &&
+      node.object?.type === "Identifier" &&
+      namespaces.has(node.object.name) &&
+      propertyName(node.property) === "jest");
+  for (const statement of program) {
+    if (statement.type !== "VariableDeclaration") continue;
+    for (const declarator of statement.declarations) {
+      const [target, value] = [declarator.id, declarator.init];
+      if (!value) continue;
+      if (plainJest(value)) {
+        if (target.type === "Identifier" && !names.has(target.name)) {
+          aliases.set(target.name, declarator);
+        }
+        if (target.type === "ObjectPattern") {
+          for (const property of target.properties) {
+            const name = property.type === "Property" ? propertyName(property.key) : null;
+            if (name && HOISTABLE.has(name) && property.value.type === "Identifier") {
+              methodAliases.set(property.value.name, declarator);
+            }
+          }
+        }
+      } else if (
+        value.type === "MemberExpression" &&
+        plainJest(value.object) &&
+        HOISTABLE.has(propertyName(value.property) ?? "") &&
+        target.type === "Identifier"
+      ) {
+        methodAliases.set(target.name, declarator);
+      }
+    }
+  }
+
+  // Names to resolve by scope: every name but the global `jest`, which keeps the meaning it
+  // has always had here (a helper's `jest` parameter is still rewritten to `vi`).
+  const watched = new Set([...names, ...namespaces, ...aliases.keys(), ...methodAliases.keys()]);
+  watched.delete("jest");
+  const shadowed = watched.size > 0 ? shadowedIdentifiers(ast, watched) : new WeakSet();
+  const isJest = (node: any): boolean =>
+    (node?.type === "Identifier" &&
+      names.has(node.name) &&
+      (node.name === "jest" || !shadowed.has(node))) ||
+    (node?.type === "MemberExpression" &&
+      node.object?.type === "Identifier" &&
+      namespaces.has(node.object.name) &&
+      !shadowed.has(node.object) &&
+      propertyName(node.property) === "jest" &&
+      (!node.computed || node.property.type === "Literal"));
+
+  if (aliases.size === 0 && methodAliases.size === 0) return { isJest };
+  // A Program-level alias that is reassigned anywhere may hold something else by the time
+  // it is called: not followed, and not reported.
+  walk(ast, (node) => {
+    const target =
+      node.type === "AssignmentExpression"
+        ? node.left
+        : node.type === "UpdateExpression"
+          ? node.argument
+          : null;
+    if (target?.type === "Identifier" && !shadowed.has(target)) {
+      aliases.delete(target.name);
+      methodAliases.delete(target.name);
+    }
+  });
+  walk(ast, (node) => {
+    if (node.type !== "CallExpression") return;
+    const callee = node.callee;
+    let binding: any = null;
+    let name = "";
+    if (
+      callee?.type === "MemberExpression" &&
+      callee.object?.type === "Identifier" &&
+      aliases.has(callee.object.name) &&
+      !shadowed.has(callee.object) &&
+      HOISTABLE.has(propertyName(callee.property) ?? "")
+    ) {
+      binding = aliases.get(callee.object.name);
+      name = `${callee.object.name}.${propertyName(callee.property)}`;
+    } else if (
+      callee?.type === "Identifier" &&
+      methodAliases.has(callee.name) &&
+      !shadowed.has(callee)
+    ) {
+      binding = methodAliases.get(callee.name);
+      name = callee.name;
+    }
+    if (!binding) return;
+    const line = (at: number) => code.slice(0, at).split("\n").length;
+    throw new VitestNativeError(
+      "JEST_BINDING_NOT_FOLLOWED",
+      `[vitest-native] jestMockTransform cannot follow \`${code.slice(binding.start, binding.end)}\` ` +
+        `(${id.split("?")[0]}:${line(binding.start)}), so the \`${name}(…)\` call on line ` +
+        `${line(node.start)} would not be hoisted or registered. Jest does not hoist it either. ` +
+        `Call it on the jest object itself: \`jest\`, or the name it is imported as from '@jest/globals'.`,
+    );
+  });
+  return { isJest };
 }
 
 // `jest.requireActual` of project source, inside a factory's own body.
@@ -100,11 +395,11 @@ const NODE_MODULES = /[\\/]node_modules[\\/]/;
 const SOURCE_FILE = /\.[cm]?[jt]sx?$/;
 
 /** The string specifier of a `jest.requireActual('<literal>')` call, or null. */
-function requireActualSpec(node: any): string | null {
+function requireActualSpec(node: any, jest: JestBindings): string | null {
   if (node.type !== "CallExpression" || node.arguments.length !== 1) return null;
   const callee = node.callee;
   if (callee?.type !== "MemberExpression" || callee.computed) return null;
-  if (callee.object?.type !== "Identifier" || callee.object.name !== "jest") return null;
+  if (!jest.isJest(callee.object)) return null;
   if (callee.property?.type !== "Identifier" || callee.property.name !== "requireActual") {
     return null;
   }
@@ -141,11 +436,12 @@ function ownLoadCalls(
   factory: any,
   mocked: string | null,
   requireIsGlobal: boolean,
+  jest: JestBindings,
 ): { node: any; spec: string; kind: LoadKind }[] {
   const calls: { node: any; spec: string; kind: LoadKind }[] = [];
   walk(factory.body, (node) => {
     if (FUNCTION.has(node.type) || node.type === "ClassBody") return false;
-    const actual = requireActualSpec(node);
+    const actual = requireActualSpec(node, jest);
     if (actual !== null) return void calls.push({ node, spec: actual, kind: "requireActual" });
     const required = requireIsGlobal ? requireSpec(node) : null;
     if (required !== null && required !== mocked) {
@@ -287,20 +583,8 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
       if (found.mocks.length === 0 && found.duplicates.length === 0) return;
       const id = viteId(path.join(root, ROOT_MOCKS_FILE));
       rootMockModules.set(id, { root, ...found });
-      // Vite documents mutating the config here where merging cannot place a value: a
-      // returned setupFiles array would be appended after the project's own.
-      const setupFiles = Array.isArray(test.setupFiles)
-        ? [...(test.setupFiles as string[])]
-        : test.setupFiles
-          ? [test.setupFiles as string]
-          : [];
-      if (setupFiles.includes(id)) return;
-      let compat = -1;
-      setupFiles.forEach((file, index) => {
-        if (JEST_COMPAT_SETUP.test(file)) compat = index;
-      });
-      setupFiles.splice(compat + 1, 0, id);
-      test.setupFiles = setupFiles;
+      // In the project's own list, straight after jest-compat's setup (placeSetupFiles).
+      placeSetupFiles(test, [id], (file) => JEST_COMPAT_SETUP.test(file));
     },
     configResolved(config) {
       const native = config.plugins.find((plugin) => plugin.name === "vitest-native") as
@@ -358,7 +642,9 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
       if (id.includes("/node_modules/")) return null;
       const file = id.split("?")[0];
       if (!TRANSFORMABLE.test(file)) return null;
-      if (!HAS_JEST_MOCK.test(code)) return null;
+      if (!HAS_JEST_MOCK.test(code) && !(NAMES_JEST.test(code) && NAMES_MOCK_METHOD.test(code))) {
+        return null;
+      }
       const owner = rootMockModules.has(file)
         ? (projectsByRoot.get(rootMockModules.get(file)!.root) ?? project)
         : project;
@@ -593,15 +879,18 @@ function adapt(
 
   // The factories' own `jest.requireActual` calls, which may move to Vite. Resolving
   // them is asynchronous, so a file without any is transformed synchronously.
+  const jest = jestBindings(ast, code, id);
   const candidates = new Map<any, { node: any; spec: string; kind: LoadKind }[]>();
   const requireIsGlobal = !BINDS_REQUIRE.test(code);
   walk(ast, (node) => {
-    const factory = mockFactoryOf(node);
+    const factory = mockFactoryOf(node, jest);
     if (!factory || factory.generator) return;
-    const calls = ownLoadCalls(factory, literalSpec(node.arguments[0]), requireIsGlobal);
+    const calls = ownLoadCalls(factory, literalSpec(node.arguments[0]), requireIsGlobal, jest);
     if (calls.length > 0) candidates.set(factory, calls);
   });
-  if (candidates.size === 0) return rewrite(code, ast, new Map(), manualMockFor, automockable);
+  if (candidates.size === 0) {
+    return rewrite(code, ast, jest, new Map(), manualMockFor, automockable);
+  }
 
   const specs = new Set([...candidates.values()].flat().map((call) => call.spec));
   return Promise.all(
@@ -619,16 +908,16 @@ function adapt(
       const moved = calls.filter((call) => owned.has(call.spec));
       if (moved.length > 0) toAsync.set(factory, moved);
     }
-    return rewrite(code, ast, toAsync, manualMockFor, automockable);
+    return rewrite(code, ast, jest, toAsync, manualMockFor, automockable);
   });
 }
 
 /** The factory of a `jest.mock`/`jest.doMock` call with an inline function factory. */
-function mockFactoryOf(node: any): any {
+function mockFactoryOf(node: any, jest: JestBindings): any {
   if (node.type !== "CallExpression" || node.arguments.length < 2) return null;
   const callee = node.callee;
   if (callee?.type !== "MemberExpression" || callee.computed) return null;
-  if (callee.object?.type !== "Identifier" || callee.object.name !== "jest") return null;
+  if (!jest.isJest(callee.object)) return null;
   if (callee.property?.type !== "Identifier" || !WITH_FACTORY.has(callee.property.name)) {
     return null;
   }
@@ -645,6 +934,7 @@ function mockFactoryOf(node: any): any {
 function rewrite(
   code: string,
   ast: any,
+  jest: JestBindings,
   toAsync: Map<any, { node: any; spec: string; kind: LoadKind }[]>,
   manualMockFor: (spec: string) => string | null = () => null,
   automockable: (spec: string) => boolean = () => false,
@@ -686,10 +976,10 @@ function rewrite(
     if (!callee || callee.type !== "MemberExpression" || callee.computed) return;
     const obj = callee.object;
     const prop = callee.property;
-    if (!obj || obj.type !== "Identifier" || obj.name !== "jest") return;
+    if (!jest.isJest(obj)) return;
     if (!prop || prop.type !== "Identifier" || !HOISTABLE.has(prop.name)) return;
 
-    // jest.<method> → vi.<method>
+    // jest.<method> → vi.<method>, whatever the file calls the jest object.
     s.overwrite(obj.start, obj.end, "vi");
     changed = true;
     // A jest.mock / jest.unmock that is not a top-level statement (inside a helper the

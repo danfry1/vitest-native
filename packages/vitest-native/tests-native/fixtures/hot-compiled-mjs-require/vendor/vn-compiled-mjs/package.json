@@ -1,0 +1,12 @@
+{
+  "name": "vn-compiled-mjs",
+  "version": "1.0.0",
+  "main": "build/index.js",
+  "exports": {
+    ".": { "import": "./build/index.mjs", "require": "./build/index.js" },
+    "./parts": "./build/parts.js"
+  },
+  "peerDependencies": {
+    "react-native": "*"
+  }
+}

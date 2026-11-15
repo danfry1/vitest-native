@@ -22,20 +22,21 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { cliArguments } from "../../scripts/support/arguments.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const argument = (name) => {
-  const index = process.argv.indexOf(`--${name}`);
-  return index === -1 ? undefined : process.argv[index + 1];
-};
-const file = argument("verdicts");
+const options = cliArguments(
+  { script: "compare.mjs", valued: ["verdicts", "exhibits"] },
+  "compare.mjs --verdicts <file written by run.mjs --json> [--exhibits <file>]",
+).values;
+const file = options.verdicts;
 if (!file) {
   console.error("usage: compare.mjs --verdicts <file written by run.mjs --json>");
   process.exit(2);
 }
 const { verdicts } = JSON.parse(fs.readFileSync(file, "utf8"));
 const { exhibits } = JSON.parse(
-  fs.readFileSync(argument("exhibits") ?? path.join(here, "exhibits.json"), "utf8"),
+  fs.readFileSync(options.exhibits ?? path.join(here, "exhibits.json"), "utf8"),
 );
 
 const cell = (verdict) =>

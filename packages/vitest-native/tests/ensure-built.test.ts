@@ -36,6 +36,7 @@ describe("ensureBuilt", () => {
     const result = ensureBuilt({
       root: ROOT,
       exists: (p: string) => p === ENTRY,
+      stale: () => null,
       run,
       log: () => {},
     });
@@ -49,6 +50,7 @@ describe("ensureBuilt", () => {
     const result = ensureBuilt({
       root: ROOT,
       exists: (p: string) => present.has(p),
+      stale: () => null,
       run,
       log: () => {},
     });
@@ -60,20 +62,47 @@ describe("ensureBuilt", () => {
     expect(options.cwd).toBe(ROOT);
   });
 
+  // A dist/ built from older source would cross-check old code and report it as today's.
+  it("rebuilds when the entry is present but built from older source", () => {
+    let built = false;
+    const run = vi.fn(() => {
+      built = true;
+      return { status: 0 };
+    });
+    const log = vi.fn();
+    const result = ensureBuilt({
+      root: ROOT,
+      exists: (p: string) => p === ENTRY,
+      stale: () => (built ? null : "src/ changed"),
+      run,
+      log,
+    });
+    expect(result).toEqual({ built: true });
+    expect(run).toHaveBeenCalledOnce();
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("src/ changed"));
+  });
+
+  it("throws when the rebuild still leaves dist/ stale", () => {
+    const run = vi.fn(() => ({ status: 0 }));
+    expect(() =>
+      ensureBuilt({ root: ROOT, exists: () => true, stale: () => "stale", run, log: () => {} }),
+    ).toThrow(/Could not build/);
+  });
+
   it("throws with actionable guidance when the build fails", () => {
     const run = vi.fn(() => ({ status: 1 }));
-    expect(() => ensureBuilt({ root: ROOT, exists: () => false, run, log: () => {} })).toThrow(
-      /bun install && bun run build/,
-    );
+    expect(() =>
+      ensureBuilt({ root: ROOT, exists: () => false, stale: () => null, run, log: () => {} }),
+    ).toThrow(/bun install && bun run build/);
   });
 
   it("throws when the build reports success but produces no entry", () => {
     // A build that exits 0 without writing dist/ would otherwise hand the
     // cross-check the same unresolved-import failure this guard exists to prevent.
     const run = vi.fn(() => ({ status: 0 }));
-    expect(() => ensureBuilt({ root: ROOT, exists: () => false, run, log: () => {} })).toThrow(
-      /Could not build/,
-    );
+    expect(() =>
+      ensureBuilt({ root: ROOT, exists: () => false, stale: () => null, run, log: () => {} }),
+    ).toThrow(/Could not build/);
   });
 
   it("says what it is doing, since it runs inside another command", () => {
@@ -82,6 +111,7 @@ describe("ensureBuilt", () => {
     ensureBuilt({
       root: ROOT,
       exists: (p: string) => present.has(p),
+      stale: () => null,
       run: buildingRun(present),
       log,
     });

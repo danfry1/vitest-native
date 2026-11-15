@@ -1,0 +1,8 @@
+{
+  "name": "museum-res-package-js-jsx",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "calendar-shaped-lib": "*"
+  }
+}

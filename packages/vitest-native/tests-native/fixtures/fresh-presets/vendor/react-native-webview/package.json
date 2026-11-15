@@ -1,0 +1,10 @@
+{
+  "name": "react-native-webview",
+  "version": "13.16.0",
+  "description": "Stand-in with the package's name only: vitest-native's webview preset replaces it, so its code never runs.",
+  "main": "lib/index.js",
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  }
+}

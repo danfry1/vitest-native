@@ -19,17 +19,19 @@
 // Anything else is reported as what it is (requires-CI, NOT PROVEN), never rounded up.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import { axisProblem } from "./lib/axes.mjs";
 import { depsProblem } from "./lib/deps.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { exhibitHash } from "./lib/hash.mjs";
+import { cliArguments } from "../../scripts/support/arguments.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const argument = (name) => {
-  const index = process.argv.indexOf(`--${name}`);
-  return index === -1 ? undefined : process.argv[index + 1];
-};
-const resultsDir = argument("results");
+const options = cliArguments(
+  { script: "status.mjs", valued: ["results"] },
+  "status.mjs --results <dir>",
+).values;
+const resultsDir = options.results;
 if (!resultsDir) throw new Error("--results <dir> is required");
 const readColumn = (name) => {
   const file = path.join(resultsDir, `${name}.json`);
@@ -106,11 +108,10 @@ for (const exhibit of manifest.exhibits) {
       continue;
     }
     const sha = expectedSha(exhibit, column);
-    // STATUS.md records the flag off: a run.mjs --ownership verdict is another column.
-    if (verdict.ownershipModel)
-      problems.push(
-        `${exhibit.id}: the ${column} verdict ran with experimental.ownershipModel: ${verdict.ownershipModel}; STATUS.md records the flag off`,
-      );
+    // STATUS.md records the flags off: a run.mjs --ownership or --node-mocks verdict is
+    // another column.
+    const axis = axisProblem(verdict);
+    if (axis) problems.push(`${exhibit.id}: the ${column} verdict ${axis}`);
     // Each column runs against its own ref's installed packages (run.mjs, `deps`): a
     // verdict materialised against another ref's dependencies measured those, not the bug.
     const deps = depsProblem(verdict);
