@@ -30,6 +30,8 @@ export interface ProjectContextFields {
   requireAliases?: [string, string][];
   /** The project sets test.restoreMocks: jest-compat restores jest.replaceProperty() before each test. */
   restoreMocks?: true;
+  /** The project's test.fakeTimers names the APIs to fake (toFake or toNotFake): jest-compat's jest.useFakeTimers() leaves that choice to it. */
+  fakeTimersApis?: true;
   requireAliasesSkipped?: string[];
   presetNames?: string[];
   /** experimental.nodeMocks: a `vi.mock` applies to the modules Node loads. */
