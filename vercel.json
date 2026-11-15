@@ -5,5 +5,12 @@
   "outputDirectory": "website/.vitepress/dist",
   "framework": null,
   "cleanUrls": true,
-  "ignoreCommand": "bash website/scripts/skip-unless-site-changed.sh"
+  "ignoreCommand": "bash website/scripts/skip-unless-site-changed.sh",
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": true,
+      "docs/**": true
+    }
+  }
 }

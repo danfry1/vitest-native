@@ -238,6 +238,11 @@ describe("compare --hot: options, plan and banner", async () => {
   it("parses --hot with its own options and refuses Jest-only ones", () => {
     const ok = parseCompareArgs(["--hot", "--runs", "3", "--seed", "11", "--no-shuffle"]);
     expect(ok).toMatchObject({ hot: true, runs: 3, seed: 11, shuffle: false });
+    // The parser sets every --hot option; its defaults are the only ones (src/cli/index.ts
+    // passes them through as they are).
+    const defaults = parseCompareArgs(["--hot"]);
+    expect(defaults).toMatchObject({ hot: true, runs: 3, shuffle: true });
+    expect(Number.isInteger((defaults as { seed: number }).seed)).toBe(true);
     expect(parseCompareArgs(["--hot", "--jest-args", "--silent"])).toEqual({
       error: expect.stringContaining("--jest-args do not apply"),
     });

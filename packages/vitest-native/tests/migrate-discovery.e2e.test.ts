@@ -104,6 +104,79 @@ test('import-time mock calls survive', () => { expect(loaded).toHaveBeenCalledTi
   );
 
   it.runIf(distExists)(
+    "runs a suite that ran the real Reanimated on the real library, with its setUpTests() file (#834)",
+    () => {
+      // react-native-paper's shape: Reanimated's resolver, and a setup file that only calls
+      // setUpTests(). Its tests read what the real library's animated components set.
+      const root = fixture({
+        // Declared, as an app declares it: the engine runs a declared package as itself.
+        "package.json": {
+          name: "app",
+          dependencies: { "react-native": "*", "react-native-reanimated": "*" },
+        },
+        "jest.config.json": {
+          preset: "react-native",
+          resolver: "react-native-reanimated/jest/resolver",
+          setupFilesAfterEnv: ["<rootDir>/jest/jestSetupAfterEnv.js"],
+        },
+        // As a Reanimated app's Babel config has it: the worklets plugin compiles the
+        // hooks' worklets.
+        "babel.config.js":
+          "module.exports = {\n  presets: ['module:@react-native/babel-preset'],\n  plugins: ['react-native-worklets/plugin'],\n};\n",
+        "jest/jestSetupAfterEnv.js": `import { setUpTests } from 'react-native-reanimated';\n\nsetUpTests();\n`,
+        "src/Box.test.tsx": `import React from 'react';
+import { render, screen } from '@testing-library/react-native';
+import Animated, { getAnimatedStyle, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+
+function Box() {
+  const opacity = useSharedValue(0.5);
+  const style = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return <Animated.View testID="box" style={[{ width: 10 }, style]} />;
+}
+
+it('reads the animated style the real library sets', async () => {
+  await render(<Box />);
+  expect(getAnimatedStyle(screen.getByTestId('box'))).toEqual({ width: 10, opacity: 0.5 });
+  expect(screen.getByTestId('box')).toHaveAnimatedStyle({ opacity: 0.5 });
+});
+`,
+      });
+      const modules = path.join(root, "node_modules");
+      fs.mkdirSync(modules, { recursive: true });
+      for (const name of fs.readdirSync(path.join(packageRoot, "node_modules"))) {
+        if (fs.existsSync(path.join(modules, name))) continue;
+        fs.symlinkSync(path.join(packageRoot, "node_modules", name), path.join(modules, name));
+      }
+      fs.symlinkSync(packageRoot, path.join(modules, "vitest-native"));
+      const report = analyzeJestConfig(root);
+      expect(report.suggestedConfig).toContain("presets: { reanimated: false }");
+      expect(report.suggestedConfig).toContain("jestSetupAfterEnv");
+      const vitestBin = path.join(
+        path.dirname(createRequire(import.meta.url).resolve("vitest/package.json")),
+        "vitest.mjs",
+      );
+      const run = (config: string) => {
+        fs.writeFileSync(path.join(root, "vitest.config.mjs"), config);
+        return spawnSync(process.execPath, [vitestBin, "run"], {
+          cwd: root,
+          encoding: "utf8",
+          env: { ...process.env, CI: "1" },
+        });
+      };
+      const real = run(report.suggestedConfig);
+      expect(real.status, real.stdout + real.stderr).toBe(0);
+      // The control: the same config with the preset on serves Reanimated's mock, whose
+      // components set nothing for these readers (#834).
+      const mocked = run(report.suggestedConfig.replace("presets: { reanimated: false }", ""));
+      expect(mocked.status, mocked.stdout + mocked.stderr).not.toBe(0);
+      expect(mocked.stdout + mocked.stderr).toContain(
+        "reads the animated style the real library sets",
+      );
+    },
+    180_000,
+  );
+
+  it.runIf(distExists)(
     "resolves a literal prefix mapper and skips a $-anchored ignore, as Jest did",
     () => {
       const root = fixture({

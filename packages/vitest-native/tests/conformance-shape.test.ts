@@ -63,6 +63,40 @@ describe("differences", () => {
     expect(differences("anything", { kind: "unchecked" }, "x")).toEqual([]);
   });
 
+  it("reads a member through a Proxy that answers any read, and checks what it gives", () => {
+    // bottom-sheet's mock: useBottomSheetInternal() is a Proxy with no `has` trap, which
+    // answers every unknown read with a { value, get, set } stub.
+    const stub = { value: 0, get: () => 0, set: () => {} };
+    const internal = new Proxy({} as Record<string, unknown>, { get: () => stub });
+    const declared: Shape = {
+      kind: "object",
+      members: { animatedIndex: sharedValue, enableOverDrag: { kind: "boolean" } },
+    };
+    expect(differences(internal, declared, "useBottomSheetInternal()")).toEqual([
+      "useBottomSheetInternal().animatedIndex.modify: missing, declared function",
+      "useBottomSheetInternal().enableOverDrag: is object, declared boolean",
+    ]);
+  });
+
+  it("counts a member whose getter throws as missing, without failing the check", () => {
+    const value = Object.defineProperty({ value: 0, get: () => 0 }, "modify", {
+      get() {
+        throw new Error("not available in the mock");
+      },
+    });
+    expect(differences(value, sharedValue, "x")).toEqual(["x.modify: missing, declared function"]);
+    const throwing = new Proxy({} as Record<string, unknown>, {
+      get() {
+        throw new Error("no such member");
+      },
+    });
+    expect(differences(throwing, sharedValue, "y")).toEqual([
+      "y.value: missing, declared number",
+      "y.get: missing, declared function",
+      "y.modify: missing, declared function",
+    ]);
+  });
+
   it("lists members beyond the declared ones, but not an enum's reverse mapping", () => {
     expect(extras({ value: 0, get: 0, modify: 0, extra: 1, 0: "A" }, sharedValue, "x")).toEqual([
       "x.extra",

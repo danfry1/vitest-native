@@ -20,6 +20,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { suspensionTracker } from "./native/suspension.mjs";
 
 /** The default no-progress limit when `hangTimeout` is not set. */
 export const DEFAULT_HANG_TIMEOUT = 60_000;
@@ -170,6 +171,9 @@ export function runByCli(argv = process.argv) {
   return /(^|[\\/])vitest(\.m?js)?$/.test(argv[1] ?? "");
 }
 
+/** How often the watch reads the suspension tracker while files are in flight. */
+const SUSPENSION_POLL_MS = 1000;
+
 export class HangWatch {
   constructor({
     timeoutMs,
@@ -181,6 +185,10 @@ export class HangWatch {
     now = () => Date.now(),
     cli = runByCli(),
     graceMs = 5000,
+    // Time the machine spends asleep is not progress, and not a hang either (#689): a
+    // sleep mid-run read as every running test past its budget, and stopped the run on
+    // wake. Measured, since Node's clocks count sleep on macOS (native/suspension.mjs).
+    suspension = suspensionTracker({ intervalMs: SUSPENSION_POLL_MS }),
   }) {
     this.timeoutMs = timeoutMs ?? null;
     this.recordsDir = recordsDir;
@@ -204,6 +212,14 @@ export class HangWatch {
      * none.
      */
     this.lastActivity = 0;
+    /** When the last progress restarted the limit. */
+    this.progressAt = 0;
+    this.suspension = suspension;
+    /** The tracker's total time asleep when the watch last read it. */
+    this.seenSuspendedMs = suspension.suspendedMs;
+    /** Each suspension seen during the run: when it was noticed (`now`), and how long. */
+    this.suspensions = [];
+    this.poller = undefined;
     this.timer = undefined;
     this.vitest = undefined;
   }
@@ -232,7 +248,10 @@ export class HangWatch {
   onTestRunStart() {
     this.running.clear();
     this.takenAt.clear();
+    this.seenSuspendedMs = this.suspension.suspendedMs;
+    this.suspensions = [];
     this.disarm();
+    this.stopPolling();
   }
 
   /** Called by the plugin for each module the main process transforms (see lastActivity). */
@@ -280,13 +299,45 @@ export class HangWatch {
     this.running.clear();
     this.takenAt.clear();
     this.disarm();
+    this.stopPolling();
   }
 
   /** Restart the limit while any file is in flight; otherwise stop watching. */
   progress() {
     this.disarm();
     if (!this.watching() || this.running.size === 0) return;
+    this.progressAt = this.now();
+    this.startPolling();
     this.arm(this.timeoutMs);
+  }
+
+  /** Read the suspension tracker, recording any new time asleep. */
+  pollSuspensions() {
+    // Measured from the last reading, not from just before this tick: the tracker can
+    // record a sleep between polls (its own timer, or a tick from elsewhere), and a
+    // before/after pair around this tick would never see it.
+    this.suspension.tick();
+    const slept = this.suspension.suspendedMs - this.seenSuspendedMs;
+    this.seenSuspendedMs = this.suspension.suspendedMs;
+    if (slept > 0) this.suspensions.push({ at: this.now(), ms: slept });
+  }
+
+  /** Time asleep noticed after `since` (a `now` reading). */
+  asleepSince(since) {
+    let ms = 0;
+    for (const s of this.suspensions) if (s.at > since) ms += s.ms;
+    return ms;
+  }
+
+  startPolling() {
+    if (this.poller) return;
+    this.poller = setInterval(() => this.pollSuspensions(), SUSPENSION_POLL_MS);
+    this.poller.unref?.();
+  }
+
+  stopPolling() {
+    clearInterval(this.poller);
+    this.poller = undefined;
   }
 
   arm(ms) {
@@ -301,16 +352,22 @@ export class HangWatch {
    * until that budget runs out; otherwise the run is stuck.
    */
   check() {
+    // A check that fires on wake sees the sleep that just ended. Every budget below moves
+    // on by the time asleep since it started.
+    this.pollSuspensions();
     const records = readTestRecords(this.recordsDir);
-    let waitUntil = 0;
+    let waitUntil = this.progressAt + this.timeoutMs + this.asleepSince(this.progressAt);
     for (const file of this.running.keys()) {
       const record = records.get(file);
       if (!record) continue;
       if (record.debugger) return this.arm(this.timeoutMs);
-      waitUntil = Math.max(waitUntil, record.at + testBudget(record));
+      waitUntil = Math.max(waitUntil, record.at + testBudget(record) + this.asleepSince(record.at));
     }
     // Modules still loading somewhere in the run: progress the events cannot show.
-    if (this.lastActivity > 0) waitUntil = Math.max(waitUntil, this.lastActivity + this.timeoutMs);
+    if (this.lastActivity > 0) {
+      const since = this.lastActivity;
+      waitUntil = Math.max(waitUntil, since + this.timeoutMs + this.asleepSince(since));
+    }
     const left = waitUntil - this.now();
     if (left > 0) return this.arm(left);
     this.trip(records);

@@ -1,7 +1,6 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
-import React from "react";
-import { hostComponent as hostClass, asHost } from "../mocks/host.js";
+import { hosts } from "../mocks/host-classes.js";
 import { createPressableMock } from "../mocks/components/Pressable.js";
 import { builtInPreset } from "./built-in.js";
 
@@ -40,7 +39,8 @@ export function gestureHandler(): Preset {
           "RawButton",
           "PureNativeButton",
         ],
-        factory: () => {
+        factory: ({ React }) => {
+          const { hostComponent: hostClass, asHost } = hosts(React);
           const State = {
             UNDETERMINED: 0,
             FAILED: 1,
@@ -172,7 +172,7 @@ export function gestureHandler(): Preset {
             TouchableNativeFeedback: createGestureHandler("GH-TouchableNativeFeedback"),
             // RNGH's Pressable mirrors RN's Pressable API. Reuse the RN mock so
             // it inherits behaviors like suppressing press handlers when disabled.
-            Pressable: createPressableMock(),
+            Pressable: createPressableMock(React),
             // Button components (gesture-handler/Button). Common in real apps
             // (e.g. RectButton wrapped by Touchables). Render as host views that
             // pass through children + handlers.

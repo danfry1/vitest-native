@@ -11,6 +11,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { cliArguments } from "../support/arguments.mjs";
 
 const require = createRequire(import.meta.url);
 const ts = require("typescript-6");
@@ -67,7 +68,16 @@ function shapeOf(checker, type, depth) {
       return { kind: [...kinds][0], optional: defined.length < type.types.length };
     return { kind: "unchecked" };
   }
-  if (type.getCallSignatures().length > 0) return { kind: "function" };
+  if (type.getCallSignatures().length > 0) {
+    // A callable type with properties of its own (Reanimated's AnimatedRef: callable, with
+    // `current` and `observe`) records them; a plain function type has none.
+    const shape = { kind: "function" };
+    if (depth > 0) {
+      const members = membersOf(checker, type, depth);
+      if (Object.keys(members).length > 0) shape.members = members;
+    }
+    return shape;
+  }
   if (checker.isArrayType(type) || checker.isTupleType(type)) return { kind: "array" };
   if (flags & F.Object || type.isIntersection()) {
     const name = checker.typeToString(type).replace(/<.*$/, "");
@@ -78,21 +88,27 @@ function shapeOf(checker, type, depth) {
       shape.type = symbolName;
     }
     if (OPAQUE.has(shape.type ?? name) || depth <= 0) return shape;
-    const members = {};
-    for (const property of checker.getPropertiesOfType(type)) {
-      // A well-known symbol (`[Symbol.iterator]`) is not a member a mock spells out.
-      if (property.name.startsWith("__@")) continue;
-      const declaration = property.valueDeclaration ?? property.declarations?.[0];
-      if (!declaration) continue;
-      const memberType = checker.getTypeOfSymbolAtLocation(property, declaration);
-      const member = shapeOf(checker, memberType, depth - 1);
-      if (property.flags & ts.SymbolFlags.Optional) member.optional = true;
-      members[property.name] = member;
-    }
+    const members = membersOf(checker, type, depth);
     if (Object.keys(members).length > 0) shape.members = members;
     return shape;
   }
   return { kind: "unchecked" };
+}
+
+/** The declared members of `type`, each with its shape, one level shallower. */
+function membersOf(checker, type, depth) {
+  const members = {};
+  for (const property of checker.getPropertiesOfType(type)) {
+    // A well-known symbol (`[Symbol.iterator]`) is not a member a mock spells out.
+    if (property.name.startsWith("__@")) continue;
+    const declaration = property.valueDeclaration ?? property.declarations?.[0];
+    if (!declaration) continue;
+    const memberType = checker.getTypeOfSymbolAtLocation(property, declaration);
+    const member = shapeOf(checker, memberType, depth - 1);
+    if (property.flags & ts.SymbolFlags.Optional) member.optional = true;
+    members[property.name] = member;
+  }
+  return members;
 }
 
 /** The kind of a value export: function, class, object or a primitive. */
@@ -131,6 +147,16 @@ function exportOf(checker, symbol, declaration) {
   return shapeOf(checker, type, 2);
 }
 
+/** Whether `exported` reaches the module only through `export type` (at any re-export hop). */
+function isTypeOnlyExport(exported) {
+  return (exported.declarations ?? []).some(
+    (declaration) =>
+      (ts.isExportSpecifier(declaration) &&
+        (declaration.isTypeOnly || declaration.parent.parent.isTypeOnly)) ||
+      (ts.isExportDeclaration(declaration) && declaration.isTypeOnly),
+  );
+}
+
 /** The contract of `pkg`, resolved from `fromDir`. */
 export function extractContract(pkg, fromDir = process.cwd()) {
   const resolve = createRequire(path.join(fromDir, "package.json")).resolve;
@@ -154,6 +180,8 @@ export function extractContract(pkg, fromDir = process.cwd()) {
   if (!moduleSymbol) throw new Error(`${pkg}: ${entry} is not a module`);
   const exports = {};
   for (const exported of checker.getExportsOfModule(moduleSymbol)) {
+    // `export type { X }` of a class or enum: a type at runtime too, whatever X is.
+    if (isTypeOnlyExport(exported)) continue;
     const symbol =
       exported.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(exported) : exported;
     // Value exports only: a type or an interface has nothing at runtime to check.
@@ -166,10 +194,13 @@ export function extractContract(pkg, fromDir = process.cwd()) {
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
-  const pkg = process.argv[2];
-  const from = process.argv.includes("--from")
-    ? process.argv[process.argv.indexOf("--from") + 1]
-    : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-  if (!pkg) throw new Error("usage: extract-contract.mjs <package> [--from <dir>]");
+  const usage = "extract-contract.mjs <package> [--from <dir>]";
+  const { values, positionals } = cliArguments(
+    { script: "extract-contract.mjs", valued: ["from"], positionals: 1 },
+    usage,
+  );
+  const [pkg] = positionals;
+  const from = values.from ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+  if (!pkg) throw new Error(`usage: ${usage}`);
   process.stdout.write(`${JSON.stringify(extractContract(pkg, from), null, 2)}\n`);
 }

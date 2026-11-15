@@ -1,5 +1,6 @@
 // require('@jest/globals') under jest-compat, set up as `vitest-native migrate` writes a
 // config, under each engine (`--mode native` or `--mode mock`).
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

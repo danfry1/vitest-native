@@ -150,11 +150,31 @@ tester.run("escaped-regexp", rule("escaped-regexp"), {
     { filename: src(), code: "new RegExp(`^${escapeRe(name)}/`);" },
     { filename: src(), code: `new RegExp("^" + escapeRe(dir) + "/", "i");` },
     { filename: src(), code: `new RegExp(re.source, "g");` },
+    { filename: src(), code: "new RegExp(`^${STAR}+`);" },
+    { filename: src(), code: 'new RegExp(String.raw`${ROOT}\\d+`, "g");' },
+    { filename: src(), code: 'new RegExp(`^${parts.map(escapeRe).join("/")}$`);' },
+    { filename: src(), code: 'new RegExp(`^${parts.map((p) => escapeRe(p)).join("|")}$`);' },
   ],
   invalid: [
     { filename: src(), code: "new RegExp(`^${name}/`);", errors: [{ messageId: "unescaped" }] },
     { filename: src(), code: `new RegExp("^" + dir + "/");`, errors: [{ messageId: "unescaped" }] },
     { filename: src(), code: `RegExp(userInput);`, errors: [{ messageId: "unescaped" }] },
+    // A lower-case name is data, even in String.raw or a join.
+    {
+      filename: src(),
+      code: "new RegExp(String.raw`${root}\\d+`);",
+      errors: [{ messageId: "unescaped" }],
+    },
+    {
+      filename: src(),
+      code: 'new RegExp(parts.map((p) => p.trim()).join("|"));',
+      errors: [{ messageId: "unescaped" }],
+    },
+    {
+      filename: src(),
+      code: "new RegExp(`\\b${binding}\\(`);",
+      errors: [{ messageId: "unescaped" }],
+    },
   ],
 });
 
@@ -174,6 +194,150 @@ tester.run("no-doc-urls-in-src", rule("no-doc-urls-in-src"), {
       filename: src(),
       code: "const u = `https://github.com/acme/repo/blob/main/x.md#${anchor}`;",
       errors: [{ messageId: "link" }],
+    },
+  ],
+});
+
+const ts = new RuleTester({
+  languageOptions: { sourceType: "module", parserOptions: { lang: "ts" } },
+});
+const preset = () => src("src/presets/example.ts");
+ts.run("preset-react-per-file", rule("preset-react-per-file"), {
+  valid: [
+    { filename: preset(), code: `import type React from "react";` },
+    { filename: preset(), code: `import { type ReactNode } from "react";` },
+    { filename: preset(), code: `export type { ViewProps } from "react-native";` },
+    { filename: preset(), code: `import { hosts } from "../mocks/host-classes.js";` },
+    { filename: preset(), code: `import x from "react-native-svg";` },
+    { filename: preset(), code: `const f = ({ React }) => React.createElement("View");` },
+    { filename: preset(), code: `function rn() { return require("react-native"); }` },
+    { filename: preset(), code: `const load = () => require("react");` },
+    {
+      filename: preset(),
+      code: `const r = createRequire(import.meta.url); function f() { return r("react"); }`,
+    },
+    {
+      filename: preset(),
+      code: `let cache; function f() { cache = require("react-native-svg"); }`,
+    },
+    { filename: preset(), code: `const lib = require("react-native-gesture-handler");` },
+    {
+      filename: preset(),
+      code: `function load() { return require("react"); } export const f = () => load();`,
+    },
+    {
+      filename: preset(),
+      code: `const cache = new Map(); function f(k) { return cache.get(k) ?? require("react"); }`,
+    },
+  ],
+  invalid: [
+    {
+      filename: preset(),
+      code: `import React from "react";`,
+      errors: [{ messageId: "import" }],
+    },
+    {
+      filename: preset(),
+      code: `import { useState, type ReactNode } from "react";`,
+      errors: [{ messageId: "import" }],
+    },
+    {
+      filename: preset(),
+      code: `import { View } from "react-native";`,
+      errors: [{ messageId: "import" }],
+    },
+    {
+      filename: preset(),
+      code: `import "react/jsx-runtime";`,
+      errors: [{ messageId: "import" }],
+    },
+    {
+      filename: preset(),
+      code: `export { useState } from "react";`,
+      errors: [{ messageId: "import" }],
+    },
+    {
+      filename: preset(),
+      code: `const React = require("react");`,
+      errors: [{ messageId: "require" }],
+    },
+    // Every package freshRuntime evaluates per file, not only react (RUNTIME_RESIDENT_PACKAGES).
+    ...[
+      "react-is",
+      "react-dom",
+      "scheduler",
+      "react-test-renderer",
+      "@testing-library/react-native",
+      "@react-native/virtualized-lists",
+    ].map((source) => ({
+      filename: preset(),
+      code: `import x from "${source}";`,
+      errors: [{ messageId: "import" }],
+    })),
+    {
+      filename: preset(),
+      code: `const load = () => import("react");`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: "const React = require(`react`);",
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const React = module.require("react");`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const React = createRequire(import.meta.url)("react");`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const r = createRequire(import.meta.url); const React = r("react");`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `import { createRequire as cr } from "node:module"; const React = cr(import.meta.url)("react");`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const React = (() => require("react"))();`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `let R; const react = () => (R ??= require("react"));`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const held = {}; function react() { held.React = require("react"); }`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `function load() { return require("react"); } const React = load();`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const load = () => require("react"); function boot() { return load(); } boot();`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const cache = new Map(); function f(k) { cache.set(k, require("react")); }`,
+      errors: [{ messageId: "require" }],
+    },
+    {
+      filename: preset(),
+      code: `const held = { list: [] }; function f() { held.list.push(require("react-native")); }`,
+      errors: [{ messageId: "require" }],
     },
   ],
 });

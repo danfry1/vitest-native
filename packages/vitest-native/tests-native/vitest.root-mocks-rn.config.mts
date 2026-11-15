@@ -1,6 +1,7 @@
 // A project's root __mocks__/react-native.js under jest-compat (#566 review), in its own
 // fixture app: it replaces react-native for every file. `--mode hot` runs it in a reused
 // worker; scripts/test-root-mocks-registry.mjs runs it cold and then with a warm registry.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

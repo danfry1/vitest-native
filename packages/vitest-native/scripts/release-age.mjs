@@ -41,6 +41,17 @@ export function releaseAgeEnv(now = Date.now()) {
   };
 }
 
+/**
+ * The cooldown for a bun install outside the repository (scripts/scratch-install.mjs). bun
+ * reads bunfig.toml from the project it installs, so the repository's minimumReleaseAge
+ * does not reach a scratch directory; these carry it there. The canary switch below does
+ * not apply: a scratch install always keeps the cooldown.
+ */
+export const BUN_RELEASE_AGE_SECONDS = RELEASE_AGE_DAYS * 24 * 60 * 60;
+export const bunReleaseAgeFlag = () => `--minimum-release-age=${BUN_RELEASE_AGE_SECONDS}`;
+export const bunfigWithReleaseAge = () =>
+  `[install]\nminimumReleaseAge = ${BUN_RELEASE_AGE_SECONDS}\n`;
+
 /** The variable that leaves the cooldown off, for the canary job only. */
 export const CANARY_UNAGED = "VN_CANARY_UNAGED";
 

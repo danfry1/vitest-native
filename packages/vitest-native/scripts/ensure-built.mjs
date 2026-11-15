@@ -10,9 +10,11 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { distStaleness } from "./build-stamp.mjs";
 
 /**
- * Ensure the built plugin entry exists, building once if it does not.
+ * Ensure the built plugin entry exists and was built from the source as it is now,
+ * building once if not: a stale build would cross-check old code.
  *
  * @returns {{ built: boolean }} whether a build was run
  * @throws if the entry is still absent afterwards
@@ -20,13 +22,15 @@ import path from "node:path";
 export function ensureBuilt({
   root,
   exists = fs.existsSync,
+  stale = distStaleness,
   run = (command, args, options) => spawnSync(command, args, options),
   log = console.log,
 } = {}) {
   const entry = path.join(root, "dist", "index.mjs");
-  if (exists(entry)) return { built: false };
+  const why = exists(entry) ? stale(root) : "dist/ not found";
+  if (why === null) return { built: false };
 
-  log("── dist/ not found — building the plugin the cross-check runs against ──");
+  log(`── ${why} — building the plugin the cross-check runs against ──`);
   const result = run("bun", ["run", "build"], {
     cwd: root,
     stdio: "inherit",
@@ -34,7 +38,7 @@ export function ensureBuilt({
     shell: process.platform === "win32",
   });
 
-  if (result.status !== 0 || !exists(entry)) {
+  if (result.status !== 0 || !exists(entry) || stale(root) !== null) {
     throw new Error(
       "Could not build the plugin the cross-check needs.\n" +
         "  Run `bun install && bun run build` in packages/vitest-native, then retry.",

@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  changedReason,
+  changeKind,
   classifyObservation,
   classifyObservationVerdict,
   confirmObservation,
@@ -27,6 +29,38 @@ describe("external bake-off observation classification", () => {
     expect(classifyObservationVerdict({ changed: false, infra: true })).toBe("infra");
     expect(classifyObservationVerdict({ changed: true, infra: false })).toBe("changed");
     expect(classifyObservationVerdict({ changed: true, infra: true })).toBe("mixed");
+  });
+});
+
+describe("how a changed observation is described", () => {
+  it("names fewer passes as a fall in passes", () => {
+    expect(changeKind({ passed: 9, total: 10 }, { passed: 10, total: 10 })).toBe("passes-fell");
+    expect(changeKind({ passed: 9, total: 12 }, { passed: 10, total: 10 })).toBe("passes-fell");
+  });
+
+  it("names a new total with no fewer passes as a total-only change", () => {
+    // The paper and obytes observations that prompted this: more tests ran, more passed.
+    expect(changeKind({ passed: 696, total: 717 }, { passed: 663, total: 715 })).toBe("total-only");
+    expect(changeKind({ passed: 40, total: 40 }, { passed: 34, total: 36 })).toBe("total-only");
+    expect(changeKind({ passed: 10, total: 12 }, { passed: 10, total: 10 })).toBe("total-only");
+  });
+
+  it("has no change kind for an observation that did not change", () => {
+    expect(changeKind({ passed: 10, total: 10 }, { passed: 10, total: 10 })).toBeUndefined();
+    expect(changeKind({ passed: 11, total: 12 }, { passed: 10, total: 12 })).toBeUndefined();
+  });
+
+  it("never says passes fell when only the total changed, and says how to re-base it", () => {
+    const reason = changedReason(["total-only", "total-only"]);
+    expect(reason).not.toMatch(/fewer|below/);
+    expect(reason).toMatch(/total changed/);
+    expect(reason).toMatch(/bakeoffs-ratchet\.json by hand/);
+    expect(reason).toMatch(/--update/);
+  });
+
+  it("says passes fell when any observation passed fewer tests", () => {
+    expect(changedReason(["total-only", "passes-fell"])).toMatch(/passed fewer tests/);
+    expect(changedReason(["passes-fell"])).toMatch(/passed fewer tests/);
   });
 });
 

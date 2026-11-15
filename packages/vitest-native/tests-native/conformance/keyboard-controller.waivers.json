@@ -1,0 +1,182 @@
+[
+  {
+    "export": "KeyboardControllerNative",
+    "path": "KeyboardControllerNative",
+    "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "FocusedInputEvents",
+    "path": "FocusedInputEvents",
+    "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "WindowDimensionsEvents",
+    "path": "WindowDimensionsEvents",
+    "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "KeyboardControllerViewCommands",
+    "path": "KeyboardControllerViewCommands",
+    "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "RCTOverKeyboardView",
+    "path": "RCTOverKeyboardView",
+    "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "RCTKeyboardExtender",
+    "path": "RCTKeyboardExtender",
+    "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "ClippingScrollView",
+    "path": "ClippingScrollView",
+    "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "RCTKeyboardToolbarGroupView",
+    "path": "RCTKeyboardToolbarGroupView",
+    "reason": "a native module or view binding the package exports for its own components; no JS behaviour to mock",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "KeyboardContext",
+    "path": "KeyboardContext",
+    "reason": "missing from keyboard-controller's own Jest mock",
+    "issue": "#708"
+  },
+  {
+    "export": "useKeyboardContext",
+    "path": "useKeyboardContext().enabled",
+    "reason": "keyboard-controller's mock returns the animation values only, not the declared context",
+    "issue": "#708"
+  },
+  {
+    "export": "useKeyboardContext",
+    "path": "useKeyboardContext().layout",
+    "reason": "keyboard-controller's mock returns the animation values only, not the declared context",
+    "issue": "#708"
+  },
+  {
+    "export": "useKeyboardContext",
+    "path": "useKeyboardContext().update",
+    "reason": "keyboard-controller's mock returns the animation values only, not the declared context",
+    "issue": "#708"
+  },
+  {
+    "export": "useKeyboardContext",
+    "path": "useKeyboardContext().setKeyboardHandlers",
+    "reason": "keyboard-controller's mock returns the animation values only, not the declared context",
+    "issue": "#708"
+  },
+  {
+    "export": "useKeyboardContext",
+    "path": "useKeyboardContext().setInputHandlers",
+    "reason": "keyboard-controller's mock returns the animation values only, not the declared context",
+    "issue": "#708"
+  },
+  {
+    "export": "useKeyboardContext",
+    "path": "useKeyboardContext().setEnabled",
+    "reason": "keyboard-controller's mock returns the animation values only, not the declared context",
+    "issue": "#708"
+  },
+  {
+    "export": "useReanimatedFocusedInput",
+    "path": "useReanimatedFocusedInput().input.addListener",
+    "reason": "keyboard-controller's mock gives { value, get, set }, not a full SharedValue",
+    "issue": "#708"
+  },
+  {
+    "export": "useReanimatedFocusedInput",
+    "path": "useReanimatedFocusedInput().input.removeListener",
+    "reason": "keyboard-controller's mock gives { value, get, set }, not a full SharedValue",
+    "issue": "#708"
+  },
+  {
+    "export": "useReanimatedFocusedInput",
+    "path": "useReanimatedFocusedInput().input.modify",
+    "reason": "keyboard-controller's mock gives { value, get, set }, not a full SharedValue",
+    "issue": "#708"
+  },
+  {
+    "export": "useReanimatedFocusedInput",
+    "path": "useReanimatedFocusedInput().update",
+    "reason": "missing from keyboard-controller's own Jest mock",
+    "issue": "#708"
+  },
+  {
+    "export": "useReanimatedKeyboardAnimation",
+    "path": "useReanimatedKeyboardAnimation().progress.addListener",
+    "reason": "keyboard-controller's mock gives { value, get, set }, not a full SharedValue",
+    "issue": "#708"
+  },
+  {
+    "export": "useReanimatedKeyboardAnimation",
+    "path": "useReanimatedKeyboardAnimation().progress.removeListener",
+    "reason": "keyboard-controller's mock gives { value, get, set }, not a full SharedValue",
+    "issue": "#708"
+  },
+  {
+    "export": "useReanimatedKeyboardAnimation",
+    "path": "useReanimatedKeyboardAnimation().progress.modify",
+    "reason": "keyboard-controller's mock gives { value, get, set }, not a full SharedValue",
+    "issue": "#708"
+  },
+  {
+    "export": "useReanimatedKeyboardAnimation",
+    "path": "useReanimatedKeyboardAnimation().height.addListener",
+    "reason": "keyboard-controller's mock gives { value, get, set }, not a full SharedValue",
+    "issue": "#708"
+  },
+  {
+    "export": "useReanimatedKeyboardAnimation",
+    "path": "useReanimatedKeyboardAnimation().height.removeListener",
+    "reason": "keyboard-controller's mock gives { value, get, set }, not a full SharedValue",
+    "issue": "#708"
+  },
+  {
+    "export": "useReanimatedKeyboardAnimation",
+    "path": "useReanimatedKeyboardAnimation().height.modify",
+    "reason": "keyboard-controller's mock gives { value, get, set }, not a full SharedValue",
+    "issue": "#708"
+  },
+  {
+    "export": "KEYBOARD_BORDER_RADIUS",
+    "path": "KEYBOARD_BORDER_RADIUS",
+    "reason": "missing from keyboard-controller's own Jest mock",
+    "issue": "#708"
+  },
+  {
+    "export": "KEYBOARD_HAS_ROUNDED_CORNERS",
+    "path": "KEYBOARD_HAS_ROUNDED_CORNERS",
+    "reason": "missing from keyboard-controller's own Jest mock",
+    "issue": "#708"
+  },
+  {
+    "export": "KeyboardController",
+    "path": "KeyboardController.setTranslucent",
+    "reason": "missing from keyboard-controller's own Jest mock",
+    "issue": "#708"
+  },
+  {
+    "export": "KeyboardState",
+    "path": "KeyboardState",
+    "reason": "missing from keyboard-controller's own Jest mock",
+    "issue": "#708"
+  },
+  {
+    "export": "useAnimatedKeyboard",
+    "path": "useAnimatedKeyboard",
+    "reason": "missing from keyboard-controller's own Jest mock",
+    "issue": "#708"
+  }
+]

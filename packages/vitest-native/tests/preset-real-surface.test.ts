@@ -67,6 +67,10 @@ const KNOWN_DIVERGENCES: Record<string, Record<string, string>> = {
     addWhitelistedNativeProps: "removed in Reanimated 4; present through 3.x",
     configureProps: "removed in Reanimated 4; present through 3.x",
   },
+  "react-native-screens": {
+    NativeScreen: "removed in react-native-screens 4; exported through 3.x",
+    NativeScreenContainer: "removed in react-native-screens 4; exported through 3.x",
+  },
   "react-native-gesture-handler": {
     Swipeable: "removed in gesture-handler 3; present through 2.x",
     DrawerLayout: "removed in gesture-handler 3; present through 2.x",

@@ -13,6 +13,7 @@ import {
   transformRN,
   isFlow,
   cjsExportNames,
+  cjsReexports,
   needsTransform,
 } from "./transform.mjs";
 import { boundarySourceFor } from "./boundary.mjs";
@@ -77,6 +78,16 @@ function resolveExtensionless(base) {
 }
 // Synthetic URL scheme for preset mocks served to the ESM graph (see below).
 const PRESET_SCHEME = "vitest-native-preset:";
+// Under the hot runtime the URL carries the generation, as a stamped file does (see
+// versionable): Node keeps an ES module by URL for the worker's life, and the module reads
+// the preset mocks of the file that first evaluates it. Unstamped, every later file's ES
+// imports of a preset package got the first file's mocks, so a file's mockReturnValue or
+// call assertion reached another file's mock. One URL per generation is one module per
+// test file, however many of its ES modules import the package.
+function presetURL(specifier) {
+  const gen = generationOf();
+  return gen > 0 ? `${PRESET_SCHEME}${specifier}?vnhot=${gen}` : PRESET_SCHEME + specifier;
+}
 // A preset reached by resolved file: only CommonJS that this loader compiled requires
 // through that path (see presetRequestForFile), and on Node 22.13 that `require` reads
 // a CommonJS cache an ES module job never fills ("Cannot read properties of undefined
@@ -313,7 +324,7 @@ function resolveBefore(specifier, context, presets = true) {
   // Node-safe utility entries (jest-utils, mock, plugin) — those pass through
   // to the real file.
   if (presets && isPresetSpecifier(specifier)) {
-    return { done: { url: PRESET_SCHEME + specifier, shortCircuit: true } };
+    return { done: { url: presetURL(specifier), shortCircuit: true } };
   }
 
   const parent =
@@ -395,7 +406,7 @@ function resolveAfter(resolved, context) {
       Object.prototype.hasOwnProperty.call(presetExports, pkg),
     );
     if (hit && isPackageEntryFile(hit.pkg, file, parent)) {
-      return { url: PRESET_SCHEME + hit.pkg, shortCircuit: true };
+      return { url: presetURL(hit.pkg), shortCircuit: true };
     }
   }
   // JSON imports without an explicit `with { type: 'json' }` attribute throw
@@ -420,6 +431,15 @@ function resolveAfter(resolved, context) {
   if (versionable(resolved.url)) {
     const gen = generationOf();
     if (gen > 0 && !resolved.url.includes("vnhot=")) {
+      // A require() from compiled code this loader served as source: served as Node's
+      // CommonJS loader serves a require, behind no generation facade (#847).
+      if (requiredFromServedSource(context.parentURL)) {
+        return {
+          ...resolved,
+          url: `${resolved.url}?vnhot=${gen}${NODE_SERVED}`,
+          shortCircuit: true,
+        };
+      }
       const url = `${resolved.url}?vnhot=${gen}`;
       pinFacade(url, context.parentURL);
       return { ...resolved, url, shortCircuit: true };
@@ -564,7 +584,7 @@ export function requireFacade(url, file, compiled) {
   // A `#!` line is valid only as a source's first characters; carried inside the
   // facade it would be a syntax error. The carried code is never run.
   const code = compiled.startsWith("#!") ? compiled.replace(/^#!.*/, "") : compiled;
-  const names = cjsExportNames(code);
+  const names = [...new Set([...cjsExportNames(code), ...compiledReexports(file, code)])];
   // An `.mjs` file is an ES module wherever it is loaded, so the CommonJS loader cannot
   // own it: requiring it is Node's require(esm), which on Node 20.19 and 22.13 fails
   // for a module this loader is still loading ("Cannot require() ES Module ... in a
@@ -573,6 +593,7 @@ export function requireFacade(url, file, compiled) {
   // loader cannot see it (hooks.mjs), and both routes give one instance
   // (tests-native/ecosystem-mjs.test.ts).
   if (file.endsWith(".mjs")) {
+    compiledSourceModules.add(url.replace(STAMP, ""));
     return {
       format: "commonjs",
       source: names.length > 0 ? `${code}\n0 && (module.exports = { ${names.join(", ")} });` : code,
@@ -591,6 +612,88 @@ export function requireFacade(url, file, compiled) {
     ].join("\n"),
     shortCircuit: true,
   };
+}
+
+/**
+ * The code this loader compiles `file` to, or null for a file Node runs as published (or
+ * React Native's own, which has its own facade). The decisions loadModule makes, for a
+ * file reached by `require` rather than loaded here.
+ */
+function compiledCodeOf(file) {
+  const norm = file.replace(/\\/g, "/");
+  if (ownership.reactNativePathFor(file) !== null) return null;
+  if (!isExtra(norm)) {
+    return NODE_MODULES_TS.test(norm) ? transformRN(file, undefined, PROJECT_ROOT, PLATFORM) : null;
+  }
+  const stub = boundarySourceFor(norm, PLATFORM, REACT_NATIVE_VERSION);
+  if (stub != null) return stub;
+  if (!TRANSFORMABLE.test(norm)) return null;
+  const held = heldTransform(file, PROJECT_ROOT, PLATFORM);
+  if (held !== undefined) return held;
+  const src = fs.readFileSync(file, "utf8");
+  return needsTransform(file, src) ? transformRN(file, src, PROJECT_ROOT, PLATFORM) : null;
+}
+
+/**
+ * The names a CommonJS module re-exports from files this loader compiles.
+ *
+ * Node builds an imported CommonJS module's named exports with cjs-module-lexer, and for
+ * a re-export (`module.exports = { ...require("./avatar") }`, `__exportStar(require(…))`)
+ * it reads the re-exported file from disk to lex it there. That read passes no loader
+ * hook, so for a file the engine compiles Node lexes the published source instead: JSX in
+ * a `.js` file (an esbuild build left untransformed), which the lexer cannot read, so the
+ * names were dropped. An esbuild-built library meets this through its ES build: the
+ * index's `export * from "./avatar"` compiles to Babel's `Object.keys(_avatar).forEach`
+ * re-export, and avatar.js is JSX. The namespace held only `default`, and Vitest takes a
+ * namespace with `__esModule` as it is, so `import * as Avatar` gave `Avatar.Root ===
+ * undefined`. Here each re-exported file is followed (cjsReexports), and the names of
+ * one this loader compiles are read from its compiled code, through its own re-exports
+ * too. For the compiled modules this loader serves (requireFacade); a module Node loads
+ * as published is loaded through the CommonJS loader first, and its names are read from
+ * the loaded module.
+ */
+function compiledReexports(file, code, seen = new Set([file])) {
+  const names = new Set();
+  for (const specifier of cjsReexports(code)) {
+    // Unresolvable: Node fails the require itself, with its own error.
+    const target = resolvedOrNull(file, specifier);
+    if (target === null || seen.has(target) || !path.isAbsolute(target)) continue;
+    seen.add(target);
+    // Failing to compile: the require compiles it, and reports its own error.
+    const compiled = compiledCodeOrFailure(target);
+    if (compiled === COMPILE_FAILED) continue;
+    if (compiled !== null) for (const name of cjsExportNames(compiled)) names.add(name);
+    const source = compiled ?? readOrNull(target);
+    if (source !== null)
+      for (const name of compiledReexports(target, source, seen)) names.add(name);
+  }
+  return [...names];
+}
+
+const COMPILE_FAILED = Symbol("compile failed");
+
+function compiledCodeOrFailure(file) {
+  try {
+    return compiledCodeOf(file);
+  } catch {
+    return COMPILE_FAILED;
+  }
+}
+
+function resolvedOrNull(from, specifier) {
+  try {
+    return createRequire(from).resolve(specifier);
+  } catch {
+    return null;
+  }
+}
+
+function readOrNull(file) {
+  try {
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -688,6 +791,20 @@ const pinnedFacades = new Set();
 // The URL of the module from which Vitest's module runner imports a test file's
 // externalized modules (pinFacade), or null to release nothing.
 let runnerImportSite = null;
+
+// Unstamped URLs of compiled modules this loader hands Node as CommonJS source (an `.mjs`
+// file, see requireFacade). Node gives such source a `require` that resolves through
+// this loader, with import conditions, so its require()s arrive here looking like
+// imports. A generation facade is an ES module, and a require() must get the module's
+// `module.exports`: on Node 22 an ES facade reached this way failed to link
+// (ERR_VM_MODULE_LINK_FAILURE, "is from a module not been linked", #847), and a facade
+// imported from outside the runner is pinned for the run (pinFacade). Served as
+// `&vnnode`, the request is the module Node's CommonJS loader owns, the instance the
+// file's own import of it reaches, and dropped per file by the hot reset.
+const compiledSourceModules = new Set();
+function requiredFromServedSource(parentURL) {
+  return typeof parentURL === "string" && compiledSourceModules.has(parentURL.replace(STAMP, ""));
+}
 
 /**
  * Vitest's module evaluator, the module whose `import(file)` loads a test file's
@@ -906,7 +1023,7 @@ function loadModule(url, context, nextLoad) {
     return { format: "commonjs", source, shortCircuit: true };
   }
   if (url.startsWith(PRESET_SCHEME)) {
-    const specifier = url.slice(PRESET_SCHEME.length);
+    const specifier = url.slice(PRESET_SCHEME.length).replace(STAMP, "");
     // A subpath the preset shadows as a module of its own is served from that module
     // (see the plugin's virtual:preset load hook).
     const pkg = Object.prototype.hasOwnProperty.call(presetExports, specifier)

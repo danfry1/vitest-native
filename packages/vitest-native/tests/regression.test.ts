@@ -2,6 +2,7 @@
  * Regression tests for structural issues found in code review.
  * Each test guards against a specific bug that was fixed.
  */
+import React from "react";
 import path from "node:path";
 import { describe, it, expect } from "vitest";
 import { NativeModules, Platform } from "react-native";
@@ -250,7 +251,7 @@ describe("preset static export declarations", () => {
       expect(presetModule).toBeDefined();
       // Actually call the factory — this is the line that previously threw
       // "Vitest cannot be imported in a CommonJS module using require()"
-      const mock = presetModule.factory();
+      const mock = presetModule.factory({ React });
       expect(mock).toBeDefined();
       expect(typeof mock).toBe("object");
       // Verify static exports match actual factory output

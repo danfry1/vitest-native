@@ -21,6 +21,11 @@ export const ISSUES = [
     text: "The supported Expo SDKs, installed at their newest patch (at least seven days old), fail the packed consumer fixtures.",
   },
   {
+    job: /^Conformance on the newest supported libraries/,
+    title: () => "Library conformance: a supported library's newest release no longer matches",
+    text: "The conformance probes failed on the newest release of a library inside its supported range (SUPPORTED_LIBRARY_VERSIONS). A preset or mock no longer matches the library's API; the failed run names the export.",
+  },
+  {
     job: /^Canary \((.+)\)$/,
     title: (match) => `Canary: the ${match[1]} prerelease fails`,
     text: "A canary (upstream's next release, ahead of latest) fails the gate.",
@@ -61,7 +66,10 @@ export async function report({ github, context, runUrl }) {
     if (!issue) continue;
     let log;
     try {
-      ({ data: log } = await github.rest.actions.downloadJobLogsForWorkflowRun({ ...repo, job_id: job.id }));
+      ({ data: log } = await github.rest.actions.downloadJobLogsForWorkflowRun({
+        ...repo,
+        job_id: job.id,
+      }));
     } catch (error) {
       log = `(log unavailable: ${error.message})`;
     }
@@ -70,7 +78,12 @@ export async function report({ github, context, runUrl }) {
     if (existing) {
       await github.rest.issues.createComment({ ...repo, issue_number: existing.number, body });
     } else {
-      await github.rest.issues.create({ ...repo, title: issue.title, body, labels: ["compat-check"] });
+      await github.rest.issues.create({
+        ...repo,
+        title: issue.title,
+        body,
+        labels: ["compat-check"],
+      });
     }
   }
 }

@@ -72,6 +72,12 @@ describe("classifyProjectBabelEntry: which entries matter (#579)", () => {
     expect(appliesTo("some-preset", "preset", undefined, "anything")).toBe(true);
   });
 
+  it("keeps React Compiler where a file compiles with Babel, and needs it nowhere (#755)", () => {
+    // Not stripped: `doctor` and `migrate` say it applies to the files Babel compiles.
+    expect(classify("babel-plugin-react-compiler", "plugin")).toEqual({ kind: "covered" });
+    expect(trigger("babel-plugin-react-compiler", "plugin")).toBeNull();
+  });
+
   it("takes out the module transforms and coverage instrumentation", () => {
     expect(classify("@babel/plugin-transform-modules-commonjs", "plugin")).toEqual({
       kind: "strip",
@@ -308,5 +314,90 @@ describe("plugin keys from an expanded preset (#597 round 3)", () => {
     expect(pluginNameOfKey("syntax-hermes-parser")).toBe("babel-plugin-syntax-hermes-parser");
     expect(trigger(pluginNameOfKey("syntax-hermes-parser"), "plugin")).toBeNull();
     expect(trigger(pluginNameOfKey("transform-flow-enums"), "plugin")).toBeNull();
+  });
+});
+
+describe("the worklets plugin is kept wherever real Reanimated can run (#738)", () => {
+  /**
+   * A native-engine project root with `installed` packages (name → version). Reanimated
+   * 4.7+ and Worklets 0.13 ship Jest resolvers (Reanimated then runs as its own mock); 4.5
+   * and 4.6 do not, so the preset's own module stands in.
+   */
+  const projectWith = (installed: Record<string, string>) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-738-"));
+    const write = (file: string, text: string) => {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(path.join(root, file), text);
+    };
+    const manifest = (name: string, version: string) =>
+      write(`node_modules/${name}/package.json`, JSON.stringify({ name, version }));
+    manifest("react-native", "0.86.3");
+    // What the native engine needs to be detected (detectEngine): React Native's Babel
+    // preset and @babel/core.
+    for (const [name, version] of [
+      ["@react-native/babel-preset", "0.86.3"],
+      ["@babel/core", "7.29.0"],
+    ]) {
+      write(
+        `node_modules/${name}/package.json`,
+        JSON.stringify({ name, version, main: "index.js" }),
+      );
+      write(`node_modules/${name}/index.js`, "module.exports = {};");
+    }
+    for (const [name, version] of Object.entries(installed)) {
+      manifest(name, version);
+      const ownMock = name === "react-native-reanimated" ? !/^4\.[56]\./.test(version) : true;
+      if (ownMock) write(`node_modules/${name}/jest/resolver.js`, "module.exports = () => {};");
+      if (name === "react-native-worklets")
+        write(`node_modules/${name}/lib/module/mock.js`, "module.exports = {};");
+    }
+    return root;
+  };
+  const kept = (root: string, name: string, kind: "plugin" | "preset") =>
+    projectBabelTrigger({ name, kind }, root, ["reanimated", "worklets"]);
+
+  it.each([
+    ["4.5.3", "0.11.3"],
+    ["4.6.0", "0.11.3"],
+    ["4.7.1", "0.13.1"],
+  ])(
+    "Reanimated %s: the project's worklets plugin, and babel-preset-expo's",
+    (reanimated, worklets) => {
+      const root = projectWith({
+        "react-native-reanimated": reanimated,
+        "react-native-worklets": worklets,
+      });
+      expect(kept(root, "react-native-worklets/plugin", "plugin")).not.toBeNull();
+      expect(kept(root, "react-native-reanimated/plugin", "plugin")).not.toBeNull();
+      expect(kept(root, "babel-preset-expo", "preset")).not.toBeNull();
+    },
+  );
+
+  it("applies only to files with worklets or Reanimated hooks, not to every file", () => {
+    const root = projectWith({
+      "react-native-reanimated": "4.5.3",
+      "react-native-worklets": "0.11.3",
+    });
+    for (const [name, kind] of [
+      ["react-native-worklets/plugin", "plugin"],
+      ["babel-preset-expo", "preset"],
+    ] as const) {
+      const c = classifyProjectBabelEntry({ name, kind }, root, ["reanimated", "worklets"]);
+      expect(c.kind).toBe("needed");
+      const applies = c.kind === "needed" ? c.applies : null;
+      expect(applies).not.toBeNull();
+      expect(
+        applies!("export const add = (a: number, b: number) => a + b;", "/app/src/math.ts"),
+      ).toBe(false);
+      expect(applies!("const View = () => <Text>hi</Text>;", "/app/src/View.tsx")).toBe(false);
+      expect(applies!("const s = useAnimatedStyle(() => ({}));", "/app/src/Card.tsx")).toBe(true);
+      expect(applies!("function f() { 'worklet'; }", "/app/src/w.ts")).toBe(true);
+    }
+  });
+
+  it("is left out when neither Reanimated nor Worklets is installed", () => {
+    const root = projectWith({});
+    expect(kept(root, "react-native-worklets/plugin", "plugin")).toBeNull();
+    expect(kept(root, "babel-preset-expo", "preset")).toBeNull();
   });
 });

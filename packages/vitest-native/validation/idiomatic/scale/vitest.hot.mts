@@ -10,7 +10,12 @@ export default defineConfig({
   plugins: [
     reactNative({
       engine: "native",
-      hotRuntime: workers === 1 ? { allowUnboundedMemory: true } : true,
+      // VN_FRESH=1: hotRuntime.freshRuntime (React, its renderers, scheduler and RNTL per
+      // file), as run-compare.mjs's freshRuntime pass sets it.
+      hotRuntime: {
+        ...(workers === 1 ? { allowUnboundedMemory: true } : {}),
+        ...(process.env.VN_FRESH === "1" ? { freshRuntime: true } : {}),
+      },
     }),
   ],
   test: {

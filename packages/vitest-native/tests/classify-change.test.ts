@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 // @ts-expect-error — runtime .mjs outside the package, no types
-import { classify, GROUPS } from "../../../.github/scripts/classify-change.mjs";
+import { classify, GROUPS, RULES } from "../../../.github/scripts/classify-change.mjs";
 // @ts-expect-error — runtime .mjs, no types
 import { HERO_RUN, SNIPPET_FILES, SNIPPET_PAGES } from "../scripts/doc-snippets.mjs";
 
@@ -23,7 +23,7 @@ const runs = (files: string[], event = "pull_request") => {
   const out = classify(event, files);
   return [...GROUPS, "unit"].filter((group) => out[group]);
 };
-const EVERYTHING = ["full", "packed", "rn", "axes"];
+const EVERYTHING = ["full", "native", "packed", "rn", "axes"];
 
 describe("change-based selection", () => {
   it("runs every group for code, manifests, the lockfile and unknown paths", () => {
@@ -51,19 +51,52 @@ describe("change-based selection", () => {
   });
 
   it("narrows only the changes a group does not read", () => {
+    // A unit test runs on every Full gate leg, without the native steps.
     expect(runs([`${P}tests/plugin.test.ts`])).toEqual(["full"]);
-    expect(runs([`${P}tests-native/hot.test.tsx`])).toEqual(["full", "rn"]);
-    expect(runs([`${P}crosscheck/probes/view.mjs`])).toEqual(["full", "rn"]);
-    expect(runs([`${P}consumer-tests/bare/package.json`])).toEqual(["full", "packed"]);
-    expect(runs(["apps/example/App.tsx"])).toEqual(["full", "packed"]);
-    expect(runs([`${P}src/cli/init.ts`])).toEqual(["full", "packed"]);
-    expect(runs([".github/workflows/ci.yml"])).toEqual(["full", "packed"]);
+    expect(runs([`${P}tests-native/hot.test.tsx`])).toEqual(["full", "native", "rn"]);
+    expect(runs([`${P}crosscheck/probes/view.mjs`])).toEqual(["full", "native", "rn"]);
+    expect(runs([`${P}consumer-tests/bare/package.json`])).toEqual(["full", "native", "packed"]);
+    expect(runs(["apps/example/App.tsx"])).toEqual(["full", "native", "packed"]);
+    expect(runs([`${P}src/cli/init.ts`])).toEqual(["full", "native", "packed"]);
+    expect(runs([".github/workflows/ci.yml"])).toEqual(["full", "native", "packed"]);
     expect(runs([`${P}package-budget.json`])).toEqual(["full"]);
+  });
+
+  it("runs the site's code in the unit suite, the hero snippets packed, the fidelity pages fully", () => {
+    for (const file of [
+      "website/.vitepress/config.ts",
+      "website/.vitepress/theme/components/ErrorFinder.vue",
+      "website/.vitepress/errors.data.ts",
+      "website/scripts/redirect-site.mjs",
+    ]) {
+      expect(runs([file]), file).toEqual(["unit"]);
+    }
+    // A site change with its unit test: the Full gate's legs, without the native steps.
+    expect(
+      runs(["website/.vitepress/proof.ts", `${P}tests/site-proof.test.ts`, "website/index.md"]),
+    ).toEqual(["full"]);
+    for (const file of [...Object.values(SNIPPET_FILES), HERO_RUN]) {
+      expect(runs([file as string]), file as string).toEqual(["packed", "unit"]);
+    }
+    for (const page of ["website/guide/fidelity.md", "website/guide/fidelity-matrix.md"]) {
+      expect(runs([page]), page).toEqual(EVERYTHING);
+    }
+  });
+
+  it("runs the native steps only with the Full gate", () => {
+    // They are steps of the Full gate's legs: a rule that names them names it too.
+    for (const [, groups] of RULES as [unknown, string[]][]) {
+      if (groups.includes("native")) expect(groups).toContain("full");
+    }
+    expect(classify("pull_request", [`${P}tests/a.test.ts`]).native).toBe(false);
+    expect(classify("pull_request", [".github/workflows/native-rn-matrix.yml"]).native).toBe(false);
+    expect(classify("pull_request", [`${P}src/plugin.ts`]).native).toBe(true);
+    expect(classify("push", []).native).toBe(true);
   });
 
   it("runs the unit checks whenever the Full gate is skipped and the change is not docs", () => {
     // Unit tests read workflows, validation scripts and the RN matrix definition.
-    expect(runs([".github/rn-matrix.json"])).toEqual(["full", "rn"]); // fidelity:check
+    expect(runs([".github/rn-matrix.json"])).toEqual(["full", "native", "rn"]); // fidelity:check
     expect(runs([".github/workflows/native-rn-matrix.yml"])).toEqual(["rn", "unit"]);
     expect(runs([`${P}validation/config-axes/cells.mjs`])).toEqual(["axes", "unit"]);
     expect(runs([".github/workflows/release.yml"])).toEqual(["unit"]);
@@ -88,6 +121,7 @@ describe("change-based selection", () => {
     expect(out).toEqual({
       "docs-only": true,
       full: false,
+      native: false,
       packed: false,
       rn: false,
       axes: false,
@@ -183,6 +217,7 @@ describe("classify-change.mjs", () => {
     expect(out).toEqual({
       "docs-only": "false",
       full: "true",
+      native: "false",
       packed: "false",
       rn: "false",
       axes: "false",
@@ -215,7 +250,13 @@ describe("classify-change.mjs renames", () => {
     git("mv", `${P}src/native/core.mjs`, `${P}src/cli/core.mjs`);
     git("commit", "-qm", "move");
     const out = cli("pull_request", { root: repo.root, base, head: git("rev-parse", "HEAD") });
-    expect(out).toMatchObject({ full: "true", packed: "true", rn: "true", axes: "true" });
+    expect(out).toMatchObject({
+      full: "true",
+      native: "true",
+      packed: "true",
+      rn: "true",
+      axes: "true",
+    });
   });
 });
 
@@ -310,6 +351,69 @@ describe("what each narrowed path is read by", () => {
     ).toEqual([]);
   });
 
+  it("the native steps read tests/ only for its support files and fixtures", () => {
+    // The Full gate's native steps run tests-native, crosscheck and package scripts; a
+    // unit-test-only change skips them, so none may reach a top-level unit test file.
+    // These write a scratch project (a temporary directory, or a generated one in the
+    // package) with a tests/ directory of its own.
+    const scratch = [
+      `${P}scripts/test-hot-compile-cache.mjs`,
+      `${P}scripts/test-hot-generation-parity.mjs`,
+      `${P}scripts/test-hot-memory.mjs`,
+    ];
+    for (const file of scratch) {
+      expect(code(path.join(repoRoot, file)), file).toMatch(/mkdtemp|const generatedRoot = /);
+    }
+    const reached = referencing(
+      [`${P}tests-native`, `${P}crosscheck`, `${P}scripts`],
+      /(?<![\w-])tests\/(?!support\/|fixtures\/)[\w.*-]/,
+    );
+    expect(reached.filter((file) => !scratch.includes(file))).toEqual([]);
+    const pkg = fs.readFileSync(path.join(packageRoot, "package.json"), "utf8");
+    const nativeScripts = [
+      ...pkg.matchAll(/"(test:native[^"]*|crosscheck|fidelity:[a-z]+)": "([^"]*)"/g),
+    ];
+    expect(nativeScripts.length).toBeGreaterThan(10);
+    for (const [, name, command] of nativeScripts) {
+      expect(command, name).not.toMatch(/(?<![\w-])tests\/(?!support\/|fixtures\/)/);
+    }
+  });
+
+  it("only the unit suite reads the site, but for the hero snippets and the fidelity pages", () => {
+    // Every gate source but the classifier and pages.yml (which deploys from main).
+    const gates = [
+      ...sources(".github").filter(
+        (file) => !/classify-change\.mjs$|workflows[\\/]pages\.yml$/.test(file),
+      ),
+      ...[`${P}src`, `${P}scripts`, `${P}validation`, `${P}tests-native`, `${P}crosscheck`].flatMap(
+        sources,
+      ),
+      ...sources(`${P}consumer-tests`),
+      ...sources("apps"),
+      path.join(packageRoot, "package.json"),
+    ];
+    const readers = gates
+      .filter((file) => /(?<![\w-])website(\/|["'])/.test(code(file)))
+      .map((file) => rel(file))
+      .sort();
+    // doc-snippets.mjs: SNIPPET_PAGES (Markdown) and the hero files (rule: packed).
+    // fidelity-report.mjs and fidelity-matrix.mjs: the generated fidelity pages, which
+    // run every group.
+    expect(readers).toEqual([
+      `${P}scripts/doc-snippets.mjs`,
+      `${P}scripts/fidelity-matrix.mjs`,
+      `${P}scripts/fidelity-report.mjs`,
+    ]);
+    const paths = (file: string) =>
+      [...code(path.join(repoRoot, file)).matchAll(/website[\w./"', -]*/g)].map((m) => m[0]);
+    for (const ref of paths(`${P}scripts/doc-snippets.mjs`)) {
+      expect(ref).toMatch(/^website\/(\.vitepress\/hero\/|guide\/[\w-]+\.md)/);
+    }
+    for (const file of [`${P}scripts/fidelity-matrix.mjs`, `${P}scripts/fidelity-report.mjs`]) {
+      for (const ref of paths(file)) expect(ref, file).toMatch(/fidelity(-matrix)?\.md/);
+    }
+  });
+
   it("no gate outside the unit suite reads a unit test file", () => {
     expect(
       referencing(
@@ -329,7 +433,7 @@ describe("what each narrowed path is read by", () => {
 describe("the workflows that use the classification", () => {
   it("read only outputs their classify job declares, and gate each group on it", () => {
     const expected: Record<string, string[]> = {
-      "ci.yml": ["docs-only", "full", "packed", "unit", "snippets"],
+      "ci.yml": ["docs-only", "full", "native", "packed", "unit", "snippets"],
       "native-rn-matrix.yml": ["rn"],
       "config-axis-matrix.yml": ["axes"],
     };
@@ -348,7 +452,7 @@ describe("the workflows that use the classification", () => {
         expect(keys, `${workflow} reads ${key}`).toContain(key);
       }
       // Fail closed: a missing output runs the group.
-      for (const key of keys.filter((k) => k !== "docs-only"))
+      for (const key of keys.filter((k) => k !== "docs-only" && k !== "native"))
         expect(text, `${workflow}: ${key}`).toContain(
           `if: needs.classify.outputs.${key} != 'false'`,
         );
@@ -370,6 +474,26 @@ describe("the workflows that use the classification", () => {
         .map((job) => job.trim())
         .sort(),
     ).toEqual(jobs.filter((job) => job !== "verdict").sort());
-    expect([...GROUPS, "unit"].sort()).toEqual(["axes", "full", "packed", "rn", "unit"]);
+    expect([...GROUPS, "unit"].sort()).toEqual(["axes", "full", "native", "packed", "rn", "unit"]);
+  });
+
+  it("runs every native step of the Full gate only when `native` is not 'false'", () => {
+    const ci = fs.readFileSync(path.join(repoRoot, ".github/workflows/ci.yml"), "utf8");
+    const check = ci.slice(ci.indexOf("\n  check:\n"), ci.indexOf("\n  packed:\n"));
+    const steps = check.split(/\n(?= {6}- )/).slice(1);
+    const gated = steps.filter((step) => step.includes("needs.classify.outputs.native != 'false'"));
+    const named = (step: string) => /- name: (.*)/.exec(step)?.[1] ?? step.slice(0, 40);
+    // The steps that run the native engine, the hot runtime or the cross-check.
+    const native = steps.filter((step) =>
+      /run: .*(test:native|crosscheck|fidelity:check)/.test(step),
+    );
+    expect(native.length).toBeGreaterThanOrEqual(12);
+    expect(gated.map(named)).toEqual(native.map(named));
+    // Each on its own `if`, so the rest of the step's condition still applies.
+    for (const step of gated) {
+      expect(step, named(step)).toMatch(
+        /^ {8}if: .*&& needs\.classify\.outputs\.native != 'false'/m,
+      );
+    }
   });
 });

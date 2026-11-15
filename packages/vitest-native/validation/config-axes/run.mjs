@@ -33,16 +33,20 @@ import { judge, readKnownFailing, validateEntries } from "./verdict.mjs";
 import { allowed, cellName, readAxes } from "./cells.mjs";
 import { ownershipModelArgument, ownershipSupport } from "./ownership.mjs";
 import { isExpoPackage } from "./local-install.mjs";
+import { cliArguments } from "../../scripts/support/arguments.mjs";
 import "../../scripts/release-age.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
 
-function argument(name) {
-  const index = process.argv.indexOf(`--${name}`);
-  return index === -1 ? undefined : process.argv[index + 1];
-}
-const flag = (name) => process.argv.includes(`--${name}`);
+const options = cliArguments(
+  {
+    script: "run.mjs",
+    valued: ["cell", "link-deps", "only", "ownership", "rntl", "vitest-native"],
+    flags: ["keep"],
+  },
+  "run.mjs --cell '<json>' [--only id,id] [--ownership <model>] [--rntl <version>] [--vitest-native <dir>] [--link-deps <dir>] [--keep]",
+).values;
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -85,7 +89,7 @@ const MEMBERS = ["feature", "validator", "rfeature", "rvalidator"];
 function materialise(cell, axes) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-config-axes-")));
   fs.cpSync(path.join(here, "fixture"), root, { recursive: true });
-  const local = argument("link-deps");
+  const local = options["link-deps"];
   const isolated = cell.layout === "isolated";
   // pnpm links a workspace member only through the workspace: protocol.
   const workspace = isolated && !local ? "workspace:*" : "*";
@@ -227,14 +231,14 @@ function linkLocal(root, app, source, isolated) {
   for (const name of MEMBERS) {
     fs.symlinkSync(path.join(root, "packages", name), path.join(modules, "@axis", name));
   }
-  const vitestNative = path.resolve(argument("vitest-native") ?? packageRoot);
+  const vitestNative = path.resolve(options["vitest-native"] ?? packageRoot);
   fs.symlinkSync(vitestNative, path.join(modules, "vitest-native"));
   // A copy, as an install makes it (see materialise).
   for (const name of ["axis-esm-lib", "axis-peer-lib"]) {
     fs.cpSync(path.join(root, "vendor", name), path.join(modules, name), { recursive: true });
   }
 
-  const rntl = argument("rntl");
+  const rntl = options.rntl;
   if (rntl) {
     // Copied, not linked: RNTL resolves react from its real path, and a link would reach
     // another tree's React. Its own dependencies are linked from beside it.
@@ -375,7 +379,7 @@ function resolvedAxes(output) {
   return engine ? { engine, hot } : null;
 }
 
-const requestedOwnership = ownershipModelArgument(argument("ownership"));
+const requestedOwnership = ownershipModelArgument(options.ownership);
 
 /** The ownershipModel a run of `cell` uses: the requested one, where it is allowed. */
 function ownershipModel(cell, run) {
@@ -387,7 +391,7 @@ function ownershipModel(cell, run) {
 
 function runCell(cell, root, entries) {
   const app = path.join(root, "apps/app");
-  const only = argument("only")?.split(",");
+  const only = options.only?.split(",");
   const selected = PROBES.filter((probe) => !only || only.includes(probe.id));
   const verdicts = [];
   for (const [index, planned] of cell.runs.entries()) {
@@ -515,7 +519,7 @@ if (problems.length > 0) {
   console.error(problems.join("\n"));
   process.exit(1);
 }
-const cellArg = argument("cell");
+const cellArg = options.cell;
 if (!cellArg) {
   console.error("usage: run.mjs --cell '<json>' (see cells.mjs)");
   process.exit(2);
@@ -526,14 +530,14 @@ const root = materialise(cell, axes);
 const support = ownershipSupport(path.join(root, "apps/app"), requestedOwnership);
 if (!support.supported) {
   console.log(`\n${cellName(cell)}: experimental.ownershipModel: ${support.reason}`);
-  if (!flag("keep")) fs.rmSync(root, { recursive: true, force: true });
+  if (!options.keep) fs.rmSync(root, { recursive: true, force: true });
   process.exit(0);
 }
 let verdicts;
 try {
   verdicts = runCell(cell, root, entries);
 } finally {
-  if (flag("keep")) console.log(`\nworkspace kept at ${root}`);
+  if (options.keep) console.log(`\nworkspace kept at ${root}`);
   else fs.rmSync(root, { recursive: true, force: true });
 }
 const bad = verdicts.filter((verdict) => !verdict.ok);

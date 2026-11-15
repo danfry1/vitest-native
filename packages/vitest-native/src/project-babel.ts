@@ -19,11 +19,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { Rollup } from "vite";
-import {
-  classifyBabelPlugins,
-  normalizeBabelName,
-  reanimatedRunsItsOwnMock,
-} from "./babel-plugins.js";
+import { classifyBabelPlugins, normalizeBabelName, realWorkletsCanRun } from "./babel-plugins.js";
 import { rootBabelConfigFile } from "./fs-module-cache.js";
 import { installedManifest } from "./installed-manifest.js";
 import { projectBabelCaller } from "./native/babel-caller.mjs";
@@ -322,12 +318,13 @@ export function classifyProjectBabelEntry(
     }
     const changes = optionKeys(options).find((key) => !allowed.has(key));
     if (changes) return needed(`${name}'s \`${changes}\` option`, null);
-    // babel-preset-expo adds the worklets plugin itself unless told not to.
+    // babel-preset-expo adds the worklets plugin itself unless told not to; it matters
+    // whenever real Reanimated or Worklets can run (realWorkletsCanRun).
     if (
       name === "babel-preset-expo" &&
       opts.worklets !== false &&
       opts.reanimated !== false &&
-      reanimatedRunsItsOwnMock(root, active)
+      realWorkletsCanRun(root)
     ) {
       return needed("babel-preset-expo's worklets plugin", WORKLET);
     }
@@ -761,8 +758,18 @@ export function createProjectBabel(
   // are native real paths with forward slashes, so a root given in another spelling (a
   // Windows 8.3 short name, a symlinked directory) is matched through root-spelling.mjs;
   // the result is the root as the file spells it, or null outside the project.
-  const projectRootOf = (id: string): string | null =>
-    isProjectSourceFile(id) ? rootSpellingOf(root, path.normalize(id)) : null;
+  // Remembered per id: a path's spelling does not change during a run, and a file outside
+  // the root costs native realpath calls to rule out (cacheKey and load both ask).
+  const rootSpellingById = new Map<string, string | null>();
+  const projectRootOf = (id: string): string | null => {
+    if (!isProjectSourceFile(id)) return null;
+    let spelling = rootSpellingById.get(id);
+    if (spelling === undefined) {
+      spelling = rootSpellingOf(root, path.normalize(id));
+      rootSpellingById.set(id, spelling);
+    }
+    return spelling;
+  };
   // A package plugin by its version; a local plugin file by its content, read each time
   // (one small file), so an edit counts however coarse the file system's timestamps are.
   const versionOf = (item: ConfigItem): string => {
