@@ -2270,6 +2270,15 @@
       "fixedBy": "open",
       "fixRef": "origin/fix/mock-interpolate-color",
       "bugSignature": "^color\\.test\\.tsx: (VitestNativeError: )?\\[vitest-native\\] reanimated's interpolateColor did not load"
+    },
+    {
+      "id": "pre-717-screens-transition-progress",
+      "class": "presets",
+      "title": "useTransitionProgress returns numbers, not Animated values",
+      "source": "#717",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/screens-preset-transition-progress",
+      "bugSignature": "^fade\\.test\\.tsx: TypeError: progress\\.interpolate is not a function"
     }
   ]
 }
