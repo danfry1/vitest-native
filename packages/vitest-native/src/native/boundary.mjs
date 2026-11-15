@@ -98,14 +98,20 @@ const MOCK_NATIVE_COMPONENT = `
   ]);
   const mockNativeComponent = (viewName) => {
     const hostName = __TEXT_INPUT_VIEWS.has(viewName) ? "TextInput" : viewName;
-    // The native methods a ref has, on a plain object the class delegates to: a spy that
-    // replaces one there reaches every ref of this view. jest-compat gives it to View,
-    // Text and ScrollView as their prototype, as React Native's Jest preset has one. It
-    // is not the class's own prototype, which would make React construct those function
-    // components as classes.
-    const nativeMethods = {
+    // The native methods a ref has, on an object between the class's prototype and
+    // React.Component's, so a ref inherits them and anything else put there: jest-compat
+    // gives it to View as its prototype, as React Native's Jest preset has one, and suites
+    // spy on methods there or add their own (react-native-paper's Menu tests add
+    // querySelector). A spy that replaces one reaches every ref of this view. The object
+    // shadows isReactComponent with undefined, so a component given it as its prototype is
+    // not taken for a class (by React, or by a library's createAnimatedComponent); the
+    // class keeps its own.
+    const nativeMethods = Object.create(React.Component.prototype, {
+      isReactComponent: { value: undefined, writable: true, configurable: true },
+    });
+    Object.assign(nativeMethods, {
       blur() {}, focus() {}, measure() {}, measureInWindow() {}, measureLayout() {}, setNativeProps() {},
-    };
+    });
     const C = class extends React.Component {
       constructor(p) { super(p); this._nativeTag = __tag++; }
       render() {
@@ -116,13 +122,11 @@ const MOCK_NATIVE_COMPONENT = `
         }
         return React.createElement(hostName, props, props.children);
       }
-      blur(...a) { return nativeMethods.blur.apply(this, a); }
-      focus(...a) { return nativeMethods.focus.apply(this, a); }
-      measure(...a) { return nativeMethods.measure.apply(this, a); }
-      measureInWindow(...a) { return nativeMethods.measureInWindow.apply(this, a); }
-      measureLayout(...a) { return nativeMethods.measureLayout.apply(this, a); }
-      setNativeProps(...a) { return nativeMethods.setNativeProps.apply(this, a); }
     };
+    Object.setPrototypeOf(C.prototype, nativeMethods);
+    Object.defineProperty(C.prototype, "isReactComponent", {
+      value: React.Component.prototype.isReactComponent, writable: true, configurable: true,
+    });
     C.displayName = viewName === "RCTView" ? "View" : hostName;
     C.nativeMethods = nativeMethods;
     return C;

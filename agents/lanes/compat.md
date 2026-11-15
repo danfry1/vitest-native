@@ -34,7 +34,7 @@ The Jest compatibility layer, library presets, the mock engine and matchers: eve
 - **Vitest fake timers leave `queueMicrotask` real; Jest's don't.** In Vitest 5.1, passing only `toNotFake` adds `nextTick` and `queueMicrotask` back to it, so faking `queueMicrotask` needs an explicit `toFake`. `vi.useFakeTimers(config)` also overrides a project's own `test.fakeTimers.toFake`.
 
 ## Not ours (recognise these and send them back)
-- **App tests coupled to Jest's fakes:** `'View'` host names, a 1024-px window, `instanceof View`. The app should query by testID or role. Don't emulate the fake.
+- **App tests coupled to Jest's fakes:** `'View'` host names, a 1024-px window. The app should query by testID or role. Don't emulate the fake outside jest-compat. jest-compat models the preset, so it mirrors the preset's View class (`instanceof View`, `View.prototype`) because suites depend on it.
 - **Partial `jest.mock`s hidden by `lazyImports`.** A plain `require` throws the same error.
 - **A `requireActual` spread that needs the worklets Babel plugin**, just as it does under Jest.
 - **Snapshots re-recorded under an old bug.** Score against the upstream Jest snapshots.
