@@ -28,6 +28,7 @@ const temps: string[] = [];
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   for (const dir of temps.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -62,6 +63,12 @@ function projectWithReactNative(version: string): string {
 async function start(engine: "native" | "mock", root: string): Promise<unknown> {
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
+  // These check React Native's version floor, not the precompiled registry. The project is
+  // new each time, so its registry cache is always cold: on CI the plugin would wait for a
+  // full compile inside the test's budget, and locally it would leave one compiling in the
+  // background against a directory afterEach removes. Under a loaded machine that overran
+  // 30 s.
+  vi.stubEnv("VITEST_NATIVE_NO_REGISTRY", "1");
   const plugin = reactNative({ engine, hotRuntime: false }) as any;
   const vite = (await import("vite")) as { version: string };
   await plugin.config.handler.call(

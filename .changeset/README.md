@@ -5,7 +5,7 @@ This project uses [changesets](https://github.com/changesets/changesets) for ver
 To add a changeset, run:
 
 ```bash
-bunx changeset
+bun run changeset
 ```
 
 Each changeset becomes a release note. Write it as described in

@@ -55,6 +55,7 @@ import {
   userEvent,
   within,
 } from "@testing-library/react-native";
+import { interpolateColor } from "react-native-reanimated";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -477,9 +478,7 @@ probe("query-all-by-text", async () => {
 probe("textinput-focus-blur", async () => {
   let focus = 0;
   let blur = 0;
-  await render(
-    <TextInput testID="i" onFocus={() => (focus += 1)} onBlur={() => (blur += 1)} />,
-  );
+  await render(<TextInput testID="i" onFocus={() => (focus += 1)} onBlur={() => (blur += 1)} />);
   await fireEvent(screen.getByTestId("i"), "focus");
   await fireEvent(screen.getByTestId("i"), "blur");
   return { focus, blur };
@@ -487,12 +486,7 @@ probe("textinput-focus-blur", async () => {
 
 probe("view-onlayout", async () => {
   let width = -1;
-  await render(
-    <View
-      testID="v"
-      onLayout={(e) => (width = e.nativeEvent.layout.width)}
-    />,
-  );
+  await render(<View testID="v" onLayout={(e) => (width = e.nativeEvent.layout.width)} />);
   await fireEvent(screen.getByTestId("v"), "layout", {
     nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 48 } },
   });
@@ -505,7 +499,9 @@ probe("view-onlayout", async () => {
 //  0.81–0.83 don't set it. A single mock value can't match every RN minor, so this
 //  default is a poor cross-version invariant — surfaced by the RN-matrix cross-check.)
 probe("image-render", async () => {
-  await render(<Image testID="img" source={{ uri: "https://example.com/x.png" }} accessibilityLabel="pic" />);
+  await render(
+    <Image testID="img" source={{ uri: "https://example.com/x.png" }} accessibilityLabel="pic" />,
+  );
   return {
     found: !!screen.queryByTestId("img"),
     byLabel: !!screen.queryByLabelText("pic"),
@@ -771,7 +767,9 @@ probe("text-numberoflines-prop", async () => {
 // either real mock bugs to fix or genuinely version-variant behavior to document.
 probe("hunt-pressable-style-fn", async () => {
   await render(<Pressable testID="p" style={({ pressed }) => ({ opacity: pressed ? 0.5 : 1 })} />);
-  return { restingOpacity: passes(() => expect(screen.getByTestId("p")).toHaveStyle({ opacity: 1 })) };
+  return {
+    restingOpacity: passes(() => expect(screen.getByTestId("p")).toHaveStyle({ opacity: 1 })),
+  };
 });
 
 probe("hunt-pressable-children-fn", async () => {
@@ -885,22 +883,22 @@ const rnMinor = (() => {
 // invariant), so from 0.87 the probe is gated off rather than deleted: the matrix
 // legs on 0.81-0.86 still compare it, and a gated probe is absent from both sides.
 if (rnMinor < 87)
-probe("interaction-manager", async () => {
-  let ran = 0;
-  const handle = InteractionManager.runAfterInteractions(() => {
-    ran += 1;
+  probe("interaction-manager", async () => {
+    let ran = 0;
+    const handle = InteractionManager.runAfterInteractions(() => {
+      ran += 1;
+    });
+    // Deliberately NOT asserting on the value immediately after the call: the mock runs
+    // the task eagerly and real React Native defers it a tick. That timing difference is
+    // recorded in known-differences.json. What both must agree on is that the task does
+    // run, once, and that the handle is thenable and cancellable.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    return {
+      ranEventually: ran,
+      thenable: typeof (handle as { then?: unknown })?.then === "function",
+      cancellable: typeof (handle as { cancel?: unknown })?.cancel === "function",
+    };
   });
-  // Deliberately NOT asserting on the value immediately after the call: the mock runs
-  // the task eagerly and real React Native defers it a tick. That timing difference is
-  // recorded in known-differences.json. What both must agree on is that the task does
-  // run, once, and that the handle is thenable and cancellable.
-  await new Promise((resolve) => setTimeout(resolve, 50));
-  return {
-    ranEventually: ran,
-    thenable: typeof (handle as { then?: unknown })?.then === "function",
-    cancellable: typeof (handle as { cancel?: unknown })?.cancel === "function",
-  };
-});
 
 // A pub/sub the mock owns entirely — no device involved, so it must round-trip alike.
 probe("device-event-emitter", () => {
@@ -1088,7 +1086,45 @@ probe("host-refs-and-props", async () => {
     for (const child of node.children ?? []) walk(child);
   };
   walk(screen.toJSON() as Node);
-  return { view: methods(view), text: methods(text), input: methods(input), hostsWithRef: withRef[0] };
+  return {
+    view: methods(view),
+    text: methods(text),
+    input: methods(input),
+    hostsWithRef: withRef[0],
+  };
+});
+
+// --- reanimated ---
+// Reanimated's interpolateColor is a plain function it also runs on the JS thread. Under
+// the native engine the preset serves reanimated's own; under the mock engine the same
+// file, loaded against the mock's React Native.
+probe("reanimated-interpolate-color", () => {
+  const two = [0, 1];
+  const values = [-0.5, 0, 0.25, 0.5, 1, 1.5];
+  const ranges: [string, readonly number[], readonly (string | number)[]][] = [
+    ["hex", two, ["#ff0000", "#0000ff"]],
+    ["short-hex-alpha", two, ["#f008", "#0f0f"]],
+    ["rgb-rgba", two, ["rgb(10, 20, 30)", "rgba(200, 100, 50, 0.25)"]],
+    ["hsl-hsla", two, ["hsl(120, 100%, 50%)", "hsla(300, 50%, 25%, 0.5)"]],
+    ["named", two, ["red", "rebeccapurple"]],
+    ["transparent", two, ["transparent", "white"]],
+    ["numbers", two, [0xff0000ff, 0x00ff0080]],
+    ["three-stops", [0, 50, 100], ["red", "green", "blue"]],
+  ];
+  const spaces = ["RGB", "HSV", "LAB"] as const;
+  const out: Record<string, unknown> = {};
+  for (const [label, input, output] of ranges) {
+    for (const space of spaces) {
+      out[`${label} ${space}`] = values.map((value) =>
+        interpolateColor(value * (input.at(-1) as number), input, output as string[], space),
+      );
+    }
+  }
+  out["gamma 1"] = interpolateColor(0.5, two, ["red", "blue"], "RGB", { gamma: 1 });
+  out["hsv corrected off"] = interpolateColor(0.5, two, ["red", "blue"], "HSV", {
+    useCorrectedHSVInterpolation: false,
+  });
+  return out;
 });
 
 // AppState.currentState and Appearance.getColorScheme() are deliberately NOT probed

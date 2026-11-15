@@ -7,6 +7,15 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { cliArguments } from "../../scripts/support/arguments.mjs";
+
+const options = cliArguments(
+  {
+    script: "run-metro-projects.mjs",
+    flags: ["indirect-control", "legacy-control", "node-fast-path-control", "two-workers"],
+  },
+  "run-metro-projects.mjs [--indirect-control] [--legacy-control] [--node-fast-path-control] [--two-workers]",
+).values;
 
 const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
 const req = createRequire(path.join(packageRoot, "package.json"));
@@ -17,10 +26,10 @@ const plugin = process.env.VN_METRO_PLUGIN_OVERRIDE
   : pathToFileURL(path.join(packageRoot, "dist/index.mjs")).href;
 // Counterfactual only: same CJS value without lexer's direct-reexport preparse.
 // Do not substitute this control for the direct-reexport correctness gate.
-const indirectControl = process.argv.includes("--indirect-control");
-const legacyControl = process.argv.includes("--legacy-control");
-const nodePatchControl = process.argv.includes("--node-fast-path-control");
-const workers = process.argv.includes("--two-workers") ? 2 : 1;
+const indirectControl = Boolean(options["indirect-control"]);
+const legacyControl = Boolean(options["legacy-control"]);
+const nodePatchControl = Boolean(options["node-fast-path-control"]);
+const workers = options["two-workers"] ? 2 : 1;
 const files = workers === 2 ? ["a", "b", "c", "d"] : ["a", "b"];
 const traceFile = path.join(fixture, "execution.jsonl");
 

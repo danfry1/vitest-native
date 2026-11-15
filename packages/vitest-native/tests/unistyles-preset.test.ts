@@ -26,7 +26,7 @@ const require = createRequire(import.meta.url);
 const packageDir = path.dirname(require.resolve(`${PACKAGE}/package.json`));
 
 function moduleFor(): Record<string, any> {
-  return unistyles().modules[PACKAGE].factory();
+  return unistyles().modules[PACKAGE].factory({ React });
 }
 
 /** The official mock's `react-native-unistyles` module, built fresh. */
@@ -66,7 +66,7 @@ describe("unistyles preset: wiring", () => {
   it("declares every export its factory builds, and nothing more", () => {
     for (const [name, mod] of Object.entries(unistyles().modules)) {
       // `_reset` is vitest-native's reset hook (resetAllMocks()), not an export.
-      const built = Object.keys(mod.factory()).filter((key) => !key.startsWith("_"));
+      const built = Object.keys(mod.factory({ React })).filter((key) => !key.startsWith("_"));
       expect(built.sort(), name).toEqual([...mod.exports].sort());
     }
   });

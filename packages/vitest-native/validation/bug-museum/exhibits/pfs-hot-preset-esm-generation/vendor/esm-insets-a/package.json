@@ -1,0 +1,10 @@
+{
+  "name": "esm-insets-a",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": "./index.js",
+  "peerDependencies": {
+    "react-native": "*",
+    "react-native-safe-area-context": "*"
+  }
+}

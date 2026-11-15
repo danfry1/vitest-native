@@ -13,18 +13,19 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { cliArguments } from "../../scripts/support/arguments.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../..");
 const scale = path.join(packageRoot, "validation/idiomatic/scale");
 
-function arg(name, fallback) {
-  const at = process.argv.indexOf(`--${name}`);
-  return at === -1 ? fallback : process.argv[at + 1];
-}
-const files = Number(arg("files", "60"));
-const build = path.resolve(arg("build", packageRoot));
-const json = process.argv.includes("--json");
+const options = cliArguments(
+  { script: "run.mjs", valued: ["files", "build"], flags: ["json"] },
+  "run.mjs [--files 60] [--build <package dir>] [--json]",
+).values;
+const files = Number(options.files ?? "60");
+const build = path.resolve(options.build ?? packageRoot);
+const json = Boolean(options.json);
 
 spawnSync(process.execPath, [path.join(scale, "generate.mjs"), String(files)], {
   stdio: "ignore",

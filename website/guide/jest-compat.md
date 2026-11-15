@@ -40,6 +40,7 @@ export default defineConfig({
 | `new` on a `jest.fn(() => ({ ... }))` | returns the implementation's object, as in Jest — Vitest's own `vi.fn` requires a `function` or `class` implementation for `new`, and `jest.fn` does not |
 | `import { jest } from '@jest/globals'` or `require('@jest/globals')` | resolves to the `vi`-backed `jest` (aliased), the same module either way, also when the real `@jest/globals` is installed |
 | top-level `jest.mock('m', factory)` | hoisted + applied, with Jest's factory interop |
+| `import { jest as mockJest } from '@jest/globals'`, or `import * as g` and `g.jest` | the same `jest`: `mockJest.mock(…)` is hoisted and applied like `jest.mock(…)`. A call through a further name (`const j = mockJest; j.mock(…)`) fails with [`JEST_BINDING_NOT_FOLLOWED`](/guide/errors#JEST_BINDING_NOT_FOLLOWED) |
 | `__mocks__/<package>` beside `node_modules` | applied with no `jest.mock()` call — see [Manual mocks of `node_modules` packages](#manual-mocks-of-node-modules-packages) |
 | `jest.replaceProperty(Platform, 'OS', 'android')` | replaced in place and restored by the handle's `restore()`, `jest.restoreAllMocks()`, the `restoreMocks` setting, or the end of the test file, with Jest's errors. A bare `vi.restoreAllMocks()` leaves it: that is Vitest's own |
 | `jest.spyOn(View.prototype, 'measure')` | reaches every `View` ref, as with the Jest preset's `View` stand-in: under the native engine, jest-compat gives `View` a prototype holding the native methods its refs call. `Text` and `ScrollView` keep React Native's own shape, without one |

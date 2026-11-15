@@ -1,0 +1,8 @@
+[
+  {
+    "export": "createNativeStackScreen",
+    "path": "createNativeStackScreen().__reactNavigationStaticScreenConfig",
+    "reason": "a brand the package declares only for type inference; its own createScreenFactory returns the config as is",
+    "issue": "n/a (type-only)"
+  }
+]

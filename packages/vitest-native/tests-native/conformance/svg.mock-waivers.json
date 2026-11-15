@@ -1,0 +1,374 @@
+[
+  {
+    "export": "inlineStyles",
+    "path": "inlineStyles",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "loadLocalRawResource",
+    "path": "loadLocalRawResource",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "LocalSvg",
+    "path": "LocalSvg",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "SvgWithCss",
+    "path": "SvgWithCss",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "SvgWithCssUri",
+    "path": "SvgWithCssUri",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "WithLocalSvg",
+    "path": "WithLocalSvg",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "camelCase",
+    "path": "camelCase",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "fetchText",
+    "path": "fetchText",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "parse",
+    "path": "parse",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGCircle",
+    "path": "RNSVGCircle",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGClipPath",
+    "path": "RNSVGClipPath",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGDefs",
+    "path": "RNSVGDefs",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGEllipse",
+    "path": "RNSVGEllipse",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGFeColorMatrix",
+    "path": "RNSVGFeColorMatrix",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGFeComposite",
+    "path": "RNSVGFeComposite",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGFeGaussianBlur",
+    "path": "RNSVGFeGaussianBlur",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGFeMerge",
+    "path": "RNSVGFeMerge",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGFeOffset",
+    "path": "RNSVGFeOffset",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGFilter",
+    "path": "RNSVGFilter",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGForeignObject",
+    "path": "RNSVGForeignObject",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGGroup",
+    "path": "RNSVGGroup",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGImage",
+    "path": "RNSVGImage",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGLine",
+    "path": "RNSVGLine",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGLinearGradient",
+    "path": "RNSVGLinearGradient",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGMarker",
+    "path": "RNSVGMarker",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGMask",
+    "path": "RNSVGMask",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGPath",
+    "path": "RNSVGPath",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGPattern",
+    "path": "RNSVGPattern",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGRadialGradient",
+    "path": "RNSVGRadialGradient",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGRect",
+    "path": "RNSVGRect",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGSvgAndroid",
+    "path": "RNSVGSvgAndroid",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGSvgIOS",
+    "path": "RNSVGSvgIOS",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGSymbol",
+    "path": "RNSVGSymbol",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGText",
+    "path": "RNSVGText",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGTextPath",
+    "path": "RNSVGTextPath",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGTSpan",
+    "path": "RNSVGTSpan",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "RNSVGUse",
+    "path": "RNSVGUse",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "Shape",
+    "path": "Shape",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "SvgAst",
+    "path": "SvgAst",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "SvgFromUri",
+    "path": "SvgFromUri",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "SvgFromXml",
+    "path": "SvgFromXml",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeComponentTransfer",
+    "path": "FeComponentTransfer",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeComposite",
+    "path": "FeComposite",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeConvolveMatrix",
+    "path": "FeConvolveMatrix",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeDiffuseLighting",
+    "path": "FeDiffuseLighting",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeDisplacementMap",
+    "path": "FeDisplacementMap",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeDistantLight",
+    "path": "FeDistantLight",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeDropShadow",
+    "path": "FeDropShadow",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeFlood",
+    "path": "FeFlood",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeFuncA",
+    "path": "FeFuncA",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeFuncB",
+    "path": "FeFuncB",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeFuncG",
+    "path": "FeFuncG",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeFuncR",
+    "path": "FeFuncR",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeImage",
+    "path": "FeImage",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeMergeNode",
+    "path": "FeMergeNode",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeMorphology",
+    "path": "FeMorphology",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FePointLight",
+    "path": "FePointLight",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeSpecularLighting",
+    "path": "FeSpecularLighting",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeSpotLight",
+    "path": "FeSpotLight",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeTile",
+    "path": "FeTile",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "FeTurbulence",
+    "path": "FeTurbulence",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  },
+  {
+    "export": "Filter",
+    "path": "Filter",
+    "reason": "the svg preset lacks it (a hand-written subset of react-native-svg)",
+    "issue": "#716"
+  }
+]

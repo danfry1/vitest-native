@@ -150,9 +150,9 @@ export function main(
           json: parsed.json,
           timeoutMs: parsed.timeoutMs,
           showOutput: parsed.showOutput,
-          runs: parsed.runs ?? 2,
-          shuffle: parsed.shuffle ?? true,
-          seed: parsed.seed ?? 0,
+          runs: parsed.runs,
+          shuffle: parsed.shuffle,
+          seed: parsed.seed,
         });
       }
       return runCompare({ ...parsed, root, log });

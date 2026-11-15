@@ -22,6 +22,7 @@
 // engine still compiles what needs the project's config).
 // VN_PROJECT_BABEL_CACHE is Vitest's transform cache directory, so a gate run can be cold
 // then warm.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";

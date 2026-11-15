@@ -17,6 +17,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { cliArguments } from "./support/arguments.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.resolve(root, "..", "..");
@@ -31,8 +32,13 @@ const pagePath = path.join(repoRoot, "website", "guide", "fidelity.md");
 // fail this gate, so the subprocess status is propagated at the end; rendering
 // still proceeds so the page reflects whatever was captured. fidelity:check is
 // therefore a strict superset of `crosscheck` (the gate it replaces in CI).
+const options = cliArguments(
+  { script: "fidelity-report.mjs", flags: ["no-run", "check", "allow-corpus-shrink"] },
+  "fidelity-report.mjs [--no-run] [--check] [--allow-corpus-shrink]",
+).values;
+
 let crosscheckFailed = false;
-if (!process.argv.includes("--no-run")) {
+if (!options["no-run"]) {
   console.log("── running cross-check to refresh report data ──");
   const res = spawnSync(process.execPath, [path.join(root, "scripts", "crosscheck.mjs")], {
     cwd: root,
@@ -81,7 +87,7 @@ function committedProbeCount() {
   }
 }
 const floor = committedProbeCount();
-if (floor !== null && summary.total < floor && !process.argv.includes(ALLOW_SHRINK_FLAG)) {
+if (floor !== null && summary.total < floor && !options["allow-corpus-shrink"]) {
   console.error(
     `✗ the cross-check corpus shrank: ${summary.total} probes ran, but ${floor} are published.\n` +
       `  ${floor - summary.total} probe(s) stopped reporting. This is a loss of evidence, not stale\n` +
@@ -97,7 +103,7 @@ const allMatch = summary.matching === summary.total;
 // In --check mode the artifacts are rendered and compared to what's committed,
 // but never written; a difference exits non-zero. This is the CI drift guard:
 // it proves the published page/badge still match the live corpus.
-const checkOnly = process.argv.includes("--check");
+const checkOnly = Boolean(options.check);
 
 // Derive the CI version range from the matrix workflow (the source of truth) so
 // the published page can never disagree with what CI actually gates.

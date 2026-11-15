@@ -3,6 +3,7 @@
 // library's own Jest mock, the presets the engine detects, and RNTL. Each feature has a
 // suite of its own; this one catches their combinations (#666: root mocks + projectBabel).
 // scripts/test-root-mocks-registry.mjs runs it cold, warm and hot.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

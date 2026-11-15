@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isProjectJsFile, loadProjectJsx, projectJsxOptions } from "../src/project-jsx.js";
+import {
+  isPackageJsFile,
+  isProjectJsFile,
+  loadPackageJsx,
+  loadProjectJsx,
+  packageOfFile,
+  projectJsxOptions,
+} from "../src/project-jsx.js";
 
 const OPTIONS = projectJsxOptions({ jsx: { runtime: "automatic" } });
 
@@ -118,5 +125,79 @@ describe("project .js files compiled as JSX (#561)", () => {
     const result = await loadProjectJsx(file, OPTIONS, undefined, undefined, (m) => logged.push(m));
     expect(result).toBeUndefined();
     expect(logged).toEqual([expect.stringContaining("serving it unchanged")]);
+  });
+});
+
+describe("a package's .js file Vite serves uncompiled and cannot parse (#763)", () => {
+  const JSX = 'import { Text } from "react-native";\nexport const a = <Text>hi</Text>;\n';
+
+  /** Loads `file`, counting the compiles (one log line each) and the warnings. */
+  async function load(file: string, chain?: { load: () => Promise<string | null> }) {
+    const compiles: string[] = [];
+    const warnings: string[] = [];
+    const result = await loadPackageJsx(
+      file,
+      OPTIONS,
+      undefined,
+      chain,
+      (m) => compiles.push(m),
+      (m) => warnings.push(m),
+    );
+    return { result, compiles, warnings };
+  }
+
+  it("covers .js files inside node_modules only", () => {
+    expect(isPackageJsFile("/app/node_modules/lib/index.js")).toBe(true);
+    expect(isPackageJsFile("/app/src/a.js")).toBe(false);
+    expect(isPackageJsFile("/app/node_modules/lib/index.ts")).toBe(false);
+    expect(isPackageJsFile("/app/node_modules/lib/index.js?raw")).toBe(false);
+  });
+
+  it("names the package, scoped or not, from the innermost node_modules", () => {
+    expect(packageOfFile("/app/node_modules/lib/src/a.js")).toBe("lib");
+    expect(packageOfFile("/app/node_modules/@scope/lib/a.js")).toBe("@scope/lib");
+    expect(packageOfFile("/app/node_modules/.bun/x@1/node_modules/@s/y/a.js")).toBe("@s/y");
+    expect(packageOfFile("/app/src/a.js")).toBeNull();
+  });
+
+  it("compiles JSX in a file the parser rejects, once", async () => {
+    const { result, compiles, warnings } = await load(tempFile("node_modules/lib/a.js", JSX));
+    expect(result).toMatchObject({ code: expect.stringContaining("react/jsx-runtime") });
+    expect(compiles).toHaveLength(1);
+    expect(warnings).toEqual([]);
+  });
+
+  it("leaves a file that already parses as published, even when it matches the prefilter", async () => {
+    // `a<b` matches the cheap `<Name` prefilter, so this reaches the parse check.
+    const plain = "export const lt = (a, b) => a<b;\n";
+    const { result, compiles } = await load(tempFile("node_modules/lib/plain.js", plain));
+    expect(result).toBeUndefined();
+    expect(compiles).toHaveLength(0);
+  });
+
+  it("leaves the project's own files to loadProjectJsx", async () => {
+    const { result, compiles } = await load(tempFile("src/a.js", JSX));
+    expect(result).toBeUndefined();
+    expect(compiles).toHaveLength(0);
+  });
+
+  it("serves what another plugin's load returns for the file", async () => {
+    const chain = { load: async () => "export const a = 'plugin';" };
+    const { result, compiles } = await load(tempFile("node_modules/lib/a.js", JSX), chain);
+    expect(result).toBe("export const a = 'plugin';");
+    expect(compiles).toHaveLength(0);
+  });
+
+  it("serves a file Oxc cannot compile either as it is, and names the package once", async () => {
+    // Flow: neither Vite's parser nor Oxc's JSX accepts it, so Vite reports its own error.
+    const flow = "// @flow\nexport const a = (x: ?number) => <View />;\n";
+    const first = await load(tempFile("node_modules/flow-only-lib/a.js", flow));
+    expect(first.result).toBeUndefined();
+    expect(first.warnings).toHaveLength(1);
+    expect(first.warnings[0]).toContain("reactNative({ transform: ['flow-only-lib'] })");
+    expect(first.warnings[0]).toContain("issues/763");
+    const second = await load(tempFile("node_modules/flow-only-lib/b.js", flow));
+    expect(second.result).toBeUndefined();
+    expect(second.warnings).toEqual([]);
   });
 });

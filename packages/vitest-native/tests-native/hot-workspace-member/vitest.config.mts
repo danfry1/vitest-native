@@ -2,6 +2,7 @@
 // hot runtime, every file in ONE worker in name order. Run through
 // scripts/test-hot-workspace-member.mjs, which links the workspace packages into
 // node_modules first, as an install would, and reads the load counts.
+import "../support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

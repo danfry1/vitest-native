@@ -1,0 +1,236 @@
+[
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedIndex.get",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedIndex.set",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedIndex.addListener",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedIndex.removeListener",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedIndex.modify",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedPosition.get",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedPosition.set",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedPosition.addListener",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedPosition.removeListener",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheet",
+    "path": "useBottomSheet().animatedPosition.modify",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedDetentsState",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedAnimationState",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedSheetState",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedKeyboardState",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedContentGestureState",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedHandleGestureState",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedLayoutState",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedScrollableState",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedScrollableStatus",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedPosition",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedIndex",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animatedSheetHeight",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().isInTemporaryPosition",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().stopAnimation",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().animateToPosition",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().setScrollableRef",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().removeScrollableRef",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().textInputNodesRef",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().overDragResistanceFactor",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().enableContentPanningGesture",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().enableOverDrag",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().enablePanDownToClose",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().enableDynamicSizing",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetInternal",
+    "path": "useBottomSheetInternal().enableBlurKeyboardOnGesture",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetModalInternal",
+    "path": "useBottomSheetModalInternal().hostName",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetModalInternal",
+    "path": "useBottomSheetModalInternal().containerLayoutState",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetModalInternal",
+    "path": "useBottomSheetModalInternal().mountSheet",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetModalInternal",
+    "path": "useBottomSheetModalInternal().unmountSheet",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  },
+  {
+    "export": "useBottomSheetModalInternal",
+    "path": "useBottomSheetModalInternal().willUnmountSheet",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#787"
+  }
+]

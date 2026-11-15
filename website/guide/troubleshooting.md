@@ -1,19 +1,25 @@
 # Troubleshooting
 
-An error that starts with `[vitest-native]` has a code; the [error-code reference](/guide/errors) lists each one with its common causes.
+An error that starts with `[vitest-native]` has a code; the [error-code reference](/guide/errors) lists each one with its common causes. Paste a message below to search this page and the error codes together.
 
-## "helpers were called before setup ran"
+<script setup>
+import ErrorFinder from '../.vitepress/theme/components/ErrorFinder.vue'
+</script>
 
-This means the plugin isn't configured. Ensure `reactNative()` is in your `vitest.config.ts` `plugins` array.
+<ErrorFinder />
 
-## RNTL queries not finding components
+## "helpers were called before setup ran" {#helpers-were-called-before-setup-ran}
+
+See [`HELPERS_BEFORE_SETUP`](/guide/errors#HELPERS_BEFORE_SETUP) in the error codes.
+
+## RNTL queries not finding components {#rntl-queries-not-finding-components}
 
 Host component names are handled for you — the plugin sets them for older RNTL, and RNTL ≥ 12 auto-detects them against real RN host names. If you're having issues:
 
 1. Make sure `@testing-library/react-native` is installed.
 2. **Don't** manually configure `hostComponentNames` — leave it to the plugin / RNTL's auto-detection. Removing a manual config often fixes this.
 
-## Asset imports returning undefined
+## Asset imports returning undefined {#asset-imports-returning-undefined}
 
 The plugin loads common asset extensions (png, jpg, gif, mp4, mp3, ttf, etc.) as Metro does, as a registered asset id. For custom formats, use [`assetExts`](/guide/plugin-options#assetexts):
 
@@ -23,23 +29,23 @@ reactNative({
 });
 ```
 
-## "Invalid hook call" warnings in test output
+## "Invalid hook call" warnings in test output {#invalid-hook-call-warnings-in-test-output}
 
 If you call `useColorScheme` or `useWindowDimensions` directly outside a component (e.g. in API tests), you'll see a React warning in stderr. The mock handles this gracefully with a try/catch fallback — **the test still passes**, and the warning is expected.
 
-## `vi.mock` of an RN-side library isn't taking effect
+## `vi.mock` of an RN-side library isn't taking effect {#vi-mock-of-an-rn-side-library-isn-t-taking-effect}
 
 Under `engine: 'native'`, React Native and third-party React Native packages load through Node. `vi.mock` applies to what your test and app source import, but not to `require()` calls inside a Node-loaded library: a library's own import of a mocked package still gets the real one. Prefer a [preset](/guide/presets) if one exists, mock at the native boundary with [`mockNativeModule`](/guide/helpers#mocknativemodule-name-impl), or test that boundary on the mock engine. See [what `vi.mock` reaches](/guide/mocking#what-vi-mock-reaches).
 
-## A third-party library ships untranspiled source and fails to parse
+## A third-party library ships untranspiled source and fails to parse {#a-third-party-library-ships-untranspiled-source-and-fails-to-parse}
 
-Packages that declare `react-native` are compiled automatically. For one that doesn't, add it to [`transform`](/guide/plugin-options#transform) (the native-engine equivalent of Jest's `transformIgnorePatterns`); if compiling a package is what fails, exclude it with `transform: { exclude: [...] }`. See [untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-source).
+The test fails with `SyntaxError: Unexpected token`, `Cannot use import statement outside a module`, or a Flow or JSX parse error in a file under `node_modules`. Packages that declare `react-native` are compiled automatically. For one that doesn't, add it to [`transform`](/guide/plugin-options#transform) (the native-engine equivalent of Jest's `transformIgnorePatterns`); if compiling a package is what fails, exclude it with `transform: { exclude: [...] }`. See [untranspiled packages](/guide/mocking#packages-that-ship-untranspiled-source).
 
 ```ts
 reactNative({ transform: ["some-untranspiled-lib"] });
 ```
 
-## `NativeModules.SomeModule` is undefined
+## `NativeModules.SomeModule` is undefined {#nativemodules-somemodule-is-undefined}
 
 Under `engine: 'native'`, a native module that no app binary registers is absent, as on a device and under Jest's React Native preset: `NativeModules.SomeModule` is `undefined` and `TurboModuleRegistry.get('SomeModule')` is `null`. React Native's own modules, and any module requested through `TurboModuleRegistry.getEnforcing`, are always present (see [which native modules exist](/guide/how-it-works#which-native-modules-exist)). If the code under test needs a third-party module, register it in a setup file or test:
 
@@ -51,15 +57,15 @@ mockNativeModule("SomeModule", { getValue: () => Promise.resolve(42) });
 
 The same applies to a method a React Native module's codegen spec does not declare: it is `undefined`, as on a device. To run a suite written against the earlier behaviour while you add registrations, set [`nativeModules: 'permissive'`](/guide/plugin-options#nativemodules).
 
-## Snapshots mismatch after switching from Jest
+## Snapshots mismatch after switching from Jest {#snapshots-mismatch-after-switching-from-jest}
 
 Vitest keys snapshots differently from Jest (`a > b 1` against Jest's `a b 1`; `name > hint 1` against `name: hint 1`), so it treats most of Jest's entries as missing: a local run writes new ones and passes, a CI run fails them as `mismatched`, and both rewrite the file's header to Vitest's, which `jest --ci` then refuses. Under `engine: 'native'`, real React Native also renders **real host component names** (`RCTText`, `RCTView`, `RCTScrollView`) where `@react-native/jest-preset` snapshots show mock names (`Text`, `View`). Running `vitest -u` against Jest's files rewrites them for Vitest and deletes Jest's entries. While both runners run, point Vitest at its own directory with `test.resolveSnapshotPath` and record there — see [Migrating from Jest](/migration/from-jest#snapshots). Prefer explicit queries over large snapshots — they're robust across host names.
 
-## `findBy*` or `waitFor` times out under `vi.useFakeTimers()`
+## `findBy*` or `waitFor` times out under `vi.useFakeTimers()` {#findby-or-waitfor-times-out-under-vi-usefaketimers}
 
 Under the mock engine, RNTL advances fake timers only with the [jest-compat layer](/guide/jest-compat). Add it, or advance the clock before querying: `await vi.advanceTimersByTimeAsync(ms)`. Under the native engine this works with no setup; if it still times out there, see [Mocking: fake timers](/guide/mocking#fake-timers) and, under the hot runtime, the next entry.
 
-## A test passes on its own but fails when run with other files
+## A test passes on its own but fails when run with other files {#a-test-passes-on-its-own-but-fails-when-run-with-other-files}
 
 If the engine banner says `hot runtime`, the native engine is reusing workers across files because `hotRuntime` is set to `'auto'` or `true`. The default, `hotRuntime: false`, gives every file a fresh worker. The hot runtime resets app/test modules, mocks, timers and a verified list of process-wide state between files, but some state is known to carry over. To confirm, run with per-file isolation:
 
@@ -78,7 +84,7 @@ Known differences from per-file isolation under the hot runtime:
 
 If the failure goes away with `hotRuntime: false`, keep that setting for the project. If it is not one of the cases above, please [open an issue](https://github.com/danfry1/vitest-native/issues) with the library involved. Setting `test.isolate` explicitly in your Vitest config also keeps Vitest's own isolation.
 
-## "Cannot find module" keeps failing after the missing file exists
+## "Cannot find module" keeps failing after the missing file exists {#cannot-find-module-keeps-failing-after-the-missing-file-exists}
 
 The plugin turns on Vitest's persistent transform cache, `fsModuleCache` (see [how it works](/guide/how-it-works#_4-transform-cache)). Vitest 5.0.5 can keep a test file's transform from a run where one of its imports did not resolve, and reuse it after the import target exists. The error names a root-relative path, such as `'/lib/components'` for `import '../../lib/components'`, and it persists across runs.
 
@@ -91,11 +97,11 @@ It happens when all of these hold:
 
 This is a Vitest bug, tracked in [vitest-dev/vitest#11789](https://github.com/vitest-dev/vitest/issues/11789). It is reproduced on Vitest 5.0.5. To recover, clear Vitest's cache with `vitest --clearCache`, or delete `node_modules/.vitest-cache` at the workspace root (or the directory set in `test.fsModuleCachePath`). To avoid it, build the other package before the first test run, or set `test.fsModuleCache: false` for that project.
 
-## `CONTEXT_INVALID` at startup
+## `CONTEXT_INVALID` at startup {#context-invalid-at-startup}
 
-The plugin writes one description of each Vitest project, its _project context_, to `node_modules/.cache/vitest-native/contexts/` (or the system temp directory when that cannot be written), and every worker reads its configuration from that file. `CONTEXT_INVALID` means a worker found it missing, from another version, changed after it was written, or with a field of the wrong shape; the message names the reason, the field and the directory. Re-run Vitest, and if it persists delete that directory. A worker started without the plugin's configuration reports it too.
+See [`CONTEXT_INVALID`](/guide/errors#CONTEXT_INVALID) in the error codes, which covers what the project context is, why a worker cannot read it, and how to recover.
 
-## Getting more detail in the log
+## Getting more detail in the log {#getting-more-detail-in-the-log}
 
 Turn on the plugin's diagnostics in the config:
 
@@ -105,7 +111,7 @@ reactNative({ diagnostics: true });
 
 It logs how modules resolve, which engine and presets apply, and the hot runtime's full memory plan. It is a plugin option only; to turn it on for one run, see [`diagnostics`](/guide/plugin-options#diagnostics). Without it, the startup log still names the engine, the presets and, under the hot runtime, the worker count (`[vitest-native] workers: …`), or why the hot runtime is off.
 
-## When React Native's precompiled modules are reused or rebuilt
+## When React Native's precompiled modules are reused or rebuilt {#when-react-native-s-precompiled-modules-are-reused-or-rebuilt}
 
 The native engine compiles React Native once into a single precompiled file (see [engines](/guide/engines)) and reuses it on later runs, one file per platform and configuration. It is stored in `node_modules/.cache/vitest-native/registry/` under the Vitest project's root. A project without a `node_modules` of its own, such as a workspace package whose dependencies are hoisted, uses the nearest one above it that holds React Native. When neither exists or can be written, it is `vitest-native-cache/registry/` in the system temp directory.
 
@@ -118,7 +124,7 @@ A run reuses it when all of these are unchanged, and rebuilds it otherwise:
 
 To force a rebuild, delete that `registry` directory; files for earlier configurations stay there until you do. To run without the precompiled file (each module is then loaded on its own, more slowly, with the same results), set `VITEST_NATIVE_NO_REGISTRY=1`.
 
-## `@react-native/babel-preset not found — using the mock engine`
+## `@react-native/babel-preset not found — using the mock engine` {#react-native-babel-preset-not-found-—-using-the-mock-engine}
 
 You asked for the default (`auto`) engine but the native engine's Babel packages aren't installed, so it fell back to the mock engine. An Expo project needs nothing extra: the engine uses Expo's preset, and `expo` brings `@babel/core`. Otherwise, to run real React Native, install them:
 
@@ -128,21 +134,21 @@ npm i -D @react-native/babel-preset @babel/core
 
 To silence the notice and stay on mock deliberately, set `reactNative({ engine: 'mock' })`.
 
-## My `babel.config.js` plugin isn't running
+## My `babel.config.js` plugin isn't running {#my-babel-config-js-plugin-isn-t-running}
 
 Files your tests `import` compile with Vite's Oxc transform, which the plugin configures for the automatic JSX runtime; your own `.js` files compile with JSX enabled, as Metro compiles them. A file that needs a plugin or option in your Babel config that Oxc does not cover (a decorator, a macro import, a custom plugin) or that has an `@flow` pragma compiles with your Babel config instead ([`projectBabel`](/guide/plugin-options#projectbabel)); startup names the plugins that caused it, and `diagnostics: true` names each file. If a plugin you depend on is not named, it is on the covered list: set `projectBabel: 'always'` to compile every project file with Babel. Project TypeScript files that Node loads (through `require()` or `jest.requireActual`) are compiled with your Babel config, as babel-jest compiles them; plain `.js` project files Node loads are not compiled.
 
 **Class fields on React Native 0.86 and earlier.** Under Jest, React Native's preset from those versions compiles class fields as assignments in the constructor (Babel's `loose` class properties). Oxc keeps them as standard class fields. The two differ only when a field has the same name as an accessor on a base class. Under Jest, `class Child extends Base { value = 1 }` calls `Base`'s `value` setter. Under vitest-native it becomes an own property, and against a getter-only base accessor it no longer throws. If a test depends on the Jest behaviour, add `['@babel/plugin-transform-class-properties', { loose: true }]` to your Babel config: [`projectBabel`](/guide/plugin-options#projectbabel) then compiles files with a class through Babel. React Native 0.88's preset keeps standard class fields, so it is not affected ([#624](https://github.com/danfry1/vitest-native/issues/624)).
 
-## `Worker terminated due to reaching memory limit` / `JS heap out of memory`
+## `Worker terminated due to reaching memory limit` / `JS heap out of memory` {#worker-terminated-due-to-reaching-memory-limit-js-heap-out-of-memory}
 
 Every test file that renders real React Native loads a full renderer. Under the default per-file isolation each file starts in a fresh worker, so heap does not accumulate across files. Under the hot runtime (`hotRuntime: 'auto'`), workers are reused and recycled on a memory budget; set your own heap threshold with `hotRuntime: { mode: 'auto', memoryLimit }` (bytes; see [worker recycling](/guide/hot-runtime#workers-and-memory)).
 
-## `Vitest caught N unhandled errors` in error-boundary tests
+## `Vitest caught N unhandled errors` in error-boundary tests {#vitest-caught-n-unhandled-errors-in-error-boundary-tests}
 
 A test that intentionally throws inside a component (to exercise an error boundary) makes React log a "recovered from an error during concurrent rendering" message and Vitest count it, even though the boundary worked and the test passes. It's cosmetic and the assertions are unaffected. Silence it in a setup file if you like (for example, filter the message in an `onConsoleLog` or `console.error` wrapper).
 
-## Overriding a preset's mock (e.g. navigation route params)
+## Overriding a preset's mock (e.g. navigation route params) {#overriding-a-preset-s-mock-e-g-navigation-route-params}
 
 Auto-detected presets shadow a library with a built-in mock. To change what that mock returns for a test or project, `vi.mock` the module in a setup file and spread the preset's mock. Presets expose the module to Vitest's graph, so `vi.mock` applies and `importOriginal()` returns the preset mock:
 
@@ -156,10 +162,16 @@ vi.mock('@react-navigation/native', async (importOriginal) => ({
 
 For one-off overrides, [`extendPresetMock`](/guide/helpers#extendpresetmock-pkg-overrides) is lighter.
 
-## Node 24.13.0: segmentation fault at startup
+## Node 24.13.0: segmentation fault at startup {#node-24-13-0-segmentation-fault-at-startup}
 
 On Node 24.13.0, a run can stop at startup with `Segmentation fault` (exit code 139) after Vitest prints `RUN` and before any test reports. It is an intermittent crash inside V8's garbage collector on a worker thread; no vitest-native code appears in the crashing native frames. In our measurements it happened in 2 of 135 cold runs with the hot runtime on Node 24.13.0, and in none of our runs on 24.12, 24.14, 24.16 or 24.18 (50 to 100 runs each, too few to prove any single one of them free of it). Use another Node 24 release, such as 24.14 or later. `vitest-native doctor` warns when it runs on 24.13.0.
 
-## Still stuck?
+## `DrawerLayoutAndroid is deprecated` {#drawerlayoutandroid-is-deprecated}
+
+Under the native engine, a test file that imports `react-native-gesture-handler` can print React Native's deprecation warning for `DrawerLayoutAndroid`. It is harmless, and tests are unaffected.
+
+React Native defines its `DrawerLayoutAndroid` export as a getter that prints the warning. Gesture Handler's own components load it only when one renders, but the Jest mock its `jestSetup.js` swaps in imports it from `react-native` up front (as `LegacyDrawerLayoutAndroid`). When an ES module imports a CommonJS module, Node reads every named export, so the getter runs even when no test uses the component. Jest's `require` reads only the exports a test uses, so Jest does not print it. Reading only the names a file imports is tracked in [#687](https://github.com/danfry1/vitest-native/issues/687).
+
+## Still stuck? {#still-stuck}
 
 If something that worked under Jest or the old `vitest-react-native` plugin doesn't work here, [open an issue](https://github.com/danfry1/vitest-native/issues) — parity is a goal, and the cross-check corpus is how we prove it.

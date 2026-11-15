@@ -7,5 +7,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests-native/registry-background.test.ts"],
+    // One temporary root per run, removed at its end: the scratch projects, which hold
+    // React Native registry builds, live there and are not deleted per file.
+    globalSetup: ["./tests/support/temp-root.global.ts"],
   },
 });

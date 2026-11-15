@@ -77,6 +77,18 @@ describe("extendsSharedConfig", () => {
     ).toBe(true);
   });
 
+  it("recognises a shared config bound to a name with $ in it", () => {
+    // `$` is a legal identifier character and a RegExp anchor: unescaped, the binding
+    // never matched itself and a working workspace config was reported as unconfigured.
+    expect(
+      extendsSharedConfig(`import $base from "@scope/vitest-preset";\nexport default $base;`),
+    ).toBe(true);
+    const merged = `import { mergeConfig } from "vitest/config";
+import $base from "@scope/vitest-preset";
+export default mergeConfig($base, {});`;
+    expect(extendsSharedConfig(merged)).toBe(true);
+  });
+
   it("recognises a config merging a shared one", () => {
     const source = `import { defineConfig, mergeConfig } from "vitest/config";
 import base from "@scope/vitest-preset";

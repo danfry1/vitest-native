@@ -17,6 +17,9 @@ describe("compat-report", () => {
     expect(issueFor("Supported Expo SDKs at their newest patch")?.title).toBe(
       "Compatibility: a supported Expo SDK fails at its newest patch",
     );
+    expect(issueFor("Conformance on the newest supported libraries")?.title).toBe(
+      "Library conformance: a supported library's newest release no longer matches",
+    );
     expect(issueFor("Canary (react-native)")?.title).toBe(
       "Canary: the react-native prerelease fails",
     );

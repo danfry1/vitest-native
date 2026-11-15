@@ -18,5 +18,65 @@
       "count": 1,
       "reason": "Not a spelling choice: the call exists so the file system raises ELOOP on a symlink loop before resolution continues."
     }
+  },
+  "root-containment": {
+    "src/cli/compare-run.ts": {
+      "count": 4,
+      "reason": "Safe: three paths built from the root by the walk or path.resolve, and one check that compares JS realpath with JS realpath."
+    },
+    "src/cli/migrate.ts": {
+      "count": 2,
+      "reason": "Derived from the root: one path is path.resolve(root, file); the manual mocks are found by walking roots resolved from it, and the result is only shown."
+    },
+    "src/cli/mock-factory-reads.ts": {
+      "count": 1,
+      "reason": "Derived from the root: the file comes from walking it with path.join, so it has the root's spelling."
+    },
+    "src/cli/untranspiled.ts": {
+      "count": 1,
+      "reason": "Derived from the directory: the file comes from walking it, so it has the directory's spelling."
+    },
+    "src/jest-compat/transform.ts": {
+      "count": 1,
+      "reason": "Derived from the root: manual mock files are found under module.root, and the relative path is only shown in a warning."
+    },
+    "src/native/ecosystem.ts": {
+      "count": 1,
+      "reason": "Derived from the directory: the target is resolved from a file found by walking it."
+    },
+    "src/native/library-jest.mjs": {
+      "count": 1,
+      "reason": "Derived from the file: root.dir comes from packageRootOf(file), the file's own spelling."
+    },
+    "src/plugin.ts": {
+      "count": 1,
+      "reason": "One spelling on both sides: roots and files are both native here (mayServe converts first)."
+    }
+  },
+  "escaped-regexp": {
+    "src/babel-plugins.ts": {
+      "count": 3,
+      "reason": "Interpolates `kind`, a closed union of literals (\"plugin\" | \"preset\"), so nothing outside the code reaches the pattern."
+    },
+    "src/cli/compare.ts": {
+      "count": 3,
+      "reason": "Each is escaped inline with its own copy of the escape replace; move it onto src/regexp.ts's escapeRegExp. (alternatives map through escapeRegex; sameValue and the %p match escape before adding their wildcards)."
+    },
+    "src/jest-compat/root-mocks.ts": {
+      "count": 1,
+      "reason": "A pattern by design: Jest's modulePathIgnorePatterns entries are regular expressions the user wrote. Only <rootDir> is replaced, by the root escaped inline with its own copy of the escape replace; move it onto src/regexp.ts's escapeRegExp."
+    },
+    "src/native/match.mjs": {
+      "count": 1,
+      "reason": "The subpath pattern's parts each go through escape() inside the map that builds `source`; the rule does not follow the variable."
+    },
+    "src/plugin.ts": {
+      "count": 1,
+      "reason": "assetExts are escaped inline with its own copy of the escape replace; move it onto src/regexp.ts's escapeRegExp."
+    },
+    "src/project-babel.ts": {
+      "count": 1,
+      "reason": "The module name is escaped inline with its own copy of the escape replace; move it onto src/regexp.ts's escapeRegExp."
+    }
   }
 }

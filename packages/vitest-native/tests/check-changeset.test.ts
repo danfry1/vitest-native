@@ -10,7 +10,7 @@
  * gate on both was green.
  *
  * Comment-only edits and internal refactors genuinely need no release note. They
- * need `bunx changeset --empty`, which records that decision instead of leaving it
+ * need `bun run changeset --empty`, which records that decision instead of leaving it
  * to be inferred from an absence.
  */
 import { spawnSync } from "node:child_process";

@@ -2,6 +2,7 @@
 // `--mode regression` is a pair the hot runtime once dropped the second of, silently;
 // `--mode guard` breaks a task on purpose, so its other file must still be reported.
 // One worker and name order: the files share one task, the shape that loses them.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

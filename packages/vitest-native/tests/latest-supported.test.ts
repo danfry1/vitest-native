@@ -5,8 +5,12 @@
  */
 import { describe, expect, it } from "vitest";
 // @ts-expect-error — runtime .mjs, no types
-import { latestSupportedSpecs } from "../../../.github/scripts/latest-supported.mjs";
+import {
+  latestLibrarySpecs,
+  latestSupportedSpecs,
+} from "../../../.github/scripts/latest-supported.mjs";
 import { PEER_REQUIREMENTS } from "../src/peer-requirements";
+import { SUPPORTED_LIBRARY_VERSIONS } from "../src/preset-map";
 
 describe("latest-supported specs", () => {
   it("installs every capped peer at its newest supported major, with Vitest's coverage provider in lockstep", () => {
@@ -25,5 +29,16 @@ describe("latest-supported specs", () => {
         { name: "react", minimum: "19.0.0" },
       ]),
     ).toEqual(["vitest@^6", "@vitest/coverage-v8@^6"]);
+  });
+
+  it("installs each conformance-checked library at its supported range", () => {
+    const specs: string[] = latestLibrarySpecs();
+    expect(specs.length).toBeGreaterThan(0);
+    for (const [name, range] of Object.entries(SUPPORTED_LIBRARY_VERSIONS)) {
+      expect(specs).toContain(`${name}@${range}`);
+    }
+    expect(latestLibrarySpecs({ "react-native-reanimated": ">=5.0.0 <6" })).toEqual([
+      "react-native-reanimated@>=5.0.0 <6",
+    ]);
   });
 });

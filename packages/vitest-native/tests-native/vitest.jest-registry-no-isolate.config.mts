@@ -3,6 +3,7 @@
 // it). The hot runtime clears the registry through its state manifest; this run has
 // no hot runtime, so it proves the registry clears itself when the file changes. A
 // library's mocks, from a setup file that runs once (c1, c2), stay with its module.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

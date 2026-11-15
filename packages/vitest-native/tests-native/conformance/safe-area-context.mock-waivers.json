@@ -1,0 +1,26 @@
+[
+  {
+    "export": "SafeAreaListener",
+    "path": "SafeAreaListener",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#786"
+  },
+  {
+    "export": "useSafeArea",
+    "path": "useSafeArea",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#786"
+  },
+  {
+    "export": "SafeAreaConsumer",
+    "path": "SafeAreaConsumer",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#786"
+  },
+  {
+    "export": "SafeAreaContext",
+    "path": "SafeAreaContext",
+    "reason": "the mock engine's preset implements a subset of the library (presets guide lists it)",
+    "issue": "#786"
+  }
+]
