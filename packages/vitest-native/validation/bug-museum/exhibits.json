@@ -1961,6 +1961,22 @@
       }
     },
     {
+      "id": "own-undeclared-installed-package",
+      "class": "ownership",
+      "title": "An installed React Native package the app does not declare is loaded twice",
+      "source": "reproducing #351 (#688)",
+      "fixedBy": "#688's fix",
+      "bugSignature": "^one-instance\\.test\\.ts: AssertionError: one GestureDetector: expected \\[Function GestureDetector\\] to be \\[Function GestureDetector\\]",
+      "fixRef": "0e9c75715735c11729526551e3fb1b704c9d16b6",
+      "status": {
+        "main": "FAIL (bug)",
+        "fix": "PASS",
+        "measuredOn": "2ff9feebaf1bf02c2e69d76775f6293fda6246b7",
+        "mainSignature": "one-instance.test.ts: AssertionError: one GestureDetector: expected [Function GestureDetector] to be [Function GestureDetector] // Object.is equality",
+        "proof": "fix proven"
+      }
+    },
+    {
       "id": "own-workspace-undeclared-import",
       "class": "ownership",
       "title": "A workspace library a React Native sibling imports without declaring it is loaded twice",
