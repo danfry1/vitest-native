@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./cid": { "import": "./dist/cid.js" },
+    ".": { "import": "./lib/index.js" },
+    "./cid": { "import": "./lib/cid.js" },
     "./package.json": "./package.json"
   }
 }

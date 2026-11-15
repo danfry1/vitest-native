@@ -14,7 +14,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { expandAlias } from "./aliases.mjs";
-import { expandResolutionAlias } from "../native/shared-resolver.mjs";
+import {
+  conditionsIn,
+  expandResolutionAlias,
+  exportTarget,
+  nodeOptionsList,
+} from "../native/shared-resolver.mjs";
 import {
   isWholePackageRequest,
   resolvePackageMainField,
@@ -179,12 +184,6 @@ function createState() {
     entries: new WatchedMap(changed),
     /** Specifiers no resolver could place (Jest's virtual mocks) -> entry. */
     unresolved: new WatchedMap(changed),
-    /**
-     * File -> the `unresolved` specifier an import resolved to it (`state.entryAt`). Kept
-     * for the worker's life, as `resolutions` is: the entry is looked up by specifier at
-     * each load, so it lasts exactly as long as that registration.
-     */
-    importedAs: new Map(),
     /** `parentFile\0request` -> resolved file or null. Valid for the worker's life. */
     resolutions: new Map(),
     /** What `requireActual` is loading: its next load skips the mock. */
@@ -273,6 +272,43 @@ function createState() {
     return state.resolve(spec, file ? parentModuleFor(file) : rootParent);
   };
 
+  /**
+   * The file an `import` of the package subpath `spec` from `from` resolves to, when
+   * `require` cannot resolve it: an ES-module package whose `exports` gives the subpath
+   * an `import` condition only (`multiformats/cid`). Without it such a jest.mock was
+   * registered by its specifier only, which a `require` matches, but Node's ESM loader
+   * looks a registration up by the file it resolved, so the import was matched against
+   * Vitest's copy of the mock, whose factory is async (#896). Node's ESM resolution of a
+   * package's `exports`, with Node's conditions: an answer it would not give leaves the
+   * import unmatched, which fails by name (MOCK_NOT_SEEN_BY_NODE), as before.
+   */
+  function importOnlyFile(spec, from) {
+    if (typeof spec !== "string" || !isBare(spec) || Module.isBuiltin(spec)) return null;
+    const name = packageNameOf(spec);
+    const anchor =
+      typeof from === "string" && from.startsWith("file:") ? fileURLToPath(from) : from;
+    for (let dir = path.dirname(anchor || rootFile); ; dir = path.dirname(dir)) {
+      const pkgDir = path.join(dir, "node_modules", name);
+      let manifest;
+      try {
+        manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
+      } catch {
+        manifest = undefined; // Not installed here, or unreadable: Node looks further up.
+      }
+      if (manifest !== undefined) {
+        const target = exportTarget(
+          manifest.exports,
+          `.${spec.slice(name.length)}`,
+          IMPORT_CONDITIONS,
+        );
+        if (typeof target !== "string") return null;
+        const file = path.join(pkgDir, target);
+        return fs.existsSync(file) ? canonical(file) : null;
+      }
+      if (path.dirname(dir) === dir) return null;
+    }
+  }
+
   // The memoized mock: `requireMock` caches the factory's result in `_mockRegistry`.
   //
   // A factory jestMockTransform made async (its `jest.requireActual` of project source
@@ -360,40 +396,7 @@ function createState() {
       state.bypass = null;
       return BYPASSED;
     }
-    if (filename === null) return state.unresolved.get(request);
-    return state.entries.get(filename) ?? state.importedEntry(filename);
-  };
-
-  /**
-   * The entry registered for `file`, which an import of `request` resolved to, if any.
-   *
-   * A jest.mock of a subpath `require` cannot resolve (an ES-module package whose
-   * `exports` gives it an `import` condition only, as `multiformats/cid` does) is
-   * registered by its specifier (`unresolved`), which a `require` of it matches. Node's
-   * ESM loader asks by the file its own resolution found (#896): an import of that same
-   * specifier into its own package binds the registration to that file, so this and
-   * every later load of the file, by any request, is served it. Without the binding the
-   * file had no jest.mock, and was matched against Vitest's copy of the registration,
-   * whose factory is async.
-   */
-  state.entryAt = (file, request) => {
-    const entry = state.entries.get(file);
-    if (entry !== undefined) return entry;
-    if (
-      typeof request === "string" &&
-      isBare(request) &&
-      state.unresolved.has(request) &&
-      (owningPackageOfFile(file) ?? packageNameAt(file)) === packageNameOf(request)
-    ) {
-      state.importedAs.set(file, request);
-    }
-    return state.importedEntry(file);
-  };
-
-  /** The `unresolved` entry an import bound to `file` (state.entryAt), if it is registered. */
-  state.importedEntry = (file) => {
-    const spec = state.importedAs.get(file);
-    return spec === undefined ? undefined : state.unresolved.get(spec);
+    return filename !== null ? state.entries.get(filename) : state.unresolved.get(request);
   };
 
   // `asyncFactory` is jestMockTransform's async variant of `factory`, when it made one.
@@ -401,7 +404,7 @@ function createState() {
   // whose lifetime the native setup decides at each file boundary; `owner` is what it
   // keeps it by.
   state.register = (from, spec, factory, asyncFactory, { library = false, owner = null } = {}) => {
-    const filename = state.resolveFrom(spec, from);
+    const filename = state.resolveFrom(spec, from) ?? importOnlyFile(spec, from);
     const entry = {
       spec,
       factory,
@@ -435,7 +438,7 @@ function createState() {
   state.decided = new Set();
 
   state.unregister = (from, spec) => {
-    const filename = state.resolveFrom(spec, from);
+    const filename = state.resolveFrom(spec, from) ?? importOnlyFile(spec, from);
     if (filename !== null) {
       state.entries.delete(filename);
       state.decided.add(canonical(filename));
@@ -755,6 +758,14 @@ function bridgedInstanceOf(filename, parent) {
  * apply them only after Node fails, so Node's answer for an aliased name is already the
  * one `state.resolve` would reach.
  */
+/** The conditions Node's ESM loader resolves an import with in this process. */
+const IMPORT_CONDITIONS = [
+  "node",
+  "import",
+  ...conditionsIn(process.execArgv),
+  ...conditionsIn(nodeOptionsList(process.env.NODE_OPTIONS)),
+];
+
 function isBare(request) {
   return !(request.startsWith(".") || path.isAbsolute(request) || request.startsWith("file:"));
 }
@@ -1409,7 +1420,7 @@ function installLoadHook(state) {
   nodeMockForRegistry.markFor = (file, request, parentFile) => {
     if (!nodeMocks) return null;
     const parent = { filename: parentFile };
-    const jestEntry = state.entryAt(canonical(file), request);
+    const jestEntry = state.entries.get(canonical(file));
     if (jestEntry !== undefined) return markOf(jestEntry);
     if (pendingCount() > 0 && assertNoPendingMockOf(state, file, request, parent)) return null;
     const index = vitestMocks();
