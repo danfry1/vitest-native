@@ -227,9 +227,28 @@ describe("ecosystem detection: an installed React Native package nothing declare
   });
 
   it("is not detected when transform.exclude names it, or a preset shadows it", () => {
-    expect(detectEcosystemPackages(app(), [], [], ["rn-undeclared"])).not.toContain(
-      "rn-undeclared",
-    );
+    // Each held package is undeclared React Native reachable only through the package
+    // the project excluded or a preset shadows: neither's real source loads, so nothing
+    // loads it. The scan finds it on its own, so it must be held back by that closure.
+    const root = project(["react-native"], {
+      "react-native": {},
+      "rn-excluded": { peerDeps: ["react-native"], deps: ["rn-held-by-exclude"] },
+      "rn-held-by-exclude": { peerDeps: ["react-native"] },
+      "react-native-screens": { peerDeps: ["react-native"], deps: ["rn-held-by-preset"] },
+      "rn-held-by-preset": { peerDeps: ["react-native"] },
+    });
+    const excludedAndShadowed = detectEcosystemPackages(root, [], [], ["rn-excluded"], [
+      "screens",
+    ]);
+    expect(excludedAndShadowed).not.toContain("rn-excluded");
+    expect(excludedAndShadowed).not.toContain("rn-held-by-exclude");
+    expect(excludedAndShadowed).not.toContain("react-native-screens");
+    expect(excludedAndShadowed).not.toContain("rn-held-by-preset");
+    // With no exclusion and the preset off, the same packages are detected: the
+    // exclusion and the shadowing are what held them back.
+    const neither = detectEcosystemPackages(root, [], [], [], []);
+    expect(neither).toContain("rn-held-by-exclude");
+    expect(neither).toContain("rn-held-by-preset");
   });
 
   it("answers from the cache on the next detection, and rescans after an install", () => {
