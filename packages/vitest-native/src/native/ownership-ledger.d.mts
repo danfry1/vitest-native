@@ -26,6 +26,8 @@ export interface DualEvaluationCause {
 }
 
 export declare const OWNERSHIP_ROUTES: Record<DualEvaluationRoute, { label: string; fix: string }>;
+/** Node's loader for a file, as the guard names it. */
+export declare const OWNERSHIP_VIA: Record<"cjs" | "require-esm" | "esm" | "json", string>;
 
 export interface DualEvaluation {
   readonly code: "SOURCE_EVALUATED_TWICE";
