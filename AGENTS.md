@@ -5,7 +5,7 @@ Then read the file for the lane your change is in. It is written for any tool.
 Tool-specific setup lives in thin adapter files; `CLAUDE.md` only imports this
 file.
 
-It follows the [agent workflow standard](https://github.com/danfry1/standards/blob/main/agents.md).
+It follows the agent workflow standard.
 Decisions cited as "ADR NNNN" are recorded in `docs/adr/`.
 
 ## How a change is made
@@ -55,7 +55,8 @@ each report to one line, and send one only at these points:
 ## Lanes
 
 `agents/lanes.json` says which lane owns every tracked file.
-`tests/agent-lanes.test.ts` fails if any file has no owner.
+`tests/agent-lanes.test.ts` fails if any file has no owner. Where globs
+overlap, the first matching lane owns the file.
 
 | Lane | Owns |
 | --- | --- |

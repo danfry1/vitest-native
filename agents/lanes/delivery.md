@@ -25,10 +25,10 @@ CI, scripts, dependencies, the build, changesets and releasing. This lane owns t
 - **Never use `bunx` or `npx` where the repo runs commands** (`tests/no-bunx-npx.test.ts` enforces this). Build with `bun run build`. It runs `bun --bun tsdown`, then copies the static types and writes the build stamp.
 - **Pin npm through the setup action,** never with `npm install -g` in a workflow.
 - **For a scratch install:** `--minimum-release-age=604800 --ignore-scripts` with a frozen lockfile, pinned to the repo lockfile's versions. A scratch directory outside the repo doesn't read `bunfig.toml`.
-- **Changesets must pass `check-changeset --lint`.** It reads the committed head, so run it after `git commit`. Changes to `package.json` fields, `tsdown.config.ts`, `copy-static-types` or production dependencies all need a changeset.
+- **Changesets must pass `check-changeset`.** `check-changeset.mjs --lint <file>` checks style; `check-changeset.mjs origin/main` checks the committed head, so run that after `git commit`. Changes to `package.json` fields, `tsdown.config.ts`, `copy-static-types` or production dependencies all need a changeset.
 - **Build-file lists live in one place,** `scripts/verbatim-runtime.mjs`, shared by tsdown and the size check.
 - **`classify-change.mjs` maps every path,** and fails closed on paths it doesn't know.
-- **The `escaped-regexp` lint rule flags a `new RegExp` built from interpolated values,** even constant ones. Only literals, `UPPER_CASE` names and `escape…` calls pass. Use a regex literal.
+- **In `src/`, the `escaped-regexp` lint rule flags a `new RegExp` built from interpolated values,** even constant ones. It accepts literals, `String.raw`, `UPPER_CASE` names, `escape…` calls, `.map(escape…).join`, `.source`, and names ending in `re`, `pattern` or `regexp`. Prefer a regex literal.
 
 ## Traps
 - **Stacked PRs get no CI and don't retarget.** Run `gh pr edit --base main`, then push an empty commit. Rerunning a job reuses the old SHA.
