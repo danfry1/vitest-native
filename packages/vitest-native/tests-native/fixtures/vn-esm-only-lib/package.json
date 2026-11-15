@@ -4,8 +4,18 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": { "import": "./lib/index.js" },
-    "./cid": { "import": "./lib/cid.js" },
+    ".": {
+      "import": "./lib/index.js"
+    },
+    "./cid": {
+      "import": "./lib/cid.js"
+    },
+    "./hasher": {
+      "import": {
+        "module-sync": "./lib/hasher.js",
+        "default": "./lib/hasher-default.js"
+      }
+    },
     "./package.json": "./package.json"
   }
 }

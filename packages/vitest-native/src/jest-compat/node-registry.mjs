@@ -301,7 +301,7 @@ function createState() {
           `.${spec.slice(name.length)}`,
           IMPORT_CONDITIONS,
         );
-        if (typeof target !== "string") return null;
+        if (typeof target !== "string" || !validTarget(target)) return null;
         const file = path.join(pkgDir, target);
         return fs.existsSync(file) ? canonical(file) : null;
       }
@@ -757,12 +757,17 @@ function bridgedInstanceOf(filename, parent) {
   return Object.prototype.toString.call(value) === "[object Module]" ? requireFacade(value) : value;
 }
 
-/** The conditions Node's ESM loader resolves an import with in this process. */
+/**
+ * The conditions Node's ESM loader resolves an import with in this process: its defaults
+ * (`node-addons` unless addons are off) and the `--conditions` it was given.
+ */
+const NODE_OPTIONS = [...process.execArgv, ...nodeOptionsList(process.env.NODE_OPTIONS)];
 const IMPORT_CONDITIONS = [
   "node",
   "import",
-  ...conditionsIn(process.execArgv),
-  ...conditionsIn(nodeOptionsList(process.env.NODE_OPTIONS)),
+  "module-sync",
+  ...(NODE_OPTIONS.includes("--no-addons") ? [] : ["node-addons"]),
+  ...conditionsIn(NODE_OPTIONS),
 ];
 
 /**
@@ -772,6 +777,23 @@ const IMPORT_CONDITIONS = [
  */
 function isBare(request) {
   return !(request.startsWith(".") || path.isAbsolute(request) || request.startsWith("file:"));
+}
+
+/**
+ * Whether Node accepts an `exports` target as a file in its package: `./` and then no
+ * empty, `.`, `..` or `node_modules` segment (PACKAGE_TARGET_RESOLVE). Node fails the
+ * import for any other, so no file is keyed for it.
+ */
+function validTarget(target) {
+  return (
+    target.startsWith("./") &&
+    !target
+      .slice(2)
+      .split(/[\\/]/)
+      .some(
+        (seg) => seg === "" || seg === "." || seg === ".." || seg.toLowerCase() === "node_modules",
+      )
+  );
 }
 
 /**
@@ -1331,6 +1353,18 @@ function installLoadHook(state) {
     return mocked === undefined ? NONE : vitestMockValue(mocked, filename, null);
   }
   nodeMockForRegistry.NONE = NONE;
+  /**
+   * The mock for Node's ESM loader's load of `file` (a URL resolveMocked marked), or NONE.
+   * An import cannot wait for a factory the author wrote async: its pending promise would
+   * become an empty module, so it fails by name, as jestMockForImport does for the bridge.
+   */
+  nodeMockForRegistry.forImport = (file) => {
+    const value = nodeMockForRegistry(file);
+    if (Object.prototype.toString.call(value) === "[object Promise]") {
+      throw mockNotSeenByNode(file, null, FACTORY_NOT_SETTLED);
+    }
+    return value;
+  };
 
   // The mock seam of the require bridge (experimental.ownershipModel 'resolution',
   // native/bridge.mjs), which evaluates a Vite-owned module synchronously in Vite's place:

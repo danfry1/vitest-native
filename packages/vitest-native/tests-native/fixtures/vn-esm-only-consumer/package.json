@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./index.js",
-    "./via-root": "./via-root.js"
+    "./via-root": "./via-root.js",
+    "./hasher": "./hasher.js",
+    "./for-async": "./for-async.js"
   }
 }
