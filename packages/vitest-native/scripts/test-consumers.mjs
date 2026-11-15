@@ -389,7 +389,7 @@ function runExpoVersions(tarball, leg, entries) {
   }
 }
 
-// The README's and the quick start's code, run as written (scripts/doc-snippets.mjs).
+// The code on the SNIPPET_PAGES pages, run as written (scripts/doc-snippets.mjs).
 // The app is the Expo SDK 58 template fixture, on RNTL 14, whose async render() is
 // what an unawaited snippet breaks. Its own config and tests are removed first, so the
 // run is nothing but what the pages show.
