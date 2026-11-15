@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { VitestNativeError } from "../errors.mjs";
 import { isRuntimeResidentFile, isTestRuntimeResidentFile } from "./ownership.mjs";
 import { createStateManifest } from "./state-manifest.mjs";
+import { hotDiagnostic } from "./hot-diagnostic.mjs";
 
 // Keys owned by Vitest, Vite, coverage or this plugin: never deleted or put back by the
 // globals diff. Vitest names its own in both cases, and replaces some per task:
@@ -349,15 +350,14 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
 
   // Each worker-resident property is recorded once, with the file that was running
   // when it appeared: the property's name usually names its library, and the file is
-  // where to look when it does not. It goes to stderr because Vitest drops console
-  // output made while it starts a file, which is when the reset runs.
+  // where to look when it does not.
   let previousFile = null;
   const residentNotice = (where) => (key) => {
     if (!diagnostics) return;
     const by = previousFile ? `; it appeared while ${previousFile} ran` : "";
-    process.stderr.write(
-      `[vitest-native] hot reset: kept ${where}${String(key)} for the worker's life: ` +
-        `it is non-configurable, so no reset can remove or replace it${by}\n`,
+    hotDiagnostic(
+      `hot reset: kept ${where}${String(key)} for the worker's life: ` +
+        `it is non-configurable, so no reset can remove or replace it${by}`,
     );
   };
 
@@ -378,7 +378,7 @@ export function installHotReset({ projectRoot, diagnostics, preserveGlobals = []
       }
       restoreDescriptors(globalThis, baseline, { skip, onResident: residentNotice("globalThis.") });
       if (diagnostics && deleted.length) {
-        console.log(`[vitest-native] hot reset: deleted test-phase globals: ${deleted.join(", ")}`);
+        hotDiagnostic(`hot reset: deleted test-phase globals: ${deleted.join(", ")}`);
       }
     },
     verify: (baseline) =>
