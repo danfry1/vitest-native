@@ -370,7 +370,10 @@ describe("native engine: the registry builds in the background on a cold cache",
     // Bounds from 40 runs on a loaded Windows runner. A missed cancel waits 60 s within
     // the close hooks (max 0.21 s seen). A stopped helper holding the process open shows
     // after close resolves (max 0.12 s seen; up to 9 s before #824). The time from the
-    // run's end to the close hooks, the pool's shutdown, is not bounded here: #831.
+    // run's end to the close hooks, the pool's shutdown with the workers' exit, took up to
+    // 14 s while workers wrote Node's compile cache at exit (#831), and at most 0.05 s
+    // with the cache off.
+    expect(at("hooks")!.at - at("end")!.at, detail).toBeLessThan(2_000);
     expect(last("closed")!.at - at("hooks")!.at, detail).toBeLessThan(5_000);
     expect(at("exit")!.at - last("closed")!.at, detail).toBeLessThan(2_000);
     expect(await settled(run.pid)).toEqual([]);

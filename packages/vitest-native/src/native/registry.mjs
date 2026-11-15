@@ -2,9 +2,9 @@
 //
 // The native engine runs RN's real JS, and with isolation on (the default) that
 // graph is re-instantiated for every test FILE: ~440 separate Node module loads,
-// each paying a filesystem stat, a module-wrapper construction, and a compile-cache
-// lookup. Measured on RN 0.86, that is ~59ms for a typical test's slice of RN and
-// ~110ms for the full public surface — per file.
+// each paying a filesystem stat, a module-wrapper construction, and a compile.
+// Measured on RN 0.86, that is ~59ms for a typical test's slice of RN and ~110ms
+// for the full public surface — per file.
 //
 // This module collapses that into ONE file. At config time we walk RN's require
 // graph once, apply exactly the transforms the per-file hooks would apply (native
