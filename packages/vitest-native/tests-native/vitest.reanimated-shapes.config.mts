@@ -1,6 +1,7 @@
 // Reanimated's shared values under the native engine (reanimated-shapes/), with
 // jest-compat (`--mode compat`) and without it (`--mode plain`): the corrections apply
 // to Reanimated's own mock either way.
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 import { jestCompatAliases, jestCompatSetup, jestMockTransform } from "../dist/jest-compat.mjs";

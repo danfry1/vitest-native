@@ -27,12 +27,12 @@ const RN = path.dirname(fs.realpathSync(findUp("node_modules/react-native/packag
 const endsWithPath = (file: string, suffix: string): boolean =>
   file.replace(/\\/g, "/").endsWith(suffix);
 
-const build = (platform: "ios" | "android" = "ios"): string => {
+const build = (platform: "ios" | "android" = "ios", extraAssetExts: string[] = []): string => {
   const file = buildRegistry({
     projectRoot,
     platform,
     reactNativeVersion: "0.86.0",
-    assetExts: ["png", "jpg", "ttf"],
+    assetExts: ["png", "jpg", "ttf", ...extraAssetExts],
     diagnostics: false,
   }) as string | null;
   if (!file) throw new Error("registry build returned null");
@@ -100,18 +100,28 @@ describe("precompiled RN registry: build", () => {
   }, 300_000);
 
   it("rebuilds when a source file it was built from changes", () => {
-    const file = build();
-    const meta = JSON.parse(fs.readFileSync(`${file}.json`, "utf8"));
-    expect(meta.manifest.length).toBeGreaterThan(100);
-    // Simulate a patched/reinstalled React Native by invalidating one recorded
-    // entry; the next build must not serve the stale registry.
-    meta.manifest[0][1] = meta.manifest[0][1] + 1000;
-    fs.writeFileSync(`${file}.json`, JSON.stringify(meta));
-    const rebuilt = build();
-    expect(rebuilt).toBe(file);
-    expect(JSON.parse(fs.readFileSync(`${file}.json`, "utf8")).manifest[0][1]).toBe(
-      fs.statSync(meta.manifest[0][0]).mtimeMs,
-    );
+    // This test rewrites a registry's metadata, so it builds one of its own: an asset
+    // extension no file has, unique to this process, gives it its own cache key. On the
+    // shared registry, another script running this file at the same time read the
+    // metadata mid-write ("Unexpected end of JSON input", 2026-11-14).
+    const own = [`vn-rebuild-${process.pid}`];
+    const file = build("ios", own);
+    try {
+      expect(file).not.toBe(build());
+      const meta = JSON.parse(fs.readFileSync(`${file}.json`, "utf8"));
+      expect(meta.manifest.length).toBeGreaterThan(100);
+      // Simulate a patched/reinstalled React Native by invalidating one recorded
+      // entry; the next build must not serve the stale registry.
+      meta.manifest[0][1] = meta.manifest[0][1] + 1000;
+      fs.writeFileSync(`${file}.json`, JSON.stringify(meta));
+      const rebuilt = build("ios", own);
+      expect(rebuilt).toBe(file);
+      expect(JSON.parse(fs.readFileSync(`${file}.json`, "utf8")).manifest[0][1]).toBe(
+        fs.statSync(meta.manifest[0][0]).mtimeMs,
+      );
+    } finally {
+      for (const leftover of [file, `${file}.json`]) fs.rmSync(leftover, { force: true });
+    }
   });
 
   it("keys the registry by the boundary mocks' CONTENT, not just their names", async () => {

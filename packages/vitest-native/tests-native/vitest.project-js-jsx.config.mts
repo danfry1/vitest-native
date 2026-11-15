@@ -1,14 +1,16 @@
 // JSX in a project's own .js files (setup, test and source), under the engine and
 // runtime `--mode` names: `native`, `hot` (the native engine's hot runtime), `mock`, or
 // `projects` (ios and android projects sharing the same .js setup file, run together).
+import "./support/fresh-dist.mts";
 import flowRemoveTypes from "flow-remove-types";
 import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 
 // A project's own plugins, listed after reactNative() with the default order: one serves a
-// .js file from load, one transforms a .js file (plugins.test.tsx), and one strips Flow
-// as an app's Babel/Flow plugin would (flow.test.tsx).
+// .js file from load, one transforms a .js file (plugins.test.tsx), one transforms a
+// package's .js file (package-jsx.test.tsx), and one strips Flow as an app's Babel/Flow
+// plugin would (flow.test.tsx).
 const projectPlugins: Plugin[] = [
   {
     name: "project-load",
@@ -23,6 +25,14 @@ const projectPlugins: Plugin[] = [
     transform(code, id) {
       if (id.endsWith("/project-js-jsx/transformed.js")) {
         return code.replace("__PROJECT_TRANSFORM__", "applied");
+      }
+    },
+  },
+  {
+    name: "package-transform",
+    transform(code, id) {
+      if (/[\\/]node_modules[\\/].*jsx-in-js-lib[\\/]index\.js$/.test(id)) {
+        return code.replace("__PACKAGE_TRANSFORM__", "applied");
       }
     },
   },
@@ -68,6 +78,9 @@ export default defineConfig(({ mode }) => {
       environment: "node",
       setupFiles: [SETUP],
       include: INCLUDE,
+      // A package's JSX is compiled for the native engine only (#763); the mock engine
+      // compiles the packages it inlines through its own path.
+      exclude: mode === "mock" ? ["**/package-jsx.test.tsx"] : [],
     },
   };
 });

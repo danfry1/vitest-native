@@ -1,5 +1,6 @@
 // The app points `lib` at its source; `lib` peers on react-native, so the engine
 // detects it and Node compiles it.
+import "../../../support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

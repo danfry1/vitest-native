@@ -1,6 +1,7 @@
 // A project whose only root manual mock is of a package a preset stands in for (#732), in
 // its own fixture app. `--mode hot` runs it in a reused worker;
 // scripts/test-root-mocks-registry.mjs runs it cold and then with a warm registry.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

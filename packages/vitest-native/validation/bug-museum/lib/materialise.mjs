@@ -165,36 +165,40 @@ function placeInPnpmShape(modules, name) {
   fs.symlinkSync(path.join(storeModules, name), at);
 }
 
-/** Where the ownership wrapper records each reactNative() call it saw, in the exhibit root. */
-export const OWNERSHIP_MARKER = ".museum-ownership-calls";
+/** Where the experimental-flag wrapper records each reactNative() call it saw, in the exhibit root. */
+export const EXPERIMENTAL_MARKER = ".museum-experimental-calls";
 
 /**
- * `run.mjs --ownership <model>`: every reactNative() call in the exhibit gets
- * `experimental.ownershipModel: model`, as if each config spelled it, without editing
- * any exhibit. The installed copy's main entry becomes a module that re-exports the
- * build's own and wraps reactNative; the build's files are untouched. Each call appends
- * a line to OWNERSHIP_MARKER, so run.mjs can tell an exhibit the flag never reached.
+ * `run.mjs --ownership <model>` and `--node-mocks on|off`: every reactNative() call in the
+ * exhibit gets those `experimental` entries (config-axes/node-mocks.mjs experimentalEntries:
+ * one object, both flags), as if each config spelled them, without editing any exhibit.
+ * The installed copy's main entry becomes a module that re-exports the build's own and
+ * wraps reactNative; the build's files are untouched. Each call appends the entries to
+ * EXPERIMENTAL_MARKER, so run.mjs can tell an exhibit the flags never reached.
  */
-export function wrapForOwnership(installed, root, model) {
+export function wrapForExperimental(installed, root, entries) {
   const manifestFile = path.join(installed, "package.json");
   const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
   const main = manifest.exports?.["."];
   if (typeof main?.default !== "string")
-    throw new Error(`--ownership: ${manifestFile} has no exports["."].default to wrap`);
-  const wrapper = "museum-ownership.mjs";
+    throw new Error(
+      `--ownership/--node-mocks: ${manifestFile} has no exports["."].default to wrap`,
+    );
+  const wrapper = "museum-experimental.mjs";
   fs.writeFileSync(
     path.join(installed, wrapper),
     [
-      "// Written by the bug museum (run.mjs --ownership): every reactNative() call",
-      "// gets experimental.ownershipModel. A local export shadows the star re-export.",
+      "// Written by the bug museum (run.mjs --ownership / --node-mocks): every reactNative()",
+      "// call gets these experimental entries. A local export shadows the star re-export.",
       'import fs from "node:fs";',
       `import { reactNative as buildReactNative } from ${JSON.stringify(main.default)};`,
       `export * from ${JSON.stringify(main.default)};`,
+      `const entries = ${JSON.stringify(entries)};`,
       "export function reactNative(options) {",
-      `  fs.appendFileSync(${JSON.stringify(path.join(root, OWNERSHIP_MARKER))}, ${JSON.stringify(`${model}\n`)});`,
+      `  fs.appendFileSync(${JSON.stringify(path.join(root, EXPERIMENTAL_MARKER))}, ${JSON.stringify(`${JSON.stringify(entries)}\n`)});`,
       "  return buildReactNative({",
       "    ...options,",
-      `    experimental: { ...options?.experimental, ownershipModel: ${JSON.stringify(model)} },`,
+      "    experimental: { ...options?.experimental, ...entries },",
       "  });",
       "}",
       "",
@@ -239,7 +243,7 @@ export const HOT_MARKER = ".museum-hot-calls";
  * own. Each call appends to HOT_MARKER: "exhibit" (its own hot runtime kept), "overrode"
  * (`off` turned off a hot runtime the exhibit asked for, which removes the precondition of
  * an exhibit written for it) or "axis". Wraps whatever the installed
- * copy's main entry is, so it composes with wrapForOwnership.
+ * copy's main entry is, so it composes with wrapForExperimental.
  */
 export function wrapForHot(installed, root, mode) {
   const manifestFile = path.join(installed, "package.json");
@@ -274,8 +278,8 @@ export function wrapForHot(installed, root, mode) {
 
 /**
  * Materialise `exhibit` (an exhibits.json entry) under `work`. Returns the app root.
- * `build` is the vitest-native package directory under test; `ownershipModel` other than
- * "off" wraps the installed copy (wrapForOwnership). `from` is the app directory to copy,
+ * `build` is the vitest-native package directory under test; non-empty `experimental`
+ * entries (--ownership, --node-mocks) wrap the installed copy (wrapForExperimental). `from` is the app directory to copy,
  * for a test's own fixture laid out as an exhibit; by default, the exhibit's.
  */
 export function materialise(
@@ -285,7 +289,7 @@ export function materialise(
     build,
     deps = build,
     edits = [],
-    ownershipModel = "off",
+    experimental = {},
     hotMode = null,
     from = path.join(museumRoot, "exhibits", exhibit.id),
   },
@@ -320,8 +324,8 @@ export function materialise(
   }
   copyVendored(path.join(root, "vendor"), modules);
   copyPackage(build, path.join(modules, "vitest-native"));
-  if (ownershipModel !== "off")
-    wrapForOwnership(path.join(modules, "vitest-native"), root, ownershipModel);
+  if (Object.keys(experimental).length > 0)
+    wrapForExperimental(path.join(modules, "vitest-native"), root, experimental);
   if (hotMode !== null) wrapForHot(path.join(modules, "vitest-native"), root, hotMode);
   const expo = declaresExpo(root);
   // The installed packages of the build's own ref, not this checkout's: an old build is

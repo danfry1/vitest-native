@@ -1,3 +1,4 @@
+import { placeSetupFiles, runSetupFilesInOrder } from "./setup-files.js";
 import type { Plugin, ResolvedConfig, UserConfig } from "vite";
 import type { PoolRunnerInitializer } from "vitest/node";
 import type { VitestNativeOptions, ResolvedOptions, Preset, PresetModule } from "./types.js";
@@ -44,7 +45,13 @@ import {
 import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.js";
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { JSX_TRANSFORM, nativeEngineConfig } from "./native/apply.js";
-import { isProjectJsFile, loadProjectJsx, projectJsxOptions } from "./project-jsx.js";
+import {
+  isPackageJsFile,
+  isProjectJsFile,
+  loadPackageJsx,
+  loadProjectJsx,
+  projectJsxOptions,
+} from "./project-jsx.js";
 import {
   createProjectBabel,
   isProjectSourceFile,
@@ -66,7 +73,12 @@ type AssetModules = typeof import("./native/assets.mjs");
 import type { HotMemoryPlan } from "./native/memory.mjs";
 import type { NativePoolOptions } from "./native/pool.js";
 import { workerVitestMismatch } from "./native/worker-vitest.js";
-import { OWNERSHIP_META_KEY, OWNERSHIP_ROUTES, viteMarkerFor } from "./native/ownership-ledger.mjs";
+import {
+  OWNERSHIP_META_KEY,
+  OWNERSHIP_ROUTES,
+  OWNERSHIP_VIA,
+  viteMarkerFor,
+} from "./native/ownership-ledger.mjs";
 import {
   assertHostResolvesRunningVitest,
   assertHotWorkerLoadsRunningVitest,
@@ -1518,25 +1530,23 @@ export function pinInlineProjectRoots(test: unknown, declaringRoot: string): num
 }
 
 /**
- * Run React Native's setup before the user's own setup files.
- *
- * Vite merges a config hook's returned arrays AFTER the user's (`mergeConfig`
- * concatenates left to right), so returning `setupFiles: [ours]` ran every user setup
- * file first. A user setup that imports `@testing-library/react-native` or
- * `react-native` then reached Node before the require hooks existed and failed on
- * React Native's Flow source ("Unexpected token 'typeof'"). The hot runtime hid this
- * by installing the hooks at worker boot; every other run broke. Jest has the same
- * ordering contract: a preset's `setupFiles` run before the project's
- * `setupFilesAfterEnv`. Moving the entries into the user's list (and out of the merged
- * result) keeps a single copy of each at the front, in order.
+ * Run React Native's setup before the user's own setup files (placeSetupFiles). A user
+ * setup that imports `@testing-library/react-native` or `react-native` otherwise reached
+ * Node before the require hooks existed and failed on React Native's Flow source
+ * ("Unexpected token 'typeof'"). The hot runtime hid this by installing the hooks at
+ * worker boot; every other run broke. Jest has the same ordering contract: a preset's
+ * `setupFiles` run before the project's `setupFilesAfterEnv`. The entries move into the
+ * user's list and out of the merged result, so a single copy of each runs, first.
  */
 function prependSetupFile(userConfig: UserConfig, contributed: { setupFiles?: unknown }): void {
-  const ours = contributed.setupFiles as string[];
-  const userTest = ((userConfig as { test?: { setupFiles?: unknown } }).test ??= {});
+  const userTest = ((userConfig as { test?: Parameters<typeof placeSetupFiles>[0] }).test ??= {});
   const existing = userTest.setupFiles;
-  const userFiles = Array.isArray(existing) ? existing : existing == null ? [] : [existing];
-  if (userFiles.length === 0) return;
-  userTest.setupFiles = [...ours, ...userFiles.filter((f) => !ours.includes(f))];
+  if (existing == null || (Array.isArray(existing) && existing.length === 0)) {
+    // Nothing of the project's to run first: the merge lists ours alone, in order.
+    runSetupFilesInOrder(userTest);
+    return;
+  }
+  placeSetupFiles(userTest, contributed.setupFiles as string[]);
   contributed.setupFiles = [];
 }
 
@@ -1806,6 +1816,38 @@ export function ownershipGuardConfig(
   return { mode, allow };
 }
 
+/** One cause of the guard's: where Node's load began, and how. */
+interface OwnershipCause {
+  route: string;
+  origin: string;
+  files: Set<string>;
+  tests: Set<string>;
+  // How Node reached each file: its own route and Node's loader (diagnostics lists them).
+  reached: Map<string, { route: string; via?: string }>;
+}
+
+interface InstalledPackage {
+  name: string;
+  dir: string;
+}
+
+/**
+ * The installed package a file belongs to: the directory after its LAST `node_modules`
+ * (pnpm's store nests the real one under node_modules/.pnpm/<id>/node_modules/), with a
+ * scope when it has one. Null for a file outside node_modules (project or workspace source).
+ */
+export function installedPackageOf(file: string): InstalledPackage | null {
+  const parts = file.split(/[\\/]/);
+  const at = parts.lastIndexOf("node_modules");
+  if (at < 0 || at + 1 >= parts.length) return null;
+  const scoped = parts[at + 1].startsWith("@");
+  const end = at + (scoped ? 3 : 2);
+  if (end > parts.length - 1) return null; // the package directory itself, not a file in it
+  const name = parts.slice(at + 1, end).join("/");
+  const sep = file.includes("\\") && !file.includes("/") ? "\\" : "/";
+  return { name, dir: parts.slice(0, end).join(sep) };
+}
+
 /**
  * Prints the ownership guard's findings at the end of the run, whatever the reporter:
  * worker console output is dropped by `silent`, by reporters that print only failures,
@@ -1816,15 +1858,14 @@ export function ownershipGuardConfig(
 export class OwnershipSummaryReporter {
   // One entry per cause (where Node's load began, and how): the files it put in both
   // module graphs and the test files it happened in.
-  private readonly found = new Map<
-    string,
-    { route: string; origin: string; files: Set<string>; tests: Set<string> }
-  >();
+  private readonly found = new Map<string, OwnershipCause>();
   private readonly used = new Set<string>();
   private mode = "warn";
   constructor(
     private readonly allow: () => { path: string; reason: string }[],
     private readonly write: (text: string) => void = (text) => process.stderr.write(text),
+    // reactNative({ diagnostics: true }) in any project of the run: list every file.
+    private readonly diagnostics: () => boolean = () => false,
   ) {}
   // Watch mode re-runs in one process: each run reports what that run found.
   onTestRunStart(): void {
@@ -1832,15 +1873,22 @@ export class OwnershipSummaryReporter {
     this.used.clear();
     this.mode = "warn";
   }
-  private add(route: string, origin: string, file: string, test: string): void {
+  private add(
+    route: string,
+    origin: string,
+    file: string,
+    test: string,
+    reached: { route: string; via?: string } = { route },
+  ): void {
     const key = `${route}\0${origin}`;
     let cause = this.found.get(key);
     if (cause === undefined) {
-      cause = { route, origin, files: new Set(), tests: new Set() };
+      cause = { route, origin, files: new Set(), tests: new Set(), reached: new Map() };
       this.found.set(key, cause);
     }
     cause.files.add(file);
     cause.tests.add(test);
+    if (!cause.reached.has(file)) cause.reached.set(file, reached);
   }
   onTestModuleEnd(testModule: {
     moduleId: string;
@@ -1855,6 +1903,7 @@ export class OwnershipSummaryReporter {
             file: string;
             second: string;
             route: string;
+            via?: string;
             cause?: { route: string; file: string };
           }[];
           allowUsed: string[];
@@ -1886,7 +1935,10 @@ export class OwnershipSummaryReporter {
     for (const used of data.allowUsed) this.used.add(used);
     for (const conflict of data.conflicts) {
       const cause = conflict.cause ?? { route: conflict.route, file: conflict.file };
-      this.add(cause.route, cause.file, conflict.file, test);
+      this.add(cause.route, cause.file, conflict.file, test, {
+        route: conflict.route,
+        via: conflict.via,
+      });
     }
   }
   onTestRunEnd(): void {
@@ -1894,25 +1946,77 @@ export class OwnershipSummaryReporter {
     if (this.found.size > 0) {
       const files = new Set([...this.found.values()].flatMap((cause) => [...cause.files]));
       // Forward slashes on every platform, as the guard's other messages print paths.
-      const rel = (file: string) =>
-        (path.relative(process.cwd(), file) || file).split(path.sep).join("/");
-      const some = (items: Set<string>) =>
-        [...items].slice(0, 3).join(", ") + (items.size > 3 ? `, +${items.size - 3} more` : "");
+      const rel = (file: string, from = process.cwd()) =>
+        (path.relative(from, file) || file).split(path.sep).join("/");
+      const some = (items: Iterable<string>, size: number) =>
+        [...items].slice(0, 3).join(", ") + (size > 3 ? `, +${size - 3} more` : "");
+      const listAll = this.diagnostics();
+      // Causes that start in one installed package by one route are one problem with one
+      // fix: an installed package's TypeScript source is a cause per file (no file of it
+      // has a parent outside node_modules), so 14 files of one package read as 14 causes.
+      // They print as one line naming the package; project causes stay one line each.
+      const groups = new Map<
+        string,
+        { route: string; pkg: InstalledPackage | null; causes: OwnershipCause[] }
+      >();
+      for (const [key, cause] of this.found) {
+        const pkg = installedPackageOf(cause.origin);
+        const groupKey = pkg ? `${cause.route}\0package\0${pkg.dir}` : key;
+        let group = groups.get(groupKey);
+        if (!group) {
+          group = { route: cause.route, pkg, causes: [] };
+          groups.set(groupKey, group);
+        }
+        group.causes.push(cause);
+      }
       lines.push(
         `[vitest-native] ownership: ${files.size} file(s) were evaluated by both Node ` +
           `and Vite (${this.mode === "error" ? "failed: ownership 'error'" : "warning; reactNative({ ownership: 'error' }) fails on it"}), ` +
-          `from ${this.found.size} cause(s):`,
+          `from ${this.found.size} cause(s)` +
+          (groups.size < this.found.size
+            ? `, ${groups.size} after grouping by installed package:`
+            : ":"),
       );
-      for (const cause of this.found.values()) {
-        const known = OWNERSHIP_ROUTES[cause.route as keyof typeof OWNERSHIP_ROUTES];
-        const first = [...cause.files][0];
-        lines.push(
-          `  ${rel(cause.origin)}, loaded by Node through ${known?.label ?? cause.route}: ` +
-            `${cause.files.size} file(s), in ${some(cause.tests)}`,
-          // A file of the cause's when its origin is not itself one of them.
-          ...(cause.files.has(cause.origin) ? [] : [`    first: ${rel(first)}`]),
-          ...(known ? [`    fix: ${known.fix}`] : []),
-        );
+      for (const group of groups.values()) {
+        const known = OWNERSHIP_ROUTES[group.route as keyof typeof OWNERSHIP_ROUTES];
+        const via = known?.label ?? group.route;
+        const reached = new Map(group.causes.flatMap((cause) => [...cause.reached]));
+        const tests = new Set(group.causes.flatMap((cause) => [...cause.tests]));
+        if (group.pkg && group.causes.length > 1) {
+          lines.push(
+            `  ${group.pkg.name} (installed package, ${rel(group.pkg.dir)}), loaded by Node ` +
+              `through ${via}: ${group.causes.length} cause(s), ${reached.size} file(s), ` +
+              `in ${some(tests, tests.size)}`,
+          );
+          if (!listAll) {
+            const names = [...reached.keys()].map((file) => rel(file, group.pkg!.dir));
+            lines.push(
+              `    files: ${some(names, names.length)}` +
+                (names.length > 3 ? " (reactNative({ diagnostics: true }) lists them all)" : ""),
+            );
+          }
+        } else {
+          const cause = group.causes[0];
+          const first = [...cause.files][0];
+          lines.push(
+            `  ${rel(cause.origin)}, loaded by Node through ${via}: ` +
+              `${cause.files.size} file(s), in ${some(cause.tests, cause.tests.size)}`,
+            // A file of the cause's when its origin is not itself one of them.
+            ...(cause.files.has(cause.origin) || listAll ? [] : [`    first: ${rel(first)}`]),
+          );
+        }
+        if (listAll) {
+          // Every file, with how Node reached it (#638): its own route, and Node's loader.
+          for (const [file, how] of reached) {
+            const label =
+              OWNERSHIP_ROUTES[how.route as keyof typeof OWNERSHIP_ROUTES]?.label ?? how.route;
+            const loader = how.via
+              ? (OWNERSHIP_VIA[how.via as keyof typeof OWNERSHIP_VIA] ?? how.via)
+              : null;
+            lines.push(`    file: ${rel(file)}, through ${label}${loader ? ` (${loader})` : ""}`);
+          }
+        }
+        if (known) lines.push(`    fix: ${known.fix}`);
       }
       lines.push(`  See ${docsUrl("/guide/errors#SOURCE_EVALUATED_TWICE")}.`);
     }
@@ -1966,7 +2070,7 @@ export function withOwnershipMarker(
 /** The ownership summary of each running Vitest, and the exemption lists it reports on. */
 const ownershipSummaries = new WeakMap<
   object,
-  { sources: Set<Map<string, { path: string; reason: string }[]>> }
+  { sources: Set<Map<string, { path: string; reason: string }[]>>; diagnostics: boolean }
 >();
 
 /** The parts of a resolved Vitest config the hang watch reads (watchForHangs). */
@@ -2801,6 +2905,28 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
                 );
               }
             },
+            onImportedUndeclared: (importer, name, dir, listed) => {
+              if (diagnostics) {
+                const how =
+                  listed === "devDependency"
+                    ? `lists it only in devDependencies`
+                    : `does not list it in its dependencies`;
+                console.log(
+                  `[vitest-native] ${importer} imports ${name} (${dir}) and ${how}. Node ` +
+                    `loads ${name} with ${importer}, so it is compiled for Node and the tests' ` +
+                    `imports share that copy; listing it in dependencies makes that explicit.`,
+                );
+              }
+            },
+            onImportScanTruncated: (pkg, limit) => {
+              if (diagnostics) {
+                console.log(
+                  `[vitest-native] ${pkg}: its imports were read from its first ${limit} ` +
+                    `files only. Workspace packages it imports from files past that, without ` +
+                    `listing them, are not compiled for Node.`,
+                );
+              }
+            },
           },
         );
         // The directories Vite owns outright. Handed to the worker so the require
@@ -3491,6 +3617,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           );
       }
       if (projectJsx && isProjectJsFile(id)) return jsx();
+      // A package's .js file that Vite serves uncompiled and cannot parse: JSX in a
+      // package the native engine does not detect (#763). Native only: the mock engine
+      // compiles the packages it inlines through its own path.
+      if (engine === "native" && projectJsx && isPackageJsFile(id)) {
+        return loadPackageJsx(
+          id,
+          projectJsx,
+          viteConfig,
+          chain,
+          diagnostics ? console.log : undefined,
+        );
+      }
 
       // The native engine's react-native facade. It re-exports the SAME instance
       // Node's graph holds — `_rn.View` is the very object an externalized library
@@ -3751,10 +3889,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       let summary = ownershipSummaries.get(vitest);
       if (!summary) {
         const sources = new Set<Map<string, { path: string; reason: string }[]>>();
-        const reporter = new OwnershipSummaryReporter(() =>
-          [...sources].flatMap((source) => [...source.values()].flat()),
+        const state = { sources, diagnostics: false };
+        const reporter = new OwnershipSummaryReporter(
+          () => [...sources].flatMap((source) => [...source.values()].flat()),
+          undefined,
+          () => state.diagnostics,
         );
-        summary = { sources };
+        summary = state;
         ownershipSummaries.set(vitest, summary);
         if (Array.isArray(vitest.reporters) && vitest.reporters.length > 0) {
           vitest.reporters.push(reporter);
@@ -3763,6 +3904,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
       }
       summary.sources.add(ownershipAllow);
+      // Any project with diagnostics on lists every file of every cause (#638).
+      if (diagnostics) summary.diagnostics = true;
     }
     // The running Vitest, as Vitest states it, rather than the package a lookup from the
     // project root finds (host.ts).
@@ -4175,6 +4318,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               // by the worker at run time and never change a transform: kept out of the
               // key, so neither switching the mode or `allow` nor a cold cache
               // re-transforms anything.
+              // The worker context includes the ownership policy, so the packages Node
+              // compiles are in the key: source can change them without the lockfile (a
+              // workspace package importing a library it does not list, #692).
               withoutOwnershipGuard(
                 options,
                 (test as { env?: Record<string, string> }).env,

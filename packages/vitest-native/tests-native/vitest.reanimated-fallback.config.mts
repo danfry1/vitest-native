@@ -8,6 +8,7 @@
 // helper files are the installed reanimated's, imported as an older layout imports
 // them, so the preset finds reanimated's own interpolation behind that layout. Everything else resolves from this package's
 // node_modules, up the tree. Run under `--mode native` or `--mode hot`.
+import "./support/fresh-dist.mts";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";

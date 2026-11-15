@@ -14,11 +14,13 @@
  * Vite's import analysis cannot parse.
  *
  * Only files outside `node_modules`: packages are compiled by their own path (the native
- * engine's Babel transform, or the mock engine's Flow strip and Vite's pipeline).
+ * engine's Babel transform, or the mock engine's Flow strip and Vite's pipeline). The one
+ * exception is loadPackageJsx below: a package's `.js` file that Vite serves uncompiled and
+ * cannot parse.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
-import { transformWithOxc } from "vite";
+import { parseAst, transformWithOxc } from "vite";
 import type { ResolvedConfig, Rollup } from "vite";
 import { readProjectSource } from "./project-source-file.js";
 
@@ -100,5 +102,85 @@ export async function loadProjectJsx(
     );
     return undefined;
   }
+  return { code: result.code, map: result.map };
+}
+
+/**
+ * A `.js` file inside `node_modules`: the plain file, no query. The native engine compiles
+ * the packages it detects in Node, so such a file reaching Vite's load belongs to a package
+ * nothing compiles.
+ */
+export function isPackageJsFile(id: string): boolean {
+  return id.endsWith(".js") && !id.includes("?") && path.isAbsolute(id) && NODE_MODULES.test(id);
+}
+
+/** The package a `node_modules` path belongs to, `@scope/name` or `name`, or null. */
+export function packageOfFile(id: string): string | null {
+  const parts = id.split(/[\\/]/);
+  const at = parts.lastIndexOf("node_modules");
+  if (at < 0 || at + 1 >= parts.length) return null;
+  const first = parts[at + 1];
+  return first.startsWith("@") && at + 2 < parts.length ? `${first}/${parts[at + 2]}` : first;
+}
+
+/** Whether Vite's parser accepts the code: Vite's import analysis fails on what it rejects. */
+function parses(code: string): boolean {
+  try {
+    parseAst(code);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Packages already warned about in this process: the warning names the package once.
+const warnedPackages = new Set<string>();
+
+/**
+ * A package's `.js` file with JSX that nothing compiles, compiled as JSX, or undefined to
+ * leave the file as it is (#763).
+ *
+ * Under the native engine a package the engine does not detect (one that declares no
+ * `react-native` dependency or peer, such as react-native-calendars, whose `main` is
+ * `src/index.ts`) can be served by Vite. Oxc compiles its `.ts` files and skips its `.js`
+ * ones, so JSX in a `.js` file failed Vite's import analysis. The file is compiled here
+ * exactly as a project `.js` file is, and stays in Vite: no package changes owner.
+ *
+ * Only a file Vite's parser rejects is touched, so every file that loads today loads the
+ * same. Another plugin's load still wins, as for project files, and later transforms still
+ * run on the result. When Oxc cannot compile it either (Flow, say), the file is served as
+ * it is, Vite reports its own parse error, and one warning names the package and the fix.
+ */
+export async function loadPackageJsx(
+  id: string,
+  options: OxcOptions | undefined,
+  config: ResolvedConfig | undefined,
+  chain: LoadChain,
+  log?: (message: string) => void,
+  warn: (message: string) => void = console.warn,
+): Promise<Rollup.LoadResult> {
+  if (!options || !isPackageJsFile(id) || asking.getStore() === id) return undefined;
+  const code = await readProjectSource(id);
+  if (code === null || !MAY_HAVE_JSX.test(code) || parses(code)) return undefined;
+  if (chain) {
+    const other = await asking.run(id, () => chain.load(id));
+    if (other != null) return other;
+  }
+  const pkg = packageOfFile(id) ?? id;
+  let result: Awaited<ReturnType<typeof transformWithOxc>>;
+  try {
+    result = await transformWithOxc(code, id, options, undefined, config);
+  } catch {
+    if (!warnedPackages.has(pkg)) {
+      warnedPackages.add(pkg);
+      warn(
+        `[vitest-native] ${pkg} ships source Vite cannot parse (${id}), and nothing compiles ` +
+          `the package. Add it to reactNative({ transform: ['${pkg}'] }). ` +
+          `See https://github.com/danfry1/vitest-native/issues/763.`,
+      );
+    }
+    return undefined;
+  }
+  log?.(`[vitest-native] compiled JSX in ${id}: ${pkg} is served by Vite uncompiled (#763).`);
   return { code: result.code, map: result.map };
 }

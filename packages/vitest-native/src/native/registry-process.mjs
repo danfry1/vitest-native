@@ -8,6 +8,7 @@ import {
   registryLocation,
 } from "./registry.mjs";
 import { runBoundedProcess } from "./bounded-process.mjs";
+import { cacheRootFor } from "./transform.mjs";
 
 const INITIAL_HEAP_MB = 96;
 const RETRY_HEAP_MB = 256;
@@ -36,6 +37,7 @@ export async function compileRegistryInChild(
     priority,
     unref,
     label: "compiler",
+    inputDir: options?.projectRoot ? cacheRootFor(options.projectRoot) : undefined,
   });
   if (result.ok && typeof result.registryFile !== "string") {
     return {

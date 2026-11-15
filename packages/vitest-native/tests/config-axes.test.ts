@@ -38,8 +38,11 @@ import {
   UNSUPPORTED,
   // @ts-expect-error — runtime .mjs, no types
 } from "../validation/config-axes/ownership.mjs";
-// @ts-expect-error — runtime .mjs, no types
-import { OWNERSHIP_MARKER, wrapForOwnership } from "../validation/bug-museum/lib/materialise.mjs";
+import {
+  EXPERIMENTAL_MARKER,
+  wrapForExperimental,
+  // @ts-expect-error — runtime .mjs, no types
+} from "../validation/bug-museum/lib/materialise.mjs";
 // @ts-expect-error — runtime .mjs, no types
 import { isExpoPackage } from "../validation/config-axes/local-install.mjs";
 import {
@@ -707,7 +710,7 @@ describe("the ownershipModel axis", () => {
     const installed = fakeBuild("return options;");
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-ownership-root-"));
     try {
-      wrapForOwnership(installed, root, "resolver");
+      wrapForExperimental(installed, root, { ownershipModel: "resolver" });
       const manifest = JSON.parse(fs.readFileSync(path.join(installed, "package.json"), "utf8"));
       const entry = path.join(installed, manifest.exports["."].default);
       const wrapped = await import(pathToFileURL(entry).href);
@@ -717,8 +720,8 @@ describe("the ownershipModel axis", () => {
       });
       expect(wrapped.reactNative()).toEqual({ experimental: { ownershipModel: "resolver" } });
       expect(wrapped.other).toBe("kept");
-      expect(fs.readFileSync(path.join(root, OWNERSHIP_MARKER), "utf8")).toBe(
-        "resolver\nresolver\n",
+      expect(fs.readFileSync(path.join(root, EXPERIMENTAL_MARKER), "utf8")).toBe(
+        '{"ownershipModel":"resolver"}\n{"ownershipModel":"resolver"}\n',
       );
     } finally {
       for (const dir of [installed, root]) fs.rmSync(dir, { recursive: true, force: true });

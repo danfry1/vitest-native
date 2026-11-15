@@ -1,6 +1,7 @@
 // hotRuntime.freshRuntime frees each file's React: 24 files in one worker, then a forced
 // collection in the last (package.json test:native:hot:fresh-runtime). `--mode fresh` runs
 // it with the option, `--mode resident` without, where every file shares one React.
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 import { reactNative } from "../dist/index.mjs";

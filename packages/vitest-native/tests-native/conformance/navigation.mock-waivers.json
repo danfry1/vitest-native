@@ -1,0 +1,14 @@
+[
+  {
+    "export": "NavigationMetaContext",
+    "path": "NavigationMetaContext",
+    "reason": "documented as not intended for application code: metadata for child navigators",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "PrivateValueStore",
+    "path": "PrivateValueStore",
+    "reason": "a class the package declares only for type inference; there is no runtime value to mock",
+    "issue": "n/a (type-only)"
+  }
+]

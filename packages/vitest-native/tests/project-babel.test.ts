@@ -72,6 +72,12 @@ describe("classifyProjectBabelEntry: which entries matter (#579)", () => {
     expect(appliesTo("some-preset", "preset", undefined, "anything")).toBe(true);
   });
 
+  it("keeps React Compiler where a file compiles with Babel, and needs it nowhere (#755)", () => {
+    // Not stripped: `doctor` and `migrate` say it applies to the files Babel compiles.
+    expect(classify("babel-plugin-react-compiler", "plugin")).toEqual({ kind: "covered" });
+    expect(trigger("babel-plugin-react-compiler", "plugin")).toBeNull();
+  });
+
   it("takes out the module transforms and coverage instrumentation", () => {
     expect(classify("@babel/plugin-transform-modules-commonjs", "plugin")).toEqual({
       kind: "strip",

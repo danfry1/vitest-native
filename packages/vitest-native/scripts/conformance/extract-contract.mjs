@@ -11,6 +11,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { cliArguments } from "../support/arguments.mjs";
 
 const require = createRequire(import.meta.url);
 const ts = require("typescript-6");
@@ -193,10 +194,13 @@ export function extractContract(pkg, fromDir = process.cwd()) {
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
-  const pkg = process.argv[2];
-  const from = process.argv.includes("--from")
-    ? process.argv[process.argv.indexOf("--from") + 1]
-    : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-  if (!pkg) throw new Error("usage: extract-contract.mjs <package> [--from <dir>]");
+  const usage = "extract-contract.mjs <package> [--from <dir>]";
+  const { values, positionals } = cliArguments(
+    { script: "extract-contract.mjs", valued: ["from"], positionals: 1 },
+    usage,
+  );
+  const [pkg] = positionals;
+  const from = values.from ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+  if (!pkg) throw new Error(`usage: ${usage}`);
   process.stdout.write(`${JSON.stringify(extractContract(pkg, from), null, 2)}\n`);
 }

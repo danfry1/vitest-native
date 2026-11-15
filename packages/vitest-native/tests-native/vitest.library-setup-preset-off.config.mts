@@ -2,6 +2,7 @@
 // keeps `presets: { gestureHandler: false }` from a setup that used its own mocks (#351).
 // Under the native engine Gesture Handler runs as itself either way, and its own Jest
 // setup still replaces its native layer.
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 import { jestMockTransform } from "../dist/jest-compat.mjs";

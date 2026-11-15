@@ -1,3 +1,4 @@
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { presets, reactNative } from "../dist/index.mjs";
 

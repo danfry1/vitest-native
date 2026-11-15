@@ -5,7 +5,7 @@
  * still holds a current derived value for whatever reads it later, such as a Skia prop.
  * Reanimated's own test mock computes the updater once per render only.
  */
-import React from "react";
+import React, { Suspense } from "react";
 import { act, render, screen } from "@testing-library/react-native";
 import { type SharedValue, useDerivedValue, useSharedValue } from "react-native-reanimated";
 import { Canvas, Circle } from "react-native-skia";
@@ -95,4 +95,44 @@ it("a Skia prop given a derived value holds it, current after a change without a
   expect(circle.props.r.value).toBe(10);
   progress.set(0.5);
   expect(circle.props.r.value).toBe(60);
+});
+
+it("a render React discards follows nothing", async () => {
+  // A component that suspends before it commits: no effect runs, so nothing would stop
+  // what its render started. Reanimated starts its mapper only in an effect.
+  let progress!: SharedValue<number>;
+  const updater = vi.fn(() => progress.get() * 2);
+  const never = new Promise(() => {});
+  function Suspends() {
+    useDerivedValue(updater);
+    throw never;
+  }
+  function Holder() {
+    progress = useSharedValue(0);
+    return (
+      <Suspense fallback={null}>
+        <Suspends />
+      </Suspense>
+    );
+  }
+  await render(<Holder />);
+  updater.mockClear();
+  progress.set(1);
+  expect(updater).not.toHaveBeenCalled();
+});
+
+it("after a rerender, a derived value follows what the committed render's updater read", async () => {
+  let a!: SharedValue<number>;
+  let b!: SharedValue<number>;
+  let picked!: SharedValue<number>;
+  function Picker({ useB }: { useB: boolean }) {
+    a = useSharedValue(1);
+    b = useSharedValue(10);
+    picked = useDerivedValue(() => (useB ? b.get() : a.get()));
+    return null;
+  }
+  const { rerender } = await render(<Picker useB={false} />);
+  await rerender(<Picker useB />);
+  b.set(11);
+  expect(picked.get()).toBe(11);
 });

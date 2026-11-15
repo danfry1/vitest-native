@@ -46,6 +46,7 @@ Workers stay alive, and some state is known to carry over from one file to the n
 - RNTL reinstalls fake timers only in the first file that loads it;
 - an environment variable a module sets when it is imported is set only in the first file on a worker that imports it (RNTL's `dont-cleanup-after-each` is handled).
 - a `jest.mock` or `vi.mock` does not reach the requires React, its renderers, `scheduler` and RNTL make themselves; the test file's own code still gets the mock. Under Jest and per-file isolation these packages load again in every file and see its mocks, so in a file that mocks `react-native`, RNTL's own uses of it (`StyleSheet.flatten` in `fireEvent`, say) see the real module under hot and the mock elsewhere. Serving them the mock would keep it for every later file on the worker. `hotRuntime: { freshRuntime: true }` loads them in every file, so they see the file's mocks as under Jest.
+- a property a library defines on `globalThis` as non-configurable, such as the provider registry the `openai` SDK defines once per process, stays for the worker's life, because nothing can delete it. Every other global a file adds is deleted before the next file, and `reactNative({ diagnostics: true })` names each property kept this way.
 
 With `hotRuntime: { freshRuntime: true }` (experimental), React, its renderers, `scheduler` and React Native Testing Library run again for every file, so the first five of these no longer apply: each file counts `useId` from the start, sees React's warnings, renders outside any `act()` scope an earlier file left open, loads the scheduler under its own timers, and has RNTL reinstall fake timers. It costs re-running those packages, about 5 ms per file with four workers and 17 ms with one, measured on a 135-file suite. A worker also holds a few earlier copies of React at a time, about 18 MB more heap than without the option in one measurement; it does not grow with the number of files, and worker recycling (`memoryLimit`, `recycleAfterFiles`) bounds it as usual.
 
@@ -73,9 +74,9 @@ The hot runtime plans its workers from the lower of the host's and the container
 
 ## Caches
 
-Under the native engine, vitest-native turns on Node's on-disk compile cache (`node_modules/.cache/vitest-native/v8`), so React Native's compiled code is reused by later workers and runs. Hot workers leave it off while `esmGeneration` is on, which is the default: each test file re-runs the packages Node loads for its `import`s, and the cache would keep one entry per package per file. Leaving it off costs about 15–20 ms per hot worker start, including each recycle, in one measured project. With `hotRuntime: { esmGeneration: false }` hot workers keep the cache, and packages loaded that way keep their state across files.
+vitest-native leaves Node's on-disk compile cache off in test workers. Each worker wrote its entries when it exited, inside the pool's close, which held runs open for seconds on loaded Windows machines, and with React Native loading from its precompiled modules a warm cache saved no measurable time.
 
-If you set `NODE_COMPILE_CACHE` yourself, Node turns the cache on in every worker before vitest-native runs, and hot workers then write those per-file entries again; unset it for hot runs, or set `esmGeneration: false`.
+If you set `NODE_COMPILE_CACHE` yourself, Node turns the cache on in every worker, and every worker writes it when it exits; under the hot runtime with `esmGeneration` on, each file adds an entry per package it re-runs. Unset it for hot runs.
 
 React Native's own compiled modules are cached separately; [troubleshooting](/guide/troubleshooting#when-react-native-s-precompiled-modules-are-reused-or-rebuilt) says where and when they are rebuilt.
 

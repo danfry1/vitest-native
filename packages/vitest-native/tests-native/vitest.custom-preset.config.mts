@@ -1,5 +1,6 @@
 // A preset module of the project's own (presets: { './path': true }), under the engine and
 // runtime `--mode` names: `native`, `hot` (the native engine's hot runtime) or `mock`.
+import "./support/fresh-dist.mts";
 import { defineConfig } from "vitest/config";
 import { reactNative } from "../dist/index.mjs";
 

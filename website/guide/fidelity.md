@@ -13,7 +13,7 @@ generated from the corpus itself, so the numbers below are exactly what ships.
 
 ## Summary
 
-- **88 / 88 probes** match between the mock engine and real React Native (this page was generated against React Native 0.88.0).
+- **89 / 89 probes** match between the mock engine and real React Native (this page was generated against React Native 0.88.0).
 - CI runs the same corpus across **React Native 0.86–0.88** on every commit to main.
 - Per-version results straight from the CI matrix: [Fidelity Matrix](/guide/fidelity-matrix).
 - Reproduce it yourself: `bun run crosscheck`.
@@ -107,6 +107,7 @@ across both engines.
 | `query-by-role-name` | ✅ match |
 | `query-by-testid-miss` | ✅ match |
 | `query-by-text-regex` | ✅ match |
+| `reanimated-interpolate-color` | ✅ match |
 | `scrollview-fireevent-scroll` | ✅ match |
 | `sectionlist-render` | ✅ match |
 | `stylesheet-create-identity` | ✅ match |
