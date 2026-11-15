@@ -2254,6 +2254,24 @@
       "bugSignature": "^app\\.test\\.tsx: TypeError: navigationRef\\.resetRoot is not a function"
     },
     {
+      "id": "env-expo-snapshot-friendly-ref",
+      "class": "env-contract",
+      "title": "A snapshot prints the fiber tree behind an Expo ref",
+      "source": "#849",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/expo-snapshot-friendly-ref",
+      "bugSignature": "^snapshot-ref\\.test\\.tsx: Error: Snapshot `a snapshot prints the ref as jest-expo does 1` mismatched"
+    },
+    {
+      "id": "pre-857-mock-interpolate-color",
+      "class": "presets",
+      "title": "Reanimated's interpolateColor throws under the mock engine",
+      "source": "#857",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/mock-interpolate-color",
+      "bugSignature": "^color\\.test\\.tsx: (VitestNativeError: )?\\[vitest-native\\] reanimated's interpolateColor did not load"
+    },
+    {
       "id": "pre-717-screens-transition-progress",
       "class": "presets",
       "title": "useTransitionProgress returns numbers, not Animated values",
@@ -2261,6 +2279,15 @@
       "fixedBy": "open",
       "fixRef": "origin/fix/screens-preset-transition-progress",
       "bugSignature": "^fade\\.test\\.tsx: TypeError: progress\\.interpolate is not a function"
+    },
+    {
+      "id": "pre-714-bottom-sheet-scrollable-creator",
+      "class": "presets",
+      "title": "bottom-sheet's useBottomSheetScrollableCreator is missing",
+      "source": "#714",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/bottom-sheet-mock-gaps",
+      "bugSignature": "^sheet\\.test\\.tsx: TypeError: \\(0 , [\\w$]+\\.useBottomSheetScrollableCreator\\) is not a function"
     },
     {
       "id": "pre-828-native-stack-animated-header-height",

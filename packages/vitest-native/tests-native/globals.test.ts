@@ -44,11 +44,11 @@ describe("native engine: fabricated expo native-module stubs", () => {
   });
 
   it("keeps a module present unless an installed package only probes for it", () => {
-    // Absence needs a probe (expo-image's for ExpoObserve), which nothing installed here
-    // makes, so even a name no package defines stays present: reading a module that
-    // exists as absent would make requireNativeModule throw. The probe case is covered
-    // by the unit tests and the expo-template consumer.
-    expect(modules.ExpoObserve).toBeDefined();
+    // expo-image, a devDependency here, only probes for ExpoObserve
+    // (requireOptionalNativeModule), so the module is absent, as on a device without it.
+    expect(modules.ExpoObserve).toBeUndefined();
+    // A name no installed package probes for stays present: reading a module that exists
+    // as absent would make requireNativeModule throw.
     expect(PRESENT in modules).toBe(true);
   });
 
