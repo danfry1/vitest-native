@@ -29,8 +29,9 @@ export const SECTIONS: Section[] = [
   },
   {
     text: 'Guide',
-    link: '/guide/mocking',
+    link: '/guide/writing-tests',
     pages: [
+      { text: 'Writing tests', link: '/guide/writing-tests' },
       { text: 'Mocking', link: '/guide/mocking' },
       { text: 'Third-party presets', link: '/guide/presets' },
       { text: 'Test helpers', link: '/guide/helpers' },
