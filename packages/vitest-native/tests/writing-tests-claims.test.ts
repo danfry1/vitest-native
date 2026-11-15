@@ -3,12 +3,13 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { configDefaults } from "vitest/config";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 // website/guide/writing-tests.md states two defaults of the libraries it teaches: how long
 // `findBy…` waits, and that Vitest clears mock calls before every test. Both come from
 // the installed packages, read here, so a release that changes either fails this test
-// instead of leaving the page wrong.
+// instead of leaving the page wrong. It also says which call undoes which mock state
+// between tests, checked here against the installed Vitest.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const PAGE = path.join(repoRoot, "website/guide/writing-tests.md");
 const page = fs.readFileSync(PAGE, "utf8").replace(/\s+/g, " ");
@@ -40,5 +41,24 @@ describe("writing-tests.md: the defaults it states", () => {
     const { version } = require("vitest/package.json") as { version: string };
     expect(claim![1]).toBe(version.split(".")[0]);
     expect(claim![2]).toBe(String(configDefaults.clearMocks));
+  });
+});
+
+describe("writing-tests.md: what resetting and restoring undo", () => {
+  it("restoreAllMocks puts a spy back but leaves a vi.fn's return value", () => {
+    const fn = vi.fn().mockReturnValue("set");
+    const target = { method: () => "real" };
+    vi.spyOn(target, "method").mockReturnValue("spied");
+
+    vi.restoreAllMocks();
+    expect(target.method()).toBe("real");
+    expect(fn()).toBe("set");
+  });
+
+  it("resetAllMocks resets a vi.fn's return value", () => {
+    const fn = vi.fn().mockReturnValue("set");
+
+    vi.resetAllMocks();
+    expect(fn()).toBeUndefined();
   });
 });

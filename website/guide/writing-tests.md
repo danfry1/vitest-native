@@ -14,7 +14,7 @@ where `render`, `fireEvent` and `act` are async, and each one runs as written, o
 Every query starts from `screen`. Prefer the queries that match how a user finds an element:
 
 1. `getByRole('button', { name: 'Sign in' })`: a control, by its role and its label.
-2. `getByLabelText('Email')`: an input, by its label (`accessibilityLabel` or `aria-label`).
+2. `getByLabelText('Email')`: an input, by its label.
 3. `getByText('Hello, Ada')`: text on screen.
 4. `getByTestId('avatar')`: when nothing a user perceives identifies the element.
 
@@ -177,8 +177,8 @@ assertion.
 
 Under the `native` engine, `findBy…`, `waitFor` and `userEvent` advance the fake clock themselves
 while they wait, so they need no extra `advanceTimersByTime`. Here the loader's timer is fake too,
-and `findBy…` still finds the name. Under the `mock` engine they do this only with the jest-compat
-layer; see [Fake timers](/guide/mocking#fake-timers).
+and `findBy…` still finds the name. For the `mock` engine, see
+[Fake timers](/guide/mocking#fake-timers).
 
 <!-- doc-snippet: src/fake-timers.test.tsx -->
 ```tsx
@@ -216,16 +216,51 @@ it('types and presses with fake timers', async () => {
 ## Between tests
 
 Testing Library unmounts what a test rendered when the test ends, so each test starts from an
-empty screen. Vitest 5 clears mock calls before every test (`clearMocks: true`), so
-`toHaveBeenCalled` counts only the current test's calls.
+empty screen:
+
+<!-- doc-snippet: src/between-tests.test.tsx -->
+```tsx
+// between-tests.test.tsx
+import { useEffect } from 'react'
+import { Text } from 'react-native'
+import { expect, it } from 'vitest'
+import { render, screen } from '@testing-library/react-native'
+
+let unmounted = false
+
+function Greeting() {
+  useEffect(() => () => {
+    unmounted = true
+  }, [])
+  return <Text>Hello</Text>
+}
+
+it('renders a greeting', async () => {
+  await render(<Greeting />)
+  expect(screen.getByText('Hello')).toBeOnTheScreen()
+})
+
+it('starts after the last test unmounted it', () => {
+  expect(unmounted).toBe(true)
+})
+```
+
+Vitest 5 clears mock calls before every test (`clearMocks: true`), so `toHaveBeenCalled` counts
+only the current test's calls. A project set up with `vitest-native migrate` keeps Jest's default,
+`clearMocks: false`, instead.
 
 Other state carries over to the next test in the same file:
 
-- A mock's implementation or return value, and a `vi.spyOn` spy. Clearing removes calls only;
-  call `vi.restoreAllMocks()` in `afterEach`, or set `restoreMocks: true`, to undo them.
+- A `vi.fn()`'s implementation or return value, set with `mockReturnValue` or
+  `mockImplementation`. Clearing removes calls only; call `vi.resetAllMocks()` in `afterEach`, or
+  set `mockReset: true`, to reset it.
+- A `vi.spyOn` spy, which keeps replacing the real method. Call `vi.restoreAllMocks()` in
+  `afterEach`, or set `restoreMocks: true`, to put the method back. Restoring does not reset a
+  `vi.fn()`.
 - Fake timers, until `vi.useRealTimers()`, as in the `afterEach` above.
 - Screen size, color scheme and other device state set with the [test helpers](/guide/helpers).
-  Call `resetAllMocks()` from `vitest-native/helpers` in `afterEach`, as the Quick Start does.
+  Call `resetAllMocks()` from `vitest-native/helpers` (not `vi.resetAllMocks()`) in `afterEach`,
+  as the Quick Start does.
 - Module-level variables, and the modules `vi.mock` replaced: they belong to the file, not the
   test.
 
