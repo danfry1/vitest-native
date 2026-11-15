@@ -173,8 +173,44 @@ it('hides after three seconds', async () => {
 ```
 
 Advance the clock inside `act`, so React applies the updates the timers cause before the next
-assertion. With fake timers on, `findBy…`, `waitFor` and `userEvent` advance the clock themselves
-while they wait, so they need no extra `advanceTimersByTime`.
+assertion.
+
+With fake timers on, `findBy…`, `waitFor` and `userEvent` advance the clock themselves while they
+wait, so they need no extra `advanceTimersByTime`. Here the loader's timer is fake too, and
+`findBy…` still finds the name:
+
+<!-- doc-snippet: src/fake-timers.test.tsx -->
+```tsx
+// fake-timers.test.tsx
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { render, screen, userEvent } from '@testing-library/react-native'
+import { Profile } from './Profile'
+import { SignInForm } from './SignInForm'
+
+beforeEach(() => {
+  vi.useFakeTimers()
+})
+afterEach(() => {
+  vi.useRealTimers()
+})
+
+it('finds data that a fake timer loads', async () => {
+  const loadName = () => new Promise<string>((resolve) => setTimeout(() => resolve('Ada'), 100))
+  await render(<Profile loadName={loadName} />)
+
+  expect(await screen.findByText('Hello, Ada')).toBeOnTheScreen()
+})
+
+it('types and presses with fake timers', async () => {
+  const onSubmit = vi.fn()
+  const user = userEvent.setup()
+  await render(<SignInForm onSubmit={onSubmit} />)
+
+  await user.type(screen.getByLabelText('Email'), 'ada@example.com')
+  await user.press(screen.getByRole('button', { name: 'Sign in' }))
+  expect(onSubmit).toHaveBeenCalledWith('ada@example.com')
+})
+```
 
 ## Between tests
 

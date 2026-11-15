@@ -27,6 +27,7 @@ const REQUIRED: Record<string, string[]> = {
     "src/Profile.test.tsx",
     "src/Toast.tsx",
     "src/Toast.test.tsx",
+    "src/fake-timers.test.tsx",
   ],
   // The landing page's hero, shown with `<<<` and run as written.
   "website/.vitepress/hero/Counter.tsx": ["src/Counter.tsx"],
