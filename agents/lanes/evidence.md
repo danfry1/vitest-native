@@ -16,6 +16,8 @@ The proof apparatus: the bug museum, cross-check, consumer tests, the ecosystem 
 
 ## Working rules
 - **Every fix gets an exhibit** that fails as the bug on main, passes with the fix, and passes the control. For landed fixes, use `preFixRef = merge^`, and pin buggy SHAs rather than branches. Commit a refresh only if no proof gets worse.
+- **Check an exhibit against both builds.** `build-ref.mjs main` prints a built package directory. Run `run.mjs --allow-na --build <dir> --only <id>` and expect FAIL with the exhibit's signature. Build the fix the same way and expect PASS.
+- **An exhibit's class is one of** config, env-contract, harness, ownership, per-file-state, presets or transform/resolution.
 - **Verify on a packed tarball,** byte-equal to `npm pack`, never on a workspace link. Cover stock and hot, cold and warm, and explain every stderr line.
 - **Freeze the pass criteria before collecting data.** Use interleaved A/B runs with a plain-Vitest control, and size samples to the flake rate.
 - **Measure on a throwaway copy,** never on the prepared environment itself.
@@ -29,3 +31,5 @@ The proof apparatus: the bug museum, cross-check, consumer tests, the ecosystem 
 - **`run.mjs` runs only exhibits listed in `exhibits.json`.** Add a new exhibit's entry first. To merge the file, insert the entry's text before the closing `]`, so no other line changes.
 - **A landed exhibit names `preFixRef: "<squash>^"`, not a branch commit.** A squash merge leaves branch commits off `main`, so a `fixRef` to one stops resolving.
 - **A zero-load baseline is invalid.** Recorders must refuse it.
+- **Vitest writes `.vitest-cache` into `node_modules`.** In a container, mount a fixture's `node_modules` read-only elsewhere and link its entries into a writable `node_modules`.
+- **Under `CI=1`, a missing snapshot fails instead of being written.** A container that sets it writes new snapshots only with an explicit `--update=all`.

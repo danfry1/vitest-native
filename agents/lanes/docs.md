@@ -14,5 +14,6 @@ The website, the READMEs, `CONTRIBUTING.md` and the package's `docs/`. Feature P
 - **A PR that adds an error code adds its `website/guide/errors.md` entry, with an anchor.** Internal codes too.
 - **A new option needs a `plugin-options.md` section** whose Type and Engine match the JSDoc. Run `bun run --filter vitest-native test:docs`.
 - **Use the user's vocabulary.** No private paths, no internal terms.
+- **A page that names the old documentation domain fails CI** (`tests/redirect-site.test.ts`), outside the release history. `test:docs` runs that test, so run it after any `website/` edit.
 - **Run oxfmt only on paths that `format:check` covers,** and format only the lines you changed. On `website/`, it rewrote guide examples.
 
