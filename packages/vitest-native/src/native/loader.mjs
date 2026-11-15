@@ -1111,7 +1111,7 @@ function loadModule(url, context, nextLoad) {
   // Only a URL resolveMocked marked is a mock; every other load of the file is real.
   if (NODE_MOCKS && url.includes(`${MOCK_PARAM}=`)) {
     const mockFor = globalThis.__vitest_native_node_mock_for;
-    const value = mockFor === undefined ? undefined : mockFor(file);
+    const value = mockFor === undefined ? undefined : mockFor.forImport(file);
     if (value !== undefined && value !== mockFor.NONE) return mockModule(url, file, value);
   }
 
