@@ -45,6 +45,15 @@ describe("writing-tests.md: the defaults it states", () => {
 });
 
 describe("writing-tests.md: what resetting and restoring undo", () => {
+  it("the page sends a vi.fn to resetAllMocks and a spy to restoreAllMocks", () => {
+    expect(page).toMatch(
+      /A `vi\.fn\(\)`'s implementation or return value[^-]*? call `vi\.resetAllMocks\(\)` in `afterEach`, or set `mockReset: true`, to reset it\./,
+    );
+    expect(page).toMatch(
+      /A `vi\.spyOn` spy[^-]*? Call `vi\.restoreAllMocks\(\)` in `afterEach`, or set `restoreMocks: true`, to put the method back\. Restoring does not reset a `vi\.fn\(\)`\./,
+    );
+  });
+
   it("restoreAllMocks puts a spy back but leaves a vi.fn's return value", () => {
     const fn = vi.fn().mockReturnValue("set");
     const target = { method: () => "real" };

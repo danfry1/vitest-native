@@ -259,8 +259,8 @@ Other state carries over to the next test in the same file:
   `vi.fn()`.
 - Fake timers, until `vi.useRealTimers()`, as in the `afterEach` above.
 - Screen size, color scheme and other device state set with the [test helpers](/guide/helpers).
-  Call `resetAllMocks()` from `vitest-native/helpers` (not `vi.resetAllMocks()`) in `afterEach`,
-  as the Quick Start does.
+  Call `resetAllMocks()` from `vitest-native/helpers` in `afterEach`, as the Quick Start does. It
+  is a different function from `vi.resetAllMocks()`.
 - Module-level variables, and the modules `vi.mock` replaced: they belong to the file, not the
   test.
 
