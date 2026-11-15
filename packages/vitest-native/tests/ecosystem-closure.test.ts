@@ -237,9 +237,7 @@ describe("ecosystem detection: an installed React Native package nothing declare
       "react-native-screens": { peerDeps: ["react-native"], deps: ["rn-held-by-preset"] },
       "rn-held-by-preset": { peerDeps: ["react-native"] },
     });
-    const excludedAndShadowed = detectEcosystemPackages(root, [], [], ["rn-excluded"], [
-      "screens",
-    ]);
+    const excludedAndShadowed = detectEcosystemPackages(root, [], [], ["rn-excluded"], ["screens"]);
     expect(excludedAndShadowed).not.toContain("rn-excluded");
     expect(excludedAndShadowed).not.toContain("rn-held-by-exclude");
     expect(excludedAndShadowed).not.toContain("react-native-screens");
