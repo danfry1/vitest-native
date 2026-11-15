@@ -21,7 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { linkDir, linkNodeModules, longTempDir } from "./support/link-node-modules.js";
 
 const packageRoot = path.resolve(import.meta.dirname, "..");
@@ -363,9 +363,9 @@ it("swallow", () => {
   );
 }, 60_000);
 
-afterAll(() => {
-  if (base) fs.rmSync(base, { recursive: true, force: true });
-});
+// The scratch tree is left to the run's temporary root (vitest.e2e.config.ts), which global
+// teardown removes: deleting it here ran under the 10 s hook timeout and failed Windows
+// runs after every test had passed (#870).
 
 function run(mode: "warn" | "error", extraEnv: Record<string, string> = {}, args: string[] = []) {
   const vitestBin = path.join(

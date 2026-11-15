@@ -3,7 +3,62 @@ import { vi } from "vitest";
 import { hosts } from "../mocks/host-classes.js";
 import { perReact } from "./per-react.js";
 import { builtInPreset } from "./built-in.js";
+import { activeReactNative } from "./active-react-native.js";
 import { projectContext } from "../context.mjs";
+
+/**
+ * A navigator's `emit` (core's useEventEmitter): the event object it builds, with
+ * `defaultPrevented` and `preventDefault` only when the event can be prevented. The
+ * preset's navigation has no listeners to call, so emitting only returns the event.
+ */
+function emitEvent({ type, data, target, canPreventDefault }: any) {
+  const descriptors: PropertyDescriptorMap = { type: { enumerable: true, value: type } };
+  if (target !== undefined) descriptors.target = { enumerable: true, value: target };
+  if (data !== undefined) descriptors.data = { enumerable: true, value: data };
+  if (canPreventDefault) {
+    let defaultPrevented = false;
+    descriptors.defaultPrevented = { enumerable: true, get: () => defaultPrevented };
+    descriptors.preventDefault = {
+      enumerable: true,
+      value: () => {
+        defaultPrevented = true;
+      },
+    };
+  }
+  return Object.defineProperties({}, descriptors);
+}
+
+/**
+ * @react-navigation/elements' getDefaultHeaderHeight (2.9.45), on the engine's Platform
+ * and PixelRatio: the header's height for a frame, a modal or not, plus the status bar.
+ */
+function getDefaultHeaderHeight(
+  layout: { width: number; height: number },
+  modalPresentation: boolean,
+  topInset: number,
+): number {
+  const { Platform, PixelRatio } = activeReactNative();
+  // With a Dynamic Island the status bar is shorter than the safe area's top inset.
+  const hasDynamicIsland = Platform.OS === "ios" && topInset > 50;
+  const statusBarHeight = hasDynamicIsland ? topInset - (5 + 1 / PixelRatio.get()) : topInset;
+  if (Platform.OS !== "ios") return 64 + statusBarHeight;
+  if (Platform.isPad || Platform.isTV) return (modalPresentation ? 56 : 50) + statusBarHeight;
+  if (layout.width > layout.height) return 32 + statusBarHeight;
+  return (modalPresentation ? 56 : 44) + statusBarHeight;
+}
+
+/**
+ * The height a native stack screen's header starts at (NativeStackView.native, 7.21):
+ * 56 on Android, which native-stack fixes until react-native-screens moves to Material 3,
+ * and getDefaultHeaderHeight's elsewhere. A card screen on the window's frame, with no
+ * top inset, as safe-area-context's own Jest mock reports none outside a provider. The
+ * mock engine's safe-area fallback reports a top inset of 47, which this does not add.
+ */
+function nativeStackHeaderHeight(): number {
+  const { Dimensions, Platform } = activeReactNative();
+  if (Platform.OS === "android") return 56;
+  return getDefaultHeaderHeight(Dimensions.get("window"), false, 0);
+}
 
 /** Builds a minimal navigation prop matching useNavigation()'s shape. */
 function createMockNavigation() {
@@ -28,6 +83,9 @@ function createMockNavigation() {
     addListener: vi.fn(() => vi.fn()),
     removeListener: vi.fn(),
     getId: vi.fn(() => undefined),
+    preload: vi.fn(),
+    replaceParams: vi.fn(),
+    navigateDeprecated: vi.fn(),
   };
 }
 
@@ -235,8 +293,14 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
           "useRoutePath",
           "createComponentForStaticNavigation",
           "createPathConfigForStaticNavigation",
+          "createScreenFactory",
+          "NavigationProvider",
+          "createStandardNavigationFactories",
           // @react-navigation/routers (re-exported by core)
           "BaseRouter",
+          "StackRouter",
+          "TabRouter",
+          "DrawerRouter",
         ],
         factory: ({ React }) => {
           const { hostComponent: hostClass } = hosts(React);
@@ -253,6 +317,12 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             ThemeContext,
             Screen,
           } = shared(React);
+          // usePreventRemoveContext's value when no navigator provides one: nothing prevented.
+          const emptyPreventRemove = {
+            preventedRoutes: {},
+            setPreventRemove: vi.fn(),
+            notifyPreventRemove: vi.fn(),
+          };
           const NavigationContainer = React.forwardRef((props: any, ref: any) =>
             React.createElement(
               hostClass("NavigationContainer"),
@@ -279,6 +349,14 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             stale: false,
           }));
 
+          // Navigation methods React Navigation 7 added beside the ones above (preloading,
+          // replacing params, the pre-7 navigate), and the container ref's event emitter. A
+          // screen's navigation has no emit: React Navigation's core strips it.
+          const preload = vi.fn();
+          const replaceParams = vi.fn();
+          const navigateDeprecated = vi.fn();
+          const emit = vi.fn(() => ({ defaultPrevented: false }));
+
           const defaultNavigation = {
             navigate,
             goBack,
@@ -293,6 +371,9 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             addListener: vi.fn(() => vi.fn()),
             removeListener: vi.fn(),
             getId: vi.fn(() => undefined),
+            preload,
+            replaceParams,
+            navigateDeprecated,
           };
 
           const defaultRoute = {
@@ -351,6 +432,17 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
               getCurrentRoute: vi.fn(() => ({ key: "test", name: "TestScreen" })),
               getCurrentOptions: vi.fn(() => ({})),
               addListener: vi.fn(() => vi.fn()),
+              removeListener: vi.fn(),
+              resetRoot: vi.fn(),
+              setParams,
+              setOptions,
+              replaceParams,
+              preload,
+              navigateDeprecated,
+              emit,
+              isFocused: vi.fn(() => true),
+              getId: vi.fn(() => undefined),
+              getParent,
             };
           }
 
@@ -388,6 +480,93 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             return children;
           }
 
+          const CommonActions = {
+            navigate: vi.fn(),
+            reset: vi.fn(),
+            goBack: vi.fn(),
+            setParams: vi.fn(),
+            // The action objects React Navigation's creators return.
+            preload: vi.fn((name: string, params?: object) => ({
+              type: "PRELOAD",
+              payload: { name, params },
+            })),
+            replaceParams: vi.fn((params: object) => ({
+              type: "REPLACE_PARAMS",
+              payload: { params },
+            })),
+            navigateDeprecated: vi.fn((name: any, params?: object) => {
+              if (typeof name === "string") {
+                return { type: "NAVIGATE_DEPRECATED", payload: { name, params } };
+              }
+              const payload = name || {};
+              if (!("name" in payload)) {
+                // @react-navigation/routers' own message, a plain Error as it throws it.
+                const missingName =
+                  "You need to specify a name when calling navigateDeprecated with an object as the argument. See https://reactnavigation.org/docs/navigation-actions#navigatelegacy for usage.";
+                throw new Error(missingName);
+              }
+              return { type: "NAVIGATE_DEPRECATED", payload };
+            }),
+          };
+          const StackActions = {
+            push: vi.fn(),
+            pop: vi.fn(),
+            popToTop: vi.fn(),
+            replace: vi.fn(),
+            popTo: vi.fn(
+              (name: string, params?: object, options?: { merge?: boolean } | boolean) => {
+                if (typeof options === "boolean") {
+                  console.warn(
+                    "Passing a boolean as the third argument to 'popTo' is deprecated. Pass '{ merge: true }' instead.",
+                  );
+                }
+                return {
+                  type: "POP_TO",
+                  payload: {
+                    name,
+                    params,
+                    merge: typeof options === "boolean" ? options : options?.merge,
+                  },
+                };
+              },
+            ),
+          };
+          const TabActions = {
+            jumpTo: vi.fn(),
+          };
+          const DrawerActions = {
+            openDrawer: vi.fn(),
+            closeDrawer: vi.fn(),
+            toggleDrawer: vi.fn(),
+            jumpTo: vi.fn(),
+          };
+
+          // Provides a screen's route and navigation, as @react-navigation/core's does.
+          function NavigationProvider({ route, navigation: helpers, children }: any) {
+            return React.createElement(
+              NavigationRouteContext.Provider,
+              { value: route },
+              React.createElement(NavigationContext.Provider, { value: helpers }, children),
+            );
+          }
+
+          const BaseRouter = {
+            getInitialState: vi.fn(() => getState()),
+            getRehydratedState: vi.fn((state: any) => state),
+            getStateForRouteNamesChange: vi.fn((state: any) => state),
+            getStateForRouteFocus: vi.fn((state: any) => state),
+            getStateForAction: vi.fn((state: any) => state),
+            shouldActionChangeFocus: vi.fn(() => false),
+          };
+          /** A router factory: `StackRouter(options)` and the rest return a Router. */
+          const routerFactory = (type: string, actionCreators: Record<string, unknown>) =>
+            vi.fn((_options?: unknown) => ({
+              ...BaseRouter,
+              type,
+              getInitialState: vi.fn(() => ({ ...getState(), type })),
+              actionCreators,
+            }));
+
           const BaseNavigationContainer = React.forwardRef((props: any, ref: any) =>
             React.createElement(
               hostClass("BaseNavigationContainer"),
@@ -424,12 +603,29 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
                 React.createElement(hostClass("Group"), { ...props, ref }, props.children),
               ),
             })),
-            useNavigationBuilder: vi.fn(() => ({
-              state: getState(),
-              navigation: useNavigation(),
-              descriptors: {},
-              NavigationContent: ({ children }: any) => children,
-            })),
+            useNavigationBuilder: vi.fn(function useNavigationBuilder() {
+              // A navigator's helpers: useNavigation()'s functions plus `emit`, which
+              // React Navigation's core gives a navigator but strips from a screen's
+              // navigation. One object, kept across renders.
+              const screenNavigation = useNavigation();
+              const helpers = React.useMemo(
+                () => ({ ...screenNavigation, emit: vi.fn(emitEvent) }),
+                [screenNavigation],
+              );
+              return {
+                state: getState(),
+                navigation: helpers,
+                descriptors: {},
+                describe: vi.fn((route: any) => ({
+                  route,
+                  navigation: useNavigation(),
+                  options: {},
+                  render: () => null,
+                })),
+                render: vi.fn(() => null),
+                NavigationContent: ({ children }: any) => children,
+              };
+            }),
             NavigationContext,
             NavigationRouteContext,
             NavigationContainerRefContext,
@@ -443,28 +639,15 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             PreventRemoveContext,
             PreventRemoveProvider,
             usePreventRemove: vi.fn(),
-            usePreventRemoveContext: vi.fn(() => null),
-            CommonActions: {
-              navigate: vi.fn(),
-              reset: vi.fn(),
-              goBack: vi.fn(),
-              setParams: vi.fn(),
-            },
-            StackActions: {
-              push: vi.fn(),
-              pop: vi.fn(),
-              popToTop: vi.fn(),
-              replace: vi.fn(),
-            },
-            TabActions: {
-              jumpTo: vi.fn(),
-            },
-            DrawerActions: {
-              openDrawer: vi.fn(),
-              closeDrawer: vi.fn(),
-              toggleDrawer: vi.fn(),
-              jumpTo: vi.fn(),
-            },
+            // The context a navigator provides; the preset's navigators provide none, so a
+            // screen gets an empty one, where the library's hook would throw outside one.
+            usePreventRemoveContext: vi.fn(function usePreventRemoveContext() {
+              return React.useContext(PreventRemoveContext) ?? emptyPreventRemove;
+            }),
+            CommonActions,
+            StackActions,
+            TabActions,
+            DrawerActions,
             findFocusedRoute: vi.fn((state: any) => state?.routes?.[state?.index ?? 0]),
             getFocusedRouteNameFromRoute: vi.fn(
               (route: any) => route?.state?.routes?.[route?.state?.index ?? 0]?.name,
@@ -477,6 +660,21 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             BaseNavigationContainer,
             createComponentForStaticNavigation: vi.fn(() => () => null),
             createPathConfigForStaticNavigation: vi.fn(() => ({})),
+            // A static screen's config is its own description: the factory returns it as is.
+            createScreenFactory: () => (config: unknown) => config,
+            NavigationProvider,
+            createStandardNavigationFactories: vi.fn(() => ({
+              createNavigator: () => ({
+                Navigator: React.forwardRef((props: any, ref: any) =>
+                  React.createElement(hostClass("Navigator"), { ...props, ref }, props.children),
+                ),
+                Screen,
+                Group: React.forwardRef((props: any, ref: any) =>
+                  React.createElement(hostClass("Group"), { ...props, ref }, props.children),
+                ),
+              }),
+              createScreen: (config: unknown) => config,
+            })),
             LinkingContext,
             LocaleDirContext,
             UNSTABLE_UnhandledLinkingContext,
@@ -493,19 +691,15 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             })),
             useLinkProps: vi.fn(({ href, action }: any) => ({
               href,
-              accessibilityRole: "link",
+              role: "link",
               onPress: () => action,
             })),
             useLocale: vi.fn(() => ({ direction: "ltr" as const })),
             useRoutePath: vi.fn(() => undefined),
-            BaseRouter: {
-              getInitialState: vi.fn(() => getState()),
-              getRehydratedState: vi.fn((state: any) => state),
-              getStateForRouteNamesChange: vi.fn((state: any) => state),
-              getStateForRouteFocus: vi.fn((state: any) => state),
-              getStateForAction: vi.fn((state: any) => state),
-              shouldActionChangeFocus: vi.fn(() => false),
-            },
+            BaseRouter,
+            StackRouter: routerFactory("stack", StackActions),
+            TabRouter: routerFactory("tab", TabActions),
+            DrawerRouter: routerFactory("drawer", DrawerActions),
             useScrollToTop: vi.fn(),
             useLinkTo: vi.fn(() => vi.fn()),
             Link: React.forwardRef((props: any, ref: any) =>
@@ -516,7 +710,12 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
       },
 
       "@react-navigation/native-stack": {
-        exports: ["createNativeStackNavigator"],
+        exports: [
+          "createNativeStackNavigator",
+          "createNativeStackScreen",
+          "NativeStackView",
+          "useAnimatedHeaderHeight",
+        ],
         factory: ({ React }) => {
           const { hostComponent: hostClass } = hosts(React);
           const { Screen } = shared(React);
@@ -536,9 +735,29 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             };
           }
 
+          const NativeStackView = React.forwardRef((props: any, ref: any) =>
+            React.createElement(hostClass("NativeStackView"), { ...props, ref }, props.children),
+          );
+          (NativeStackView as any).displayName = "NativeStackView";
+
+          // The library's NativeStackView seeds an Animated value with the header's default
+          // height for each screen, and its hook throws outside one. The preset answers as
+          // a card screen does (nativeStackHeaderHeight), with the engine's Animated, one
+          // value per component kept across renders.
+          const useAnimatedHeaderHeight = vi.fn(function useAnimatedHeaderHeight() {
+            const value = React.useRef<unknown>(null);
+            if (value.current === null)
+              value.current = new (activeReactNative().Animated.Value)(nativeStackHeaderHeight());
+            return value.current;
+          });
+
           return {
             default: { createNativeStackNavigator },
             createNativeStackNavigator,
+            // createScreenFactory's: a static screen's config, returned as is.
+            createNativeStackScreen: (config: unknown) => config,
+            NativeStackView,
+            useAnimatedHeaderHeight,
           };
         },
       },
@@ -642,9 +861,10 @@ export function navigation(presetOptions: NavigationPresetOptions = {}): Preset 
             HeaderTitle,
             HeaderBackContext: React.createContext(undefined as any),
             HeaderShownContext: React.createContext(true),
-            HeaderHeightContext: React.createContext(64),
-            useHeaderHeight: () => 64,
-            getDefaultHeaderHeight: vi.fn(() => 64),
+            // A native stack screen's header height, the one useAnimatedHeaderHeight starts at.
+            HeaderHeightContext: React.createContext(nativeStackHeaderHeight()),
+            useHeaderHeight: () => nativeStackHeaderHeight(),
+            getDefaultHeaderHeight: vi.fn(getDefaultHeaderHeight),
             getHeaderTitle: vi.fn(
               (options: any, fallback: string) =>
                 options?.headerTitle ?? options?.title ?? fallback,

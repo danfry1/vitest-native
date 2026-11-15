@@ -11,7 +11,7 @@
 //           when `full` is skipped. Several unit tests read workflows, validation
 //           scripts and fixtures as their source of truth, so every change that is not
 //           docs-only runs them.
-//   snippets ci.yml `Doc snippets`: the README and quick-start code run against the
+//   snippets ci.yml `Doc snippets`: the code on the SNIPPET_PAGES pages runs against the
 //           packed package (SNIPPET_PATHS), when a change touches it and `packed` is
 //           skipped; the packed consumer cell runs it otherwise.
 //

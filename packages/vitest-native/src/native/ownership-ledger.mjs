@@ -200,7 +200,8 @@ export const OWNERSHIP_ROUTES = {
   },
 };
 
-const VIA = {
+/** Node's loader for a file, as the guard names it (the end-of-run summary lists it too). */
+export const OWNERSHIP_VIA = {
   cjs: "CommonJS",
   "require-esm": "require() of an ES module",
   esm: "ESM loader",
@@ -330,7 +331,7 @@ export function createOwnershipLedger({
       : "unknown";
     const parent = nodeEntry.parent ?? "(no parent recorded)";
     const importer = viteImporter(viteEntry) ?? "(no importer recorded)";
-    const nodeLine = `Node (${VIA[nodeEntry.via] ?? nodeEntry.via}), required by ${parent}`;
+    const nodeLine = `Node (${OWNERSHIP_VIA[nodeEntry.via] ?? nodeEntry.via}), required by ${parent}`;
     const viteLine = `Vite, imported by ${importer}`;
     // A stack only when reporting: one per compile cost more than the whole ledger.
     const stack = second === "node" ? frames(new Error().stack) : [];
