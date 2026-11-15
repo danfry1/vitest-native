@@ -2,7 +2,7 @@
  * Under jest-compat, View has the prototype React Native's Jest preset gives its stand-in:
  * the native methods (measure, focus, …), which a View ref has. It is the native methods
  * object of the native engine's host class for RCTView, one per view name, which the
- * class's methods delegate to, so a spy on it reaches every View ref, whichever route made
+ * class's instances inherit from, so a spy on it reaches every View ref, whichever route made
  * the host (jest-compat/setup.mjs, native/boundary.mjs). Text and ScrollView keep React
  * Native's own shape: exposing theirs would load them in every test file.
  */
