@@ -1,0 +1,9 @@
+{
+  "name": "museum-pre-857-mock-interpolate-color",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "react-native-reanimated": "*",
+    "react-native-worklets": "*"
+  }
+}

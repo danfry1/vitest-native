@@ -10,8 +10,8 @@
  *
  * The existing tests (registry-key.test.ts, transform-cache.test.ts) cover the
  * installed versions and the per-file disk key. This file covers the inputs they did
- * not: the format, package and transform versions and the boundary sources in the
- * registry key, the React Native version it is built for, Expo, the preset's name and
+ * not: the format, package and transform versions, the boundary sources and the stand-ins
+ * for files outside react-native in the registry key, the React Native version it is built for, Expo, the preset's name and
  * the Babel env in both keys, the optional export-namespace-from plugin, the files the
  * registry is seeded from, additional entries included (registry-location.test.ts
  * covers copies and symlinks end to end), the preset and @babel/core versions in the
@@ -125,6 +125,27 @@ describe("registry cache key ledger", () => {
         boundarySourceFor: (...args: unknown[]) => {
           const source = original.boundarySourceFor(...args);
           return source == null ? source : `${source}\n// edited`;
+        },
+      };
+    });
+    const edited = await import("../src/native/registry.mjs");
+    expect(keyWith(edited.registryKey, root)).not.toBe(before);
+  });
+
+  it("changes when a stand-in for a file outside react-native changes (expo-modules-core's Refs)", async () => {
+    const root = projectWith(BASE);
+    const before = keyWith(registryKey, root);
+    vi.resetModules();
+    vi.doMock("../src/native/boundary.mjs", async (importOriginal) => {
+      const original = await importOriginal<{
+        PACKAGE_STUBS: Record<string, Record<string, string>>;
+      }>();
+      const core = original.PACKAGE_STUBS["expo-modules-core"];
+      return {
+        ...original,
+        PACKAGE_STUBS: {
+          ...original.PACKAGE_STUBS,
+          "expo-modules-core": { ...core, "build/Refs.js": `${core["build/Refs.js"]}\n// edited` },
         },
       };
     });

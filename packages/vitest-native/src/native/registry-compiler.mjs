@@ -1,9 +1,10 @@
 // Short-lived entrypoint for a cold React Native registry build.
 //
-// One JSON options object in on stdin, one JSON result out. No logging: the output is a
+// One JSON options object in (a file named by the first argument), one JSON result out. No logging: the output is a
 // protocol, and a failure is returned for the parent to report once.
 import fs from "node:fs";
 import { Worker } from "node:worker_threads";
+import { readInput } from "./bounded-process.mjs";
 import { buildLibraryRegistry, buildRegistry } from "./registry.mjs";
 
 // A watchdog thread ends this process if its parent dies or it runs longer than the
@@ -28,7 +29,7 @@ function respond(value) {
 }
 
 try {
-  const { testDelayMs, ...options } = JSON.parse(fs.readFileSync(0, "utf8"));
+  const { testDelayMs, ...options } = readInput();
   if (testDelayMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, testDelayMs);
   const started = performance.now();
   const registryFile = buildRegistry({
