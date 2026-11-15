@@ -1,20 +1,14 @@
 [
   {
     "export": "createNativeStackScreen",
-    "path": "createNativeStackScreen",
-    "reason": "missing from the navigation preset",
-    "issue": "#712"
-  },
-  {
-    "export": "NativeStackView",
-    "path": "NativeStackView",
-    "reason": "missing from the navigation preset",
-    "issue": "#712"
+    "path": "createNativeStackScreen().__reactNavigationStaticScreenConfig",
+    "reason": "a brand the package declares only for type inference; its own createScreenFactory returns the config as is",
+    "issue": "n/a (type-only)"
   },
   {
     "export": "useAnimatedHeaderHeight",
     "path": "useAnimatedHeaderHeight",
     "reason": "missing from the navigation preset",
-    "issue": "#712"
+    "issue": "#828"
   }
 ]

@@ -181,6 +181,10 @@ Run `vitest run` once locally to record them, review the new files as you would 
 vitest run -u
 ```
 
+::: warning Updating one file's snapshots
+In Jest, `-u` takes no value, so `jest -u src/Button.test.tsx` updates one file. In Vitest, `-u` (`--update`) takes an optional value, so in `vitest run -u src/Button.test.tsx` the path is read as that value. No file filter is left: every test file runs in update mode, so snapshots across the project are rewritten where they differ, written where missing and deleted where obsolete, with no error. Put the path first, `vitest run src/Button.test.tsx -u`, or give the value, `vitest run --update=all src/Button.test.tsx`.
+:::
+
 ::: tip
 Prefer explicit queries (`getByText`, `getByTestId`, `getByRole`) over large snapshots — they're robust across the engine's real host names and far easier to review.
 :::

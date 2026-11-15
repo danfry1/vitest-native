@@ -51,6 +51,17 @@ reactNative({ presets: { navigation: false } })
 
 Under the native engine, Gesture Handler and FlashList already run as themselves, with the Jest setup each library ships. In the object form, `presets: { gestureHandler: false }` and `{ flashList: false }` keep that setup, so a setting carried over from older mocks changes nothing there and can be deleted. Under the mock engine they turn the preset off.
 
+### Reanimated: its mock or the real library
+
+Reanimated has two ways to run under Jest, and a suite is written against one of them:
+
+| Your Jest setup | What it runs | Under vitest-native |
+|---|---|---|
+| `jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'))`, or no Reanimated setup | Reanimated's mock: animations land at once, and `getAnimatedStyle` finds no animated style | The default. The `reanimated` preset serves the same mock; delete the `jest.mock` line. |
+| `setUpTests()` from `react-native-reanimated`, and no mock of it | The real library: mappers run, timed animations need timers advanced, and `getAnimatedStyle` reads the style the animated components set | `presets: { reanimated: false }` under the native engine, with Reanimated 4.7 or later declared in your `package.json`. The real library runs through its own Jest resolver; keep the setup file that calls `setUpTests()`. |
+
+`vitest-native migrate` reads your Jest setup and writes the matching option. Reanimated's own matchers come with `setUpTests()` in the real-library mode, and vitest-native's with the preset. The mock engine has no real React Native for the library to run on, so keep the preset there.
+
 ## Available presets
 
 | Preset | Library | What's mocked |
@@ -179,6 +190,7 @@ A preset is listed as a path, not as an object, because its factories run in the
 - the module is an ES module (`export default`);
 - `react-native` is a stand-in there, so the module may import it at its top level but should use it only inside its factories; anything else React Native needs (another React Native library, the app's code) is imported inside the factories;
 - an export name is a name a variable could have; the default import is the whole object the factory returns;
+- a factory that makes components, contexts or hooks uses the React it is given, `factory: ({ React }) => …`, rather than one the module imports: the module loads once per worker, and under the hot runtime's [`freshRuntime`](/guide/hot-runtime) each test file renders with its own React;
 - async work goes in the preset's `prepare()`, which the workers await before any setup or test file loads.
 
 A path resolves from the project root, the root each Vitest project gives Vite. A plugin shared by several projects with different roots therefore needs an absolute path, such as `fileURLToPath(new URL('./test/presets/my-lib.ts', import.meta.url))`. A package name resolves as `require()` resolves it from the root.
