@@ -1,7 +1,6 @@
-import React from "react";
 import { vi } from "vitest";
 
-export function createScrollViewMock() {
+export function createScrollViewMock(React: typeof import("react")) {
   const ScrollView = React.forwardRef((props: any, ref: any) => {
     const { children, refreshControl, ...rest } = props;
     const instanceMethods = {

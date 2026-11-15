@@ -223,7 +223,7 @@ describe("skia preset: wiring", () => {
     const canvasKit = g.CanvasKit;
     delete g.CanvasKit;
     try {
-      expect(() => skia().modules[SKIA].factory()).toThrow(/before CanvasKit loaded/);
+      expect(() => skia().modules[SKIA].factory({ React })).toThrow(/before CanvasKit loaded/);
     } finally {
       g.CanvasKit = canvasKit;
     }

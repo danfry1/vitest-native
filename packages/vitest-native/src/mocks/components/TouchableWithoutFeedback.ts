@@ -1,8 +1,8 @@
-import React from "react";
-import { hostComponent } from "../host.js";
+import { hosts } from "../host-classes.js";
 import { buildPressableHostProps } from "./pressableHost.js";
 
-export function createTouchableWithoutFeedbackMock() {
+export function createTouchableWithoutFeedbackMock(React: typeof import("react")) {
+  const { hostComponent } = hosts(React);
   const TouchableWithoutFeedback = React.forwardRef((props: any, ref: any) =>
     React.createElement(
       hostComponent("TouchableWithoutFeedback"),
