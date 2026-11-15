@@ -5,8 +5,10 @@
 // once React Native loads from the precompiled registry. vitest-native leaves the cache
 // off. This gate runs a project whose test files import an ES package of many modules,
 // on one worker, under per-file isolation and under the hot runtime with ESM generation
-// on and off, and counts the entries each run leaves: any entry means a worker turned
-// the cache on.
+// on and off. Every test file reports what Node says inside its worker,
+// module.getCompileCacheDir(): any directory, wherever it is, means the cache is on.
+// A positive control turns the cache on with NODE_COMPILE_CACHE and expects both a
+// reported directory and entries written to it.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -80,12 +82,14 @@ function setFiles(count) {
   for (let i = 0; i < count; i++) {
     write(
       `tests/f${String(i).padStart(2, "0")}.test.ts`,
-      `import { expect, test } from "vitest";\nimport { total } from "vn-compile-cache-probe";\ntest("imports the probe", () => expect(total).toBe(${total}));\n`,
+      `import fs from "node:fs";\nimport module from "node:module";\nimport { expect, test } from "vitest";\nimport { total } from "vn-compile-cache-probe";\n` +
+        `test("imports the probe", () => expect(total).toBe(${total}));\n` +
+        `test("reports the worker's compile cache", () => fs.appendFileSync(process.env.VN_CC_REPORT, JSON.stringify({ dir: module.getCompileCacheDir?.() ?? null }) + "\\n"));\n`,
     );
   }
 }
 
-const cacheDir = () => path.join(fixture, "node_modules", ".cache", "vitest-native", "v8");
+const report = () => path.join(fixture, "compile-cache-report.ndjson");
 
 function countEntries(dir) {
   if (!fs.existsSync(dir)) return 0;
@@ -96,18 +100,18 @@ function countEntries(dir) {
   return n;
 }
 
-// The gate counts only the entries vitest-native writes. A developer's
-// NODE_COMPILE_CACHE turns Node's cache on in every worker before our code runs (and
-// NODE_DISABLE_COMPILE_CACHE turns it off), so neither is passed to the runs.
+// A developer's NODE_COMPILE_CACHE turns Node's cache on in every worker before our code
+// runs (and NODE_DISABLE_COMPILE_CACHE turns it off), so neither is inherited; only the
+// positive control sets one.
 const inheritedEnv = { ...process.env };
 delete inheritedEnv.NODE_COMPILE_CACHE;
 delete inheritedEnv.NODE_DISABLE_COMPILE_CACHE;
 
 function run(label, files, hotRuntime, extraEnv = {}) {
   setFiles(files);
-  // Clear the transform cache too, so every run is equally cold: Babel then loads in
-  // each run, and a cache turned on anywhere would receive its modules.
-  fs.rmSync(path.dirname(cacheDir()), { recursive: true, force: true });
+  // Clear the transform cache too, so every run is equally cold and Babel loads in each.
+  fs.rmSync(path.join(fixture, "node_modules", ".cache"), { recursive: true, force: true });
+  fs.rmSync(report(), { force: true });
   const result = spawnSync(
     process.execPath,
     [vitestEntry, "run", "--config", path.join(fixture, "vitest.config.mjs")],
@@ -119,6 +123,7 @@ function run(label, files, hotRuntime, extraEnv = {}) {
         FORCE_COLOR: "0",
         NO_COLOR: "1",
         VN_CC_HOT: JSON.stringify(hotRuntime),
+        VN_CC_REPORT: report(),
         ...extraEnv,
       },
     },
@@ -128,12 +133,20 @@ function run(label, files, hotRuntime, extraEnv = {}) {
   if (result.status !== 0 || !new RegExp(`Test Files\\s+${files} passed`).test(output)) {
     throw new Error(`${label}: the run did not pass all ${files} files:\n${output}`);
   }
-  const entries = countEntries(cacheDir());
-  const timeouts = (output.match(/Timeout terminating/g) ?? []).length;
-  console.log(
-    `  ${label}: ${files} files, ${entries} compile-cache entries${timeouts ? `, ${timeouts} teardown timeouts` : ""}`,
-  );
-  return entries;
+  const dirs = fs.existsSync(report())
+    ? fs
+        .readFileSync(report(), "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line).dir)
+    : [];
+  // Every file must have reported, or a missing report would read as "off".
+  if (dirs.length !== files) {
+    throw new Error(`${label}: ${dirs.length} of ${files} files reported:\n${output}`);
+  }
+  const on = dirs.filter((dir) => dir !== null);
+  console.log(`  ${label}: ${files} files reported, cache on in ${on.length}`);
+  return on;
 }
 
 let failed = false;
@@ -153,9 +166,19 @@ try {
     ["hot, VITEST_NATIVE_HOT_ESM_GEN=0", hot, { VITEST_NATIVE_HOT_ESM_GEN: "0" }],
   ];
   for (const [label, hotRuntime, env] of runs) {
-    const entries = run(label, FILES, hotRuntime, env);
-    check(entries === 0, `${label} writes no compile-cache entries (${entries})`);
+    const on = run(label, FILES, hotRuntime, env);
+    check(on.length === 0, `${label}: no worker has the compile cache on (${on.join(", ")})`);
   }
+  // Positive control: the report sees a cache that is on, and that cache is written.
+  const developerCache = path.join(fixture, "developer-compile-cache");
+  const on = run("per-file isolation, NODE_COMPILE_CACHE set", FILES, false, {
+    NODE_COMPILE_CACHE: developerCache,
+  });
+  const entries = countEntries(developerCache);
+  check(
+    on.length === FILES && entries > 0,
+    `NODE_COMPILE_CACHE turns the cache on in every worker (${on.length} of ${FILES}) and it is written (${entries} entries)`,
+  );
 } finally {
   fs.rmSync(fixture, { recursive: true, force: true });
 }

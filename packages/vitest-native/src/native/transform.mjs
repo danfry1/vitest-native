@@ -792,8 +792,9 @@ function startToolchain() {
   const workerUrl = String(toolchainOptions.workerUrl ?? BABEL_WORKER);
   const worker = new Worker(TOOLCHAIN_BOOTSTRAP, {
     eval: true,
-    // Node's compile cache as the calling thread has it (on only when the developer sets
-    // NODE_COMPILE_CACHE), so Babel loads from it too.
+    // Node's compile cache as the calling thread has it (vitest-native leaves it off; it is
+    // on when the developer sets NODE_COMPILE_CACHE or other code calls
+    // module.enableCompileCache), so Babel loads from it too.
     workerData: {
       port: port2,
       signal,
