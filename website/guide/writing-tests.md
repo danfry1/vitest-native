@@ -2,19 +2,19 @@
 
 Tests render a component with [React Native Testing Library](https://callstack.github.io/react-native-testing-library/),
 find what a user would see, act on it as a user would, and check the result. Under the default
-`native` engine the component renders through React Native's own JavaScript, so a `Pressable`,
-`TextInput` or `FlatList` behaves as the real one does.
+`native` engine the component runs React Native's own component code: a `Pressable`, `TextInput`
+or `FlatList` is the real JavaScript, with the native side mocked.
 
 This page builds on the [Quick Start](/guide/quick-start). The examples use Testing Library 14,
-where `render`, `fireEvent` and `act` are async; on Testing Library 13 awaiting them is harmless.
-Each example on this page runs as written in vitest-native's own tests.
+where `render`, `fireEvent` and `act` are async, and each one runs as written, on Testing Library
+14, in vitest-native's own tests.
 
 ## Find what the user sees
 
 Every query starts from `screen`. Prefer the queries that match how a user finds an element:
 
 1. `getByRole('button', { name: 'Sign in' })`: a control, by its role and its label.
-2. `getByLabelText('Email')`: an input, by its `accessibilityLabel`.
+2. `getByLabelText('Email')`: an input, by its label (`accessibilityLabel` or `aria-label`).
 3. `getByText('Hello, Ada')`: text on screen.
 4. `getByTestId('avatar')`: when nothing a user perceives identifies the element.
 
@@ -81,14 +81,14 @@ it('submits the email', async () => {
 
 `toBeDisabled`, `toBeEnabled`, `toBeOnTheScreen` and Testing Library's other matchers are
 registered for you; [Matchers](/guide/matchers) lists them and how to type them.
-`fireEvent.press(element)` calls the handler directly, without the press sequence. It is quicker
+`await fireEvent.press(element)` calls the handler directly, without the press sequence. It is quicker
 to write, and fine when a test only needs the handler to run.
 
 ## Wait for async work
 
 A component that loads data renders once with what it has, then again when the data arrives. A
-`getBy…` query right after `render` sees the first render only. `findBy…` retries until the element
-appears, for up to a second by default:
+`getBy…` query right after `render` cannot see data that arrives later, after a timer or a network
+response. `findBy…` retries until the element appears, for up to a second by default:
 
 <!-- doc-snippet: src/Profile.tsx -->
 ```tsx
@@ -175,9 +175,10 @@ it('hides after three seconds', async () => {
 Advance the clock inside `act`, so React applies the updates the timers cause before the next
 assertion.
 
-With fake timers on, `findBy…`, `waitFor` and `userEvent` advance the clock themselves while they
-wait, so they need no extra `advanceTimersByTime`. Here the loader's timer is fake too, and
-`findBy…` still finds the name:
+Under the `native` engine, `findBy…`, `waitFor` and `userEvent` advance the fake clock themselves
+while they wait, so they need no extra `advanceTimersByTime`. Here the loader's timer is fake too,
+and `findBy…` still finds the name. Under the `mock` engine they do this only with the jest-compat
+layer; see [Fake timers](/guide/mocking#fake-timers).
 
 <!-- doc-snippet: src/fake-timers.test.tsx -->
 ```tsx
@@ -217,6 +218,16 @@ it('types and presses with fake timers', async () => {
 Testing Library unmounts what a test rendered when the test ends, so each test starts from an
 empty screen. Vitest 5 clears mock calls before every test (`clearMocks: true`), so
 `toHaveBeenCalled` counts only the current test's calls.
+
+Other state carries over to the next test in the same file:
+
+- A mock's implementation or return value, and a `vi.spyOn` spy. Clearing removes calls only;
+  call `vi.restoreAllMocks()` in `afterEach`, or set `restoreMocks: true`, to undo them.
+- Fake timers, until `vi.useRealTimers()`, as in the `afterEach` above.
+- Screen size, color scheme and other device state set with the [test helpers](/guide/helpers).
+  Call `resetAllMocks()` from `vitest-native/helpers` in `afterEach`, as the Quick Start does.
+- Module-level variables, and the modules `vi.mock` replaced: they belong to the file, not the
+  test.
 
 ## Next steps
 

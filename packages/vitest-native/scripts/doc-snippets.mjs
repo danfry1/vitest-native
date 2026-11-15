@@ -1,5 +1,5 @@
-// The code a newcomer copies from the README and the quick start, extracted so it can
-// be run as written.
+// The code a newcomer copies from the README and the guide pages in SNIPPET_PAGES,
+// extracted so it can be run as written.
 //
 // The quick start once installed neither vitest nor React Native Testing Library and
 // called render() synchronously, which fails on RNTL 14: snippets were checked by
