@@ -179,6 +179,12 @@ function createState() {
     entries: new WatchedMap(changed),
     /** Specifiers no resolver could place (Jest's virtual mocks) -> entry. */
     unresolved: new WatchedMap(changed),
+    /**
+     * File -> the `unresolved` specifier an import resolved to it (`state.entryAt`). Kept
+     * for the worker's life, as `resolutions` is: the entry is looked up by specifier at
+     * each load, so it lasts exactly as long as that registration.
+     */
+    importedAs: new Map(),
     /** `parentFile\0request` -> resolved file or null. Valid for the worker's life. */
     resolutions: new Map(),
     /** What `requireActual` is loading: its next load skips the mock. */
@@ -354,7 +360,40 @@ function createState() {
       state.bypass = null;
       return BYPASSED;
     }
-    return filename !== null ? state.entries.get(filename) : state.unresolved.get(request);
+    if (filename === null) return state.unresolved.get(request);
+    return state.entries.get(filename) ?? state.importedEntry(filename);
+  };
+
+  /**
+   * The entry registered for `file`, which an import of `request` resolved to, if any.
+   *
+   * A jest.mock of a subpath `require` cannot resolve (an ES-module package whose
+   * `exports` gives it an `import` condition only, as `multiformats/cid` does) is
+   * registered by its specifier (`unresolved`), which a `require` of it matches. Node's
+   * ESM loader asks by the file its own resolution found (#896): an import of that same
+   * specifier into its own package binds the registration to that file, so this and
+   * every later load of the file, by any request, is served it. Without the binding the
+   * file had no jest.mock, and was matched against Vitest's copy of the registration,
+   * whose factory is async.
+   */
+  state.entryAt = (file, request) => {
+    const entry = state.entries.get(file);
+    if (entry !== undefined) return entry;
+    if (
+      typeof request === "string" &&
+      isBare(request) &&
+      state.unresolved.has(request) &&
+      (owningPackageOfFile(file) ?? packageNameAt(file)) === packageNameOf(request)
+    ) {
+      state.importedAs.set(file, request);
+    }
+    return state.importedEntry(file);
+  };
+
+  /** The `unresolved` entry an import bound to `file` (state.entryAt), if it is registered. */
+  state.importedEntry = (file) => {
+    const spec = state.importedAs.get(file);
+    return spec === undefined ? undefined : state.unresolved.get(spec);
   };
 
   // `asyncFactory` is jestMockTransform's async variant of `factory`, when it made one.
@@ -979,8 +1018,8 @@ function vitestMockFor(index, request, parent, filename) {
  * result (Vitest caches it on the entry), an automock's mocked exports, or the module
  * a `__mocks__` redirect evaluated. R9: one that cannot be had synchronously fails by name.
  */
-const FACTORY_NOT_SETTLED =
-  "its factory is async and has not settled; import the module in the test first";
+// The reason only: mockNotSeenByNode gives the advice.
+const FACTORY_NOT_SETTLED = "its factory is async and has not settled";
 /** Manual-mock entries whose factory returned a promise that has not settled. */
 const settlingFactories = new WeakSet();
 
@@ -1370,7 +1409,7 @@ function installLoadHook(state) {
   nodeMockForRegistry.markFor = (file, request, parentFile) => {
     if (!nodeMocks) return null;
     const parent = { filename: parentFile };
-    const jestEntry = state.entries.get(canonical(file));
+    const jestEntry = state.entryAt(canonical(file), request);
     if (jestEntry !== undefined) return markOf(jestEntry);
     if (pendingCount() > 0 && assertNoPendingMockOf(state, file, request, parent)) return null;
     const index = vitestMocks();

@@ -47,6 +47,7 @@ The native engine: ownership, resolution, the Node front door, loaders, workers,
 - **Time from a worktree you are not editing.** A run refuses once `src/` changes after the last build. A script that clears `node_modules/.cache/vitest-native` must keep `build-stamp.json`.
 - **React Native stays resident in a hot worker,** so anything added to its classes or prototypes is shared by every file in that worker. Probe a change like that across files, under hot and stock.
 - **On Windows, pass child input through a temp file, not stdin.** Stdin held exit for 14 s.
+- **A jest.mock that `require` cannot resolve is keyed by its specifier, not a file.** Node's ESM loader asks by file, so such a registration (an import-only subpath, like `multiformats/cid`) must be bound to the file an import of that specifier resolves to (`state.entryAt`), or the load falls through to Vitest's async copy of the mock (#896).
 - **Not ours:** Node 24.13.0 has a V8 GC SIGSEGV (exit 139, no output). The CI leg is pinned to 24.12.0.
 
 ## Verification

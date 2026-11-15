@@ -1,0 +1,10 @@
+{
+  "name": "vn-esm-only-lib",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./cid": { "import": "./dist/cid.js" },
+    "./package.json": "./package.json"
+  }
+}
