@@ -3,6 +3,7 @@ import path from "node:path";
 import { babelParser, isPlainJavaScript, type Parse } from "./plain-javascript.js";
 import { AUTO_DETECT_PRESETS } from "../preset-map.js";
 import { containsPath, dependencyDirOf, type PackageDirOf } from "./match.mjs";
+import { relativeToRoot } from "./root-spelling.mjs";
 import { mainFieldFile } from "./shared-resolver.mjs";
 
 /** A path inside a node_modules directory: an installed package's, not a workspace member's. */
@@ -296,7 +297,7 @@ function staticImports(
         if (
           target &&
           containsPath(dir, target) &&
-          !NODE_MODULES_DIR.test(path.relative(dir, target))
+          !NODE_MODULES_DIR.test(relativeToRoot(dir, target))
         ) {
           pending.push(target);
         }
