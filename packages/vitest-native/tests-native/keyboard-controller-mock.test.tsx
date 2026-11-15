@@ -77,8 +77,27 @@ it("useReanimatedFocusedInput gives the focused input as a shared value, and upd
   const { seen } = await renderHook(() => useReanimatedFocusedInput());
   const { input, update } = seen[0];
   expect(input.get()?.layout).toMatchObject({ width: 200, height: 40 });
-  expect(typeof input.modify).toBe("function");
+  const heard: unknown[] = [];
+  input.addListener(1, (value: unknown) => heard.push(value));
+  input.modify(() => null);
+  input.removeListener(1);
+  input.set(input.value);
+  expect(heard).toEqual([null]);
   await expect(update()).resolves.toBeUndefined();
+});
+
+it("each shared value the hooks give has Reanimated's SharedValue members", async () => {
+  const { seen } = await renderHook(() => ({
+    animation: useReanimatedKeyboardAnimation(),
+    focused: useReanimatedFocusedInput(),
+  }));
+  const { animation, focused } = seen[0];
+  const values = { progress: animation.progress, height: animation.height, input: focused.input };
+  for (const [name, shared] of Object.entries(values)) {
+    for (const member of ["get", "set", "addListener", "removeListener", "modify"] as const) {
+      expect(typeof shared[member], `${name}.${member}`).toBe("function");
+    }
+  }
 });
 
 it("serves the rounded-corner constants and KeyboardController.setTranslucent", () => {
