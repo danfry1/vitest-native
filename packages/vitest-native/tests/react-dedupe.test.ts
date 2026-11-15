@@ -109,8 +109,9 @@ describe("Node's React dedupe", () => {
   it("anchors each project root on its own", () => {
     const one = projects.project({ libReact: true });
     const two = projects.project({ libReact: true });
+    // Vite's spelling (realpathSync.native): on Windows a temp root can be an 8.3 short name.
     const reactOf = (root: string) =>
-      path.join(fs.realpathSync(root), "node_modules/react/index.js");
+      path.join(fs.realpathSync.native(root), "node_modules/react/index.js");
     expect(anchoredFile("react", one)).toBe(reactOf(one));
     expect(anchoredFile("react", two)).toBe(reactOf(two));
   });
