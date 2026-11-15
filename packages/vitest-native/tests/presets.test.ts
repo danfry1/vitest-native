@@ -24,6 +24,7 @@ import {
 import * as Presets from "../src/presets/index.js";
 import { AUTO_DETECT_PRESETS, PRESET_MODULES } from "../src/preset-map.js";
 import { renderHook } from "@testing-library/react-native";
+import { setPlatform } from "../src/helpers.js";
 
 // --- Navigation ---
 
@@ -199,17 +200,39 @@ describe("preset: navigation", () => {
       expect(render()).toBeNull();
     });
 
-    it("useNavigationBuilder's navigation is useNavigation()'s, the same on every render", async () => {
+    it("useNavigationBuilder's navigation is a navigator's helpers, with emit, the same on every render", async () => {
       const { result, rerender } = await renderHook(() => ({
         builder: mock.useNavigationBuilder(),
         navigation: mock.useNavigation(),
       }));
       // A screen's navigation has no emit; React Navigation's core strips it.
       expect(result.current.navigation).not.toHaveProperty("emit");
-      const first = result.current.builder.navigation;
-      expect(first).toBe(result.current.navigation);
+      const helpers = result.current.builder.navigation;
+      expect(typeof helpers.emit).toBe("function");
+      // The same mocks as the screen's, so a call through either is seen on both.
+      expect(helpers.navigate).toBe(result.current.navigation.navigate);
       await rerender({});
-      expect(result.current.builder.navigation).toBe(first);
+      expect(result.current.builder.navigation).toBe(helpers);
+    });
+
+    it("useNavigationBuilder's emit returns React Navigation's event", async () => {
+      const { result } = await renderHook(() => mock.useNavigationBuilder());
+      const { emit } = result.current.navigation;
+      expect(emit({ type: "focus", target: "a" })).toEqual({ type: "focus", target: "a" });
+      const event = emit({ type: "beforeRemove", data: { x: 1 }, canPreventDefault: true });
+      expect(event).toMatchObject({
+        type: "beforeRemove",
+        data: { x: 1 },
+        defaultPrevented: false,
+      });
+      event.preventDefault();
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it("useLinkProps gives the role React Navigation 7 gives", async () => {
+      const { result } = await renderHook(() => mock.useLinkProps({ href: "/a" }));
+      expect(result.current).toMatchObject({ href: "/a", role: "link" });
+      expect(result.current).not.toHaveProperty("accessibilityRole");
     });
 
     it("navigateDeprecated with an object needs a name, as React Navigation's does", () => {
@@ -369,8 +392,17 @@ describe("preset: navigation", () => {
     expect(() => mock.usePreventRemove()).not.toThrow();
   });
 
-  it("usePreventRemoveContext returns null", () => {
-    expect(mock.usePreventRemoveContext()).toBeNull();
+  it("usePreventRemoveContext gives an empty context outside a navigator, or the one provided", async () => {
+    const empty = (await renderHook(() => mock.usePreventRemoveContext())).result.current;
+    expect(empty.preventedRoutes).toEqual({});
+    expect(typeof empty.setPreventRemove).toBe("function");
+    expect(typeof empty.notifyPreventRemove).toBe("function");
+    const provided = { preventedRoutes: { a: { preventRemove: true } } };
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(mock.PreventRemoveContext.Provider, { value: provided }, children);
+    expect(
+      (await renderHook(() => mock.usePreventRemoveContext(), { wrapper })).result.current,
+    ).toBe(provided);
   });
 
   it("createComponentForStaticNavigation returns a component", () => {
@@ -391,6 +423,26 @@ describe("preset: navigation", () => {
       const config = { screen: () => null };
       expect(stackMock.createNativeStackScreen(config)).toBe(config);
       expect((stackMock.NativeStackView as any).displayName).toBe("NativeStackView");
+    });
+
+    it("useAnimatedHeaderHeight gives the engine's Animated value, kept across renders", async () => {
+      const { result, rerender } = await renderHook(() => stackMock.useAnimatedHeaderHeight());
+      const first = result.current;
+      expect(typeof first.interpolate).toBe("function");
+      // A card screen's iOS header on a portrait phone, with no top inset.
+      expect(first.__getValue()).toBe(44);
+      await rerender({});
+      expect(result.current).toBe(first);
+    });
+
+    it("useAnimatedHeaderHeight starts at native-stack's 56 on Android", async () => {
+      setPlatform("android");
+      try {
+        const { result } = await renderHook(() => stackMock.useAnimatedHeaderHeight());
+        expect(result.current.__getValue()).toBe(56);
+      } finally {
+        setPlatform("ios");
+      }
     });
 
     it("createNativeStackNavigator returns Navigator, Screen, Group", () => {
@@ -543,8 +595,48 @@ describe("preset: navigation", () => {
       expect(elementsMock.HeaderTitle.displayName).toBe("HeaderTitle");
     });
 
-    it("useHeaderHeight returns a number", () => {
-      expect(elementsMock.useHeaderHeight()).toBe(64);
+    it("useHeaderHeight is the height native-stack's animated header height starts at", async () => {
+      const stackMock = preset.modules["@react-navigation/native-stack"].factory({ React });
+      const animated = (await renderHook(() => stackMock.useAnimatedHeaderHeight())).result.current;
+      expect(elementsMock.useHeaderHeight()).toBe(44);
+      expect(elementsMock.useHeaderHeight()).toBe(animated.__getValue());
+      const context = (await renderHook(() => React.useContext(elementsMock.HeaderHeightContext)))
+        .result.current;
+      expect(context).toBe(44);
+      setPlatform("android");
+      try {
+        expect(elementsMock.useHeaderHeight()).toBe(56);
+      } finally {
+        setPlatform("ios");
+      }
+    });
+
+    it("getDefaultHeaderHeight is the library's: per platform, orientation and modal, plus the status bar", () => {
+      const portrait = { width: 390, height: 844 };
+      const height = elementsMock.getDefaultHeaderHeight;
+      expect(height(portrait, false, 47)).toBe(91);
+      expect(height(portrait, true, 0)).toBe(56);
+      expect(height({ width: 844, height: 390 }, false, 0)).toBe(32);
+      // A Dynamic Island's inset is taller than its status bar.
+      const { PixelRatio } = (globalThis as any).__vitest_native_mock;
+      expect(height(portrait, false, 59)).toBe(44 + (59 - (5 + 1 / PixelRatio.get())));
+      const { Platform } = (globalThis as any).__vitest_native_mock;
+      const isPad = Object.getOwnPropertyDescriptor(Platform, "isPad");
+      Object.defineProperty(Platform, "isPad", { configurable: true, value: true });
+      try {
+        expect(height(portrait, false, 24)).toBe(74);
+        expect(height(portrait, true, 24)).toBe(80);
+      } finally {
+        if (isPad) Object.defineProperty(Platform, "isPad", isPad);
+        else delete Platform.isPad;
+      }
+      setPlatform("android");
+      try {
+        expect(height(portrait, false, 24)).toBe(88);
+        expect(height(portrait, false, 59)).toBe(123);
+      } finally {
+        setPlatform("ios");
+      }
     });
 
     it("getHeaderTitle extracts title from options", () => {
