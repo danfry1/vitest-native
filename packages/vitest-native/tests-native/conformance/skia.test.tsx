@@ -36,8 +36,39 @@ probeModule(
   {
     // Geometry helpers take Skia values or props of the declared shapes, which `{}` is not.
     args: {
-      deflate: () => [Skia.RRectXY(rect(), 2, 2), 1, 1],
-      inflate: () => [Skia.RRectXY(rect(), 2, 2), 1, 1],
+      deflate: () => [Skia, Skia.RRectXY(rect(), 2, 2), 1, 1],
+      inflate: () => [Skia, Skia.RRectXY(rect(), 2, 2), 1, 1],
+      processRect: () => [Skia, { x: 0, y: 0, width: 10, height: 10 }],
+      processPath: () => [Skia, "M0 0 L10 10"],
+      processGradientProps: () => [Skia, { colors: ["red", "blue"], transform: [{ scale: 1 }] }],
+      processColor: () => [Skia, "red"],
+      processTransform: () => [Skia.Matrix(), [{ scale: 1 }]],
+      enumKey: () => ["fill"],
+      // Interpolations need at least two input and output values.
+      interpolate: () => [0.5, [0, 1], [0, 10]],
+      interpolateColors: () => [0.5, [0, 1], ["red", "blue"]],
+      interpolatePaths: () => [
+        0.5,
+        [0, 1],
+        [Skia.Path.MakeFromSVGString("M0 0 L10 10"), Skia.Path.MakeFromSVGString("M0 0 L20 20")],
+      ],
+      interpolateVector: () => [
+        0.5,
+        [0, 1],
+        [
+          { x: 0, y: 0 },
+          { x: 10, y: 10 },
+        ],
+      ],
+      // Type guards read the Skia object they are given.
+      isColorFilter: () => [Skia.Paint()],
+      isImageFilter: () => [Skia.Paint()],
+      isMaskFilter: () => [Skia.Paint()],
+      isPaint: () => [Skia.Paint()],
+      isPath: () => [Skia.Path.Make()],
+      isPathEffect: () => [Skia.Paint()],
+      isShader: () => [Skia.Paint()],
+      useCollectionLoading: () => [[PNG], () => Promise.resolve([null])],
       processCircle: () => [{ cx: 0, cy: 0, r: 5 }],
       processRadius: () => [Skia, 5],
       select: () => [makeMutable({ x: 1 }), "x"],
@@ -65,9 +96,8 @@ probeModule(
     },
     noCall: {
       makeImageFromView: "snapshots a mounted native view, which a probe does not have",
-      processRect: () => [{ x: 0, y: 0, width: 10, height: 10 }],
-      processPath: () => ["M0 0 L10 10"],
-      processGradientProps: () => [{ transform: [{ scale: 1 }] }],
+      isNativeBufferWeb:
+        "checks the buffer against the browser's DOM classes, which Node does not have",
     },
   },
 );

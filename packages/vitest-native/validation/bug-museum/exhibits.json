@@ -1961,6 +1961,19 @@
       }
     },
     {
+      "id": "own-workspace-undeclared-import",
+      "class": "ownership",
+      "title": "A workspace library a React Native sibling imports without declaring it is loaded twice",
+      "source": "a monorepo report (#692)",
+      "fixedBy": "#692's fix",
+      "links": {
+        "@m/feature": "packages/feature",
+        "@m/lib": "packages/lib"
+      },
+      "bugSignature": "^shared-store\\.test\\.ts: AssertionError: one store: expected null to be 'written by the test'",
+      "fixRef": "d6e75016b206ef45974f7d7d3da2743ccdcb998c"
+    },
+    {
       "id": "res-workspace-member-closure",
       "class": "transform/resolution",
       "title": "A workspace library's dependencies are not compiled for the package that depends on it",
@@ -2243,6 +2256,60 @@
         ]
       },
       "fixRef": "964c6c664c6032c6f0a908f9747977e57dae2f96"
+    },
+    {
+      "id": "pre-712-navigation-ref-reset-root",
+      "class": "presets",
+      "title": "A navigation container ref has no resetRoot",
+      "source": "#712",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/navigation-preset-missing-api",
+      "bugSignature": "^app\\.test\\.tsx: TypeError: navigationRef\\.resetRoot is not a function"
+    },
+    {
+      "id": "env-expo-snapshot-friendly-ref",
+      "class": "env-contract",
+      "title": "A snapshot prints the fiber tree behind an Expo ref",
+      "source": "#849",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/expo-snapshot-friendly-ref",
+      "bugSignature": "^snapshot-ref\\.test\\.tsx: Error: Snapshot `a snapshot prints the ref as jest-expo does 1` mismatched"
+    },
+    {
+      "id": "pre-857-mock-interpolate-color",
+      "class": "presets",
+      "title": "Reanimated's interpolateColor throws under the mock engine",
+      "source": "#857",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/mock-interpolate-color",
+      "bugSignature": "^color\\.test\\.tsx: (VitestNativeError: )?\\[vitest-native\\] reanimated's interpolateColor did not load"
+    },
+    {
+      "id": "pre-717-screens-transition-progress",
+      "class": "presets",
+      "title": "useTransitionProgress returns numbers, not Animated values",
+      "source": "#717",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/screens-preset-transition-progress",
+      "bugSignature": "^fade\\.test\\.tsx: TypeError: progress\\.interpolate is not a function"
+    },
+    {
+      "id": "pre-714-bottom-sheet-scrollable-creator",
+      "class": "presets",
+      "title": "bottom-sheet's useBottomSheetScrollableCreator is missing",
+      "source": "#714",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/bottom-sheet-mock-gaps",
+      "bugSignature": "^sheet\\.test\\.tsx: TypeError: \\(0 , [\\w$]+\\.useBottomSheetScrollableCreator\\) is not a function"
+    },
+    {
+      "id": "pre-828-native-stack-animated-header-height",
+      "class": "presets",
+      "title": "useAnimatedHeaderHeight is missing from the native-stack preset",
+      "source": "#828",
+      "fixedBy": "open",
+      "fixRef": "origin/fix/navigation-preset-gaps",
+      "bugSignature": "^header\\.test\\.tsx: TypeError: .*useAnimatedHeaderHeight\\) is not a function"
     },
     {
       "id": "pre-835-jest-fake-timers-queue-microtask",

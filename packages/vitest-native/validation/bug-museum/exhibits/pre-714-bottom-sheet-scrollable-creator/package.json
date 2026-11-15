@@ -1,0 +1,11 @@
+{
+  "name": "museum-pre-714-bottom-sheet-scrollable-creator",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@gorhom/bottom-sheet": "*",
+    "react-native-gesture-handler": "*",
+    "react-native-reanimated": "*",
+    "react-native-worklets": "*"
+  }
+}

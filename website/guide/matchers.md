@@ -78,7 +78,7 @@ test("greeting is visible with correct style", async () => {
 
 ## Animated matchers (Reanimated)
 
-`react-native-reanimated` ships `toHaveAnimatedStyle` and `toHaveAnimatedProps` through its Jest setup, which isn't available under Vitest. `vitest-native` registers Vitest-native equivalents automatically — no `setUpTests()` call or setup file needed.
+`react-native-reanimated` ships `toHaveAnimatedStyle` and `toHaveAnimatedProps` through its Jest setup, `setUpTests()`. While the `reanimated` preset serves Reanimated's mock (the default), `vitest-native` registers its own equivalents automatically — no `setUpTests()` call or setup file needed. A suite that runs the real library instead, with `presets: { reanimated: false }` and a setup file that calls `setUpTests()`, gets Reanimated's own matchers, which read the style the real animated components set ([Reanimated: its mock or the real library](/guide/presets#reanimated-its-mock-or-the-real-library)).
 
 | Matcher                               | Description                                                                                                             |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |

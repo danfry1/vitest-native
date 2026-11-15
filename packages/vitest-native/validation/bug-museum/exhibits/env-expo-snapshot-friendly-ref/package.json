@@ -1,0 +1,8 @@
+{
+  "name": "museum-env-expo-snapshot-friendly-ref",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "expo-modules-core": "*"
+  }
+}
