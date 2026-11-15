@@ -404,7 +404,8 @@ function createState() {
   // whose lifetime the native setup decides at each file boundary; `owner` is what it
   // keeps it by.
   state.register = (from, spec, factory, asyncFactory, { library = false, owner = null } = {}) => {
-    const filename = state.resolveFrom(spec, from) ?? importOnlyFile(spec, from);
+    const required = state.resolveFrom(spec, from);
+    const filename = required ?? importOnlyFile(spec, from);
     const entry = {
       spec,
       factory,
@@ -423,7 +424,10 @@ function createState() {
     if (filename !== null) {
       state.entries.set(filename, entry);
       state.decided.add(canonical(filename));
-    } else state.unresolved.set(spec, entry);
+    }
+    // A spec only `import` resolves is also kept by name: a `require` of it, which
+    // Node cannot resolve, looks it up so (jest.requireMock, a factory's require).
+    if (required === null) state.unresolved.set(spec, entry);
     // The hoisted `vi.mock` factory looks its entry up by where it was written.
     state.byCall.set(`${from}\0${spec}`, entry);
     return entry;
@@ -753,11 +757,6 @@ function bridgedInstanceOf(filename, parent) {
   return Object.prototype.toString.call(value) === "[object Module]" ? requireFacade(value) : value;
 }
 
-/**
- * A bare specifier (a package name). Aliases need no check here: the require hooks
- * apply them only after Node fails, so Node's answer for an aliased name is already the
- * one `state.resolve` would reach.
- */
 /** The conditions Node's ESM loader resolves an import with in this process. */
 const IMPORT_CONDITIONS = [
   "node",
@@ -766,6 +765,11 @@ const IMPORT_CONDITIONS = [
   ...conditionsIn(nodeOptionsList(process.env.NODE_OPTIONS)),
 ];
 
+/**
+ * A bare specifier (a package name). Aliases need no check here: the require hooks
+ * apply them only after Node fails, so Node's answer for an aliased name is already the
+ * one `state.resolve` would reach.
+ */
 function isBare(request) {
   return !(request.startsWith(".") || path.isAbsolute(request) || request.startsWith("file:"));
 }
