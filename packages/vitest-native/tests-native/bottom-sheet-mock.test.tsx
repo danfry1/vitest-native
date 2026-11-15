@@ -21,6 +21,7 @@ import {
   useBottomSheetModalInternal,
   useBottomSheetScrollableCreator,
   useGestureEventsHandlersDefault,
+  useScrollEventsHandlersDefault,
   useScrollHandler,
 } from "@gorhom/bottom-sheet";
 import { expect, it, vi } from "vitest";
@@ -52,7 +53,7 @@ it("useBottomSheet's animated values are shared values with listeners, shared wi
   expect(seen[0].internal.animatedIndex).toBe(animatedIndex);
 });
 
-it("useBottomSheetInternal gives a closed sheet's context, with its default props", async () => {
+it("useBottomSheetInternal gives the context with its default props and initial states", async () => {
   const { seen } = await renderHook(() => useBottomSheetInternal());
   const internal = seen[0];
   expect(internal).toMatchObject({
@@ -114,14 +115,60 @@ it("useGestureEventsHandlersDefault gives the four gesture callbacks", async () 
   ]);
 });
 
-it("a scrollable from useBottomSheetScrollableCreator renders its content", async () => {
+it("useScrollEventsHandlersDefault gives the package's four scroll callbacks", async () => {
+  const { seen } = await renderHook(() => useScrollEventsHandlersDefault());
+  expect(Object.keys(seen[0]).sort()).toEqual([
+    "handleOnBeginDrag",
+    "handleOnEndDrag",
+    "handleOnMomentumEnd",
+    "handleOnScroll",
+  ]);
+});
+
+it("a scrollable from useBottomSheetScrollableCreator renders its content, without `data`", async () => {
   function List() {
     const renderScroll = useBottomSheetScrollableCreator();
-    return renderScroll({ testID: "list", children: <Text>row</Text> });
+    return renderScroll({ testID: "list", data: [1], children: <Text>row</Text> });
   }
   await render(<List />);
-  expect(screen.getByTestId("list")).toBeTruthy();
+  expect(screen.getByTestId("list").props.data).toBeUndefined();
   expect(screen.getByText("row")).toBeTruthy();
+});
+
+it("useBottomSheetScrollableCreator renders the module's own BottomSheetScrollView", async () => {
+  const { seen } = await renderHook(() => useBottomSheetScrollableCreator()({}));
+  expect(seen[0].type).toBe(BottomSheetScrollView);
+});
+
+it("useBottomSheetScrollableCreator keeps its identity, so a list memoised on it keeps its rows", async () => {
+  // As FlashList does: the scroll component is memoised on renderScrollComponent.
+  function List({ renderScrollComponent, children }: any) {
+    const Scroll = React.useMemo(
+      () => React.forwardRef((props: object, ref) => renderScrollComponent(props, ref)),
+      [renderScrollComponent],
+    );
+    return <Scroll>{children}</Scroll>;
+  }
+  function Row() {
+    const [mounted] = React.useState(() => Math.random());
+    return <Text testID="row">{String(mounted)}</Text>;
+  }
+  const renders: unknown[] = [];
+  function Screen({ tick }: { tick: number }) {
+    void tick;
+    const renderScroll = useBottomSheetScrollableCreator();
+    renders.push(renderScroll);
+    return (
+      <List renderScrollComponent={renderScroll}>
+        <Row />
+      </List>
+    );
+  }
+  const { rerender } = await render(<Screen tick={0} />);
+  const before = screen.getByTestId("row").props.children;
+  await rerender(<Screen tick={1} />);
+  expect(renders[1]).toBe(renders[0]);
+  expect(screen.getByTestId("row").props.children).toBe(before);
 });
 
 it("createBottomSheetScrollableComponent returns a memoised component that renders and takes a ref", async () => {

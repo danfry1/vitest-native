@@ -30,7 +30,7 @@ const BOTTOM_SHEET_MOCK: LibraryMock = {
  * The public API @gorhom/bottom-sheet 5.2.14 exports from its index that its mock leaves
  * out (#714): the hooks a custom gesture or scrollable uses, as inert handlers, and the
  * constants (src/constants.ts), with the platform the test runs as. `ScrollView` is what a
- * created scrollable renders: the engine's.
+ * created scrollable renders: the module's own `BottomSheetScrollView`, as in the package.
  */
 export function bottomSheetAdditions(
   React: PresetFactoryContext["React"],
@@ -58,7 +58,6 @@ export function bottomSheetAdditions(
       handleOnScroll: noop,
       handleOnBeginDrag: noop,
       handleOnEndDrag: noop,
-      handleOnMomentumBegin: noop,
       handleOnMomentumEnd: noop,
     })),
     // The package's hook makes an animated ref and a scroll handler that calls `onScroll`
@@ -76,10 +75,24 @@ export function bottomSheetAdditions(
       return held.current;
     }),
     useScrollableSetter: vi.fn(),
-    useBottomSheetScrollableCreator: vi.fn(
-      () => (props: object, ref?: unknown) =>
-        React.createElement(ScrollView as React.ElementType, { ...props, ref }),
-    ),
+    // The package's hook returns a useCallback'd render function, so a list that memoises
+    // on `renderScrollComponent` (FlashList) keeps its scrollable and rows across re-renders.
+    // It drops `data`, as the package does. The configs are hooks and a flag the package's
+    // scrollable consumes; they never reach the host view, so they are only the identity deps.
+    useBottomSheetScrollableCreator: vi.fn(function useBottomSheetScrollableCreator(
+      configs: {
+        focusHook?: unknown;
+        scrollEventsHandlersHook?: unknown;
+        enableFooterMarginAdjustment?: unknown;
+      } = {},
+    ) {
+      const { focusHook, scrollEventsHandlersHook, enableFooterMarginAdjustment } = configs;
+      return React.useCallback(
+        ({ data: _data, ...props }: { data?: unknown } & Record<string, unknown>, ref?: unknown) =>
+          React.createElement(ScrollView as React.ElementType, { ...props, ref }),
+        [focusHook, scrollEventsHandlersHook, enableFooterMarginAdjustment],
+      );
+    }),
     ANIMATION_DURATION,
     ANIMATION_EASING,
     ANIMATION_CONFIGS:
@@ -129,11 +142,12 @@ function isSharedValue(value: unknown): boolean {
  * shapes corrected (#714), each only while the mock's is wrong:
  *
  * - `useBottomSheet()`'s `animatedIndex` and `animatedPosition` are shared values with
- *   listeners and modify(); the mock's are `{ value, get, set }`.
+ *   listeners and modify(); the mock's are `{ value, get, set }`. They hold the mock's 0.
  * - `useBottomSheetInternal()` and `useBottomSheetModalInternal()` return the context the
- *   package declares, with a closed sheet's values (the sheet's initial states and default
- *   props, src/components/bottomSheet), where the mock answers every other read with one
- *   `{ value: 0 }` stub, so its booleans were objects and its refs were not refs.
+ *   package declares: its default props and the initial states of its state values
+ *   (src/components/bottomSheet), with the animated values at the mock's 0. The mock
+ *   answers every other read with one `{ value: 0 }` stub, so its booleans were objects
+ *   and its refs were not refs.
  * - `createBottomSheetScrollableComponent` returns a memoised forwardRef component, as the
  *   package's does.
  */
@@ -332,6 +346,8 @@ export function bottomSheet(): Preset {
           const modalMethods = { ...sheetMethods, present: () => {}, dismiss: () => {} };
 
           const BottomSheet = container("BottomSheet", sheetMethods);
+          // One component: a scrollable from useBottomSheetScrollableCreator renders it too.
+          const BottomSheetScrollView = createScrollViewMock(React);
 
           // Public constant enums, matching the values in the real package.
           const constants = {
@@ -375,7 +391,7 @@ export function bottomSheet(): Preset {
             // Scrollable/input/touchable members are the real RN components (the
             // library's own mock does the same), so their content renders and they
             // behave under test.
-            BottomSheetScrollView: createScrollViewMock(React),
+            BottomSheetScrollView,
             BottomSheetFlatList: createFlatListMock(React),
             BottomSheetSectionList: createSectionListMock(React),
             BottomSheetVirtualizedList: createVirtualizedListMock(React),
@@ -405,7 +421,7 @@ export function bottomSheet(): Preset {
             createBottomSheetScrollableComponent: vi.fn(() => createScrollViewMock(React)),
             enableLogging: vi.fn(),
             ...constants,
-            ...bottomSheetAdditions(React, createScrollViewMock(React)),
+            ...bottomSheetAdditions(React, BottomSheetScrollView),
           };
         },
       }),
