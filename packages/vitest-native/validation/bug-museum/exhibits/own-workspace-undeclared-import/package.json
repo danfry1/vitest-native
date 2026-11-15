@@ -1,0 +1,13 @@
+{
+  "name": "museum-own-workspace-undeclared-import",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "dependencies": {
+    "@m/feature": "*",
+    "@m/lib": "*",
+    "react-native": "*"
+  }
+}
