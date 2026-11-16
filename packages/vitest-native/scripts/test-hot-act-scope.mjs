@@ -13,7 +13,9 @@
 //   late-batch       one worker, so no retirement; the timed-out act() finishes soon
 //                    after, the next file waits for it, and all 16 renders pass.
 //   timeout-batch    one worker and a scope that stays open: each later file fails
-//                    naming the cause, not on its own render.
+//                    naming the cause, not on its own render: the timed-out test.
+//   unawaited-batch  the same, left open by a passing test: each later file names the
+//                    act() that was not awaited, not a timeout.
 //   rejects-*        a passing test whose act() rejects leaves React's queue non-null
 //                    with no scope open: no worker is retired, every file passes.
 //   fake-timers-batch  the same as timeout-batch with fake timers (Date too) left on:
@@ -80,6 +82,18 @@ function fail(result, why) {
 const NAMES_CAUSE = /act\(\) scope is still open \(react\.act-scope\)/;
 const NAMES_UNUSABLE = /cannot run this file: React's act\(\) scope is still open/;
 const RETIRED = /retiring a hot worker: React's act\(\) scope is still open/;
+const NAMES_UNAWAITED = /an act\(\) call in \S*a-unawaited\.test\.tsx was not awaited/;
+const NAMES_FAILED = /often one in \S*a-(timeout|fake-timers)\.test\.tsx that timed out/;
+
+/** Each render file failed naming the open scope, and the cause the leaking file gives. */
+function failedNaming(result, cause) {
+  const unnamed = result.renders.filter(
+    (file) => file.status !== "failed" || !NAMES_UNUSABLE.test(file.text) || !cause.test(file.text),
+  );
+  if (unnamed.length > 0) {
+    fail(result, `files did not fail naming the cause: ${unnamed.map((f) => f.name).join(", ")}`);
+  }
+}
 
 try {
   const timeout = run("timeout-pool");
@@ -103,14 +117,11 @@ try {
   }
   console.log("[vitest-native] act scope: one worker waits for a scope that closes by itself");
 
-  const stuck = run("timeout-batch");
-  const unnamed = stuck.renders.filter(
-    (file) => file.status !== "failed" || !NAMES_UNUSABLE.test(file.text),
-  );
-  if (unnamed.length > 0) {
-    fail(stuck, `files did not fail naming the cause: ${unnamed.map((f) => f.name).join(", ")}`);
-  }
+  failedNaming(run("timeout-batch"), NAMES_FAILED);
   console.log("[vitest-native] act scope: with one worker, later files fail naming the cause");
+
+  failedNaming(run("unawaited-batch"), NAMES_UNAWAITED);
+  console.log("[vitest-native] act scope: with one worker, an un-awaited act() is named as such");
 
   // A rejected act() leaves React's queue non-null with no scope open: nothing to retire.
   for (const mode of ["rejects-pool", "rejects-batch"]) {
@@ -121,16 +132,7 @@ try {
   console.log("[vitest-native] act scope: a rejected act() is not an open scope");
 
   // The wait must end even when the last file froze Date with fake timers.
-  const frozen = run("fake-timers-batch");
-  const frozenUnnamed = frozen.renders.filter(
-    (file) => file.status !== "failed" || !NAMES_UNUSABLE.test(file.text),
-  );
-  if (frozenUnnamed.length > 0) {
-    fail(
-      frozen,
-      `files did not fail naming the cause: ${frozenUnnamed.map((f) => f.name).join(", ")}`,
-    );
-  }
+  failedNaming(run("fake-timers-batch"), NAMES_FAILED);
   console.log("[vitest-native] act scope: the one-worker wait ends under frozen fake timers");
 } finally {
   fs.rmSync(outDir, { recursive: true, force: true });
