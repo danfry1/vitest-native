@@ -25,7 +25,11 @@ const jestCompatArgs = [
 ];
 const jestCompatEntries = new Set(["jest-compat.node-mocks"]);
 
+// Entries that restore nothing and only verify: no restore to omit.
+const verifyOnlyEntries = new Set(["vitest.worker-state"]);
+
 for (const entry of HOT_STATE_MANIFEST_ENTRIES) {
+  if (verifyOnlyEntries.has(entry)) continue;
   const args = jestCompatEntries.has(entry) ? jestCompatArgs : ["--config", config];
   const result = spawnSync(process.execPath, [vitestEntry, "run", ...args], {
     cwd: packageRoot,
@@ -58,5 +62,5 @@ for (const entry of HOT_STATE_MANIFEST_ENTRIES) {
 }
 
 console.log(
-  `[vitest-native] state-manifest mutation gate passed: ${HOT_STATE_MANIFEST_ENTRIES.length} restore actions are observable`,
+  `[vitest-native] state-manifest mutation gate passed: ${HOT_STATE_MANIFEST_ENTRIES.length - verifyOnlyEntries.size} restore actions are observable`,
 );
