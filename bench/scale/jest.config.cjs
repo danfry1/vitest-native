@@ -7,7 +7,7 @@
 // (its Flow types never get stripped).
 const path = require("node:path");
 module.exports = {
-  preset: "react-native",
+  preset: "@react-native/jest-preset",
   rootDir: path.join(__dirname, ".."),
   testMatch: ["<rootDir>/scale/__suite__/*.test.tsx"],
   transformIgnorePatterns: ["node_modules/.bun/(?!(.*react-native))"],

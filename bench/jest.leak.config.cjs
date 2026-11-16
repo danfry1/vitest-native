@@ -2,7 +2,7 @@
 // leakage classes must come back clean. This proves the corpus is correct — a
 // faithful isolator passes every file.
 module.exports = {
-  preset: "react-native",
+  preset: "@react-native/jest-preset",
   rootDir: __dirname,
   testMatch: ["<rootDir>/leak/*.test.tsx"],
   transformIgnorePatterns: ["node_modules/.bun/(?!(.*react-native))"],
