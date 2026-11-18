@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -73,11 +74,51 @@ export function expoLatestEntries({
 }
 
 /**
+ * The oldest npm the Expo legs install with. Expo SDK 57's newest patches pin react 19.2.3,
+ * while expo-router's optional react-server-dom-webpack peer (`~19.2.4`) resolves to a
+ * release that asks for react ^19.2.9. npm 11.20 installs that tree; npm 11.19 stops with
+ * ERESOLVE (#909). CI pins npm at or above this (tests/expo-latest.test.ts checks it).
+ */
+export const MINIMUM_NPM = "11.20.0";
+
+function installedNpmVersion() {
+  return execFileSync("npm", ["--version"], {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  }).trim();
+}
+
+/** Throws, naming the minimum and the reason, when `version` is older than MINIMUM_NPM. */
+function checkNpmVersion(version) {
+  const need = `The Expo consumer runs need npm ${MINIMUM_NPM} or newer`;
+  const parts = /^(\d+)\.(\d+)\.(\d+)/
+    .exec(version ?? "")
+    ?.slice(1)
+    .map(Number);
+  if (!parts) throw new Error(`${need}; could not read the npm version from "${version}"`);
+  const minimum = MINIMUM_NPM.split(".").map(Number);
+  const index = parts.findIndex((part, i) => part !== minimum[i]);
+  if (index !== -1 && parts[index] < minimum[index]) {
+    throw new Error(
+      `${need}; this is npm ${version}. Older npm stops with ERESOLVE on react: Expo SDK 57 ` +
+        "pins react 19.2.3, while expo-router's react-server-dom-webpack peer asks for a " +
+        "newer react. CI pins npm through .github/actions/setup (npm-version).",
+    );
+  }
+}
+
+/**
  * Runs `runEntry(entry, resolved)` for every entry, even after one fails. `runEntry` calls
  * `resolved(versions)` once it knows what it installed. Logs each entry's result and
- * versions, then throws if any failed.
+ * versions, then throws if any failed. Before any entry, it refuses an npm older than
+ * MINIMUM_NPM (`npmVersion`, read from `npm --version` when not given).
  */
-export function runEachExpoEntry(entries, runEntry, log = console.log) {
+export function runEachExpoEntry(
+  entries,
+  runEntry,
+  { log = console.log, npmVersion = installedNpmVersion() } = {},
+) {
+  checkNpmVersion(npmVersion);
   const results = [];
   for (const entry of entries) {
     const result = { entry, versions: undefined, error: undefined };

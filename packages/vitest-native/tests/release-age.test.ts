@@ -73,6 +73,7 @@ const runsPackageManager = (source: string) =>
 /** Scripts that run a package manager without resolving anything from the registry. */
 const EXEMPT: Record<string, string> = {
   "scripts/check-package-size.mjs": "npm pack --dry-run of this package: nothing is resolved",
+  "scripts/support/expo-latest.mjs": "npm --version, to check the npm the Expo legs need",
 };
 
 const installers = scriptFiles().filter(
