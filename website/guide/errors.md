@@ -153,7 +153,7 @@ A test file uses `jest.mock()` factories, but the jest-compat setup is not loade
 
 ### `JEST_MOCK_VI_UNAVAILABLE` {#JEST_MOCK_VI_UNAVAILABLE}
 
-`jestMockTransform()` rewrites `jest.mock()` and its siblings to calls on Vitest's `vi` object, which Vitest hoists only under the name `vi` or `vitest`. The test file declares both names as something else, so neither can reach it. Rename one of them, or import it from `vitest`.
+`jestMockTransform()` rewrites `jest.mock()` and its siblings to calls on Vitest's `vi` object, which Vitest hoists only as `vi` or `vitest` imported from `vitest`. Where those calls run, the test file binds both names to something other than that import: its own variables, a namespace import (`import * as vitest`), or `vi` destructured from one, which is not yet initialised when Vitest moves `vi.mock` above it. Import `vi` from `vitest` by name, or rename the file's own `vi` or `vitest`.
 
 ### `JEST_MOCK_FACTORY_CYCLE` {#JEST_MOCK_FACTORY_CYCLE}
 

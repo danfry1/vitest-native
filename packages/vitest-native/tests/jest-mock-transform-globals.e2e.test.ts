@@ -40,6 +40,10 @@ const FILES: Record<string, string> = {
     `import { expect, test } from "vitest";\n` +
     `const load = async (vi: unknown) => {\n  jest.doMock("./api", () => ({ other: () => vi }));\n  return (await import("./api")).other();\n};\n` +
     `test("applies", async () => expect(await load("mine")).toBe("mine"));\n`,
+  // A callback's own `vi` is not in scope where the call goes: the transform keeps `vi`.
+  "callback-vi.test.ts":
+    `import { expect, test } from "vitest";\nimport { other } from "./api";\n${MOCKED}` +
+    `test("applies", () => expect([other()].map((vi) => vi)).toEqual(["mocked"]));\n`,
   // `vi` imported as itself: nothing added.
   "imports-vi.test.ts":
     `import { expect, test, vi } from "vitest";\nimport { other } from "./api";\n${MOCKED}` +

@@ -55,50 +55,54 @@ export const SETUP_ACCESSOR = setupAccessor("vi");
 // `utilsObjectNames`); `vitest` is the same object, exported under a second name.
 type VitestName = "vi" | "vitest";
 
+const VITEST_NAMES = new Set<string>(["vi", "vitest"]);
+
 /**
  * The name the rewritten calls reach Vitest's `vi` by, and whether the file must import it.
  *
  * Vitest's hoister adds `import { vi } from "vitest"` itself only to a file that imports
  * nothing from 'vitest'. A file that imports `test` and `expect` from there, under the
  * default `globals: false`, otherwise reaches no `vi` at all (#818). So the transform
- * binds the name itself, unless the file already imports it from 'vitest'. A file that
- * declares `vi` as something else, at any depth, gets `vitest` instead, so neither the
- * file's binding nor the transform's changes meaning. A file that takes both names cannot
- * be rewritten, and fails, naming them.
+ * binds the name itself, unless the file already imports it from 'vitest'.
+ *
+ * A name is taken where the transform writes it (`sites`, and the top level, where the
+ * hoisted calls go) when the file declares it there as anything but that import. Even
+ * Vitest's own object, destructured from a namespace (`const { vi } = vitestNs`), is not
+ * yet initialised when Vitest moves `vi.mock` above it. When `vi` is taken, the calls use
+ * `vitest`, the same object under its other name; when both are, the file fails by name.
  */
-function vitestName(ast: any, id: string): { name: VitestName; add: boolean } {
-  const declared = { vi: [] as boolean[], vitest: [] as boolean[] };
-  const note = (names: string[], fromVitest = false) => {
-    for (const name of names) {
-      if (name === "vi" || name === "vitest") declared[name].push(fromVitest);
-    }
+function vitestName(ast: any, id: string, sites: Set<any>): { name: VitestName; add: boolean } {
+  // Per name, at the top level: whether every declaration is the import from 'vitest'.
+  const top = new Map<string, boolean>();
+  const note = (name: string, imported: boolean) => {
+    if (VITEST_NAMES.has(name)) top.set(name, (top.get(name) ?? true) && imported);
   };
-  walk(ast, (node) => {
-    if (node.type === "ImportDeclaration") {
-      for (const spec of node.specifiers) {
-        const imported = spec.type === "ImportSpecifier" ? propertyName(spec.imported) : null;
-        note(
-          [spec.local.name],
-          node.source.value === "vitest" && (imported === "vi" || imported === "vitest"),
-        );
-      }
-    } else if (node.type === "VariableDeclarator") note(patternNames(node.id));
-    else if (FUNCTION.has(node.type)) {
-      note(node.params.flatMap((param: any) => patternNames(param)));
-      if (node.id) note([node.id.name]);
-    } else if (node.type === "ClassDeclaration" || node.type === "ClassExpression") {
-      if (node.id) note([node.id.name]);
-    } else if (node.type === "CatchClause") note(patternNames(node.param));
+  for (const statement of ast.body) {
+    if (statement.type !== "ImportDeclaration") continue;
+    for (const spec of statement.specifiers) {
+      const imported = spec.type === "ImportSpecifier" ? propertyName(spec.imported) : null;
+      note(
+        spec.local.name,
+        statement.source.value === "vitest" && (imported === "vi" || imported === "vitest"),
+      );
+    }
+  }
+  for (const name of [...varNames(ast), ...blockNames(ast.body)]) note(name, false);
+  const nested = new Set<string>();
+  visitScopes(ast, VITEST_NAMES, (node, shadows) => {
+    if (!sites.has(node)) return;
+    for (const name of VITEST_NAMES) if (shadows(name)) nested.add(name);
   });
   for (const name of ["vi", "vitest"] as const) {
-    if (declared[name].length === 0) return { name, add: true };
-    if (declared[name].every(Boolean)) return { name, add: false };
+    if (nested.has(name) || top.get(name) === false) continue;
+    return { name, add: !top.has(name) };
   }
   throw new VitestNativeError(
     "JEST_MOCK_VI_UNAVAILABLE",
-    `[vitest-native] jestMockTransform rewrites jest.mock() in ${id.split("?")[0]} to a call on ` +
-      "Vitest's `vi` object, which Vitest hoists only under the name `vi` or `vitest`. This file " +
-      "declares both names as something else. Rename one of them, or import it from 'vitest'.",
+    `[vitest-native] jestMockTransform rewrites jest.mock() in ${id.split("?")[0]} to calls on ` +
+      "Vitest's `vi` object, which Vitest hoists only as `vi` or `vitest` imported from 'vitest'. " +
+      "Where those calls run, this file binds both names to something other than that import. " +
+      "Import `vi` from 'vitest' by name, or rename the file's own `vi` or `vitest`.",
   );
 }
 
@@ -195,7 +199,25 @@ function blockNames(statements: any[]): string[] {
  */
 function shadowedIdentifiers(ast: any, watched: Set<string>): WeakSet<any> {
   const shadowed = new WeakSet<any>();
+  visitScopes(ast, watched, (node, shadows) => {
+    if (node.type === "Identifier" && watched.has(node.name) && shadows(node.name)) {
+      shadowed.add(node);
+    }
+  });
+  return shadowed;
+}
+
+/**
+ * Visit every node, with `shadows(name)` telling whether a scope inside the Program that
+ * encloses it (the node's own included) declares that name, for the names in `watched`.
+ */
+function visitScopes(
+  ast: any,
+  watched: Set<string>,
+  fn: (node: any, shadows: (name: string) => boolean) => void,
+): void {
   const scopes: Set<string>[] = [];
+  const shadows = (name: string) => scopes.some((names) => names.has(name));
   const visit = (node: any): void => {
     if (!node || typeof node.type !== "string") return;
     let scope: string[] | null = null;
@@ -221,9 +243,7 @@ function shadowedIdentifiers(ast: any, watched: Set<string>): WeakSet<any> {
     }
     const pushed = scope !== null && scope.some((name) => watched.has(name));
     if (pushed) scopes.push(new Set(scope));
-    if (node.type === "Identifier" && watched.has(node.name)) {
-      if (scopes.some((names) => names.has(node.name))) shadowed.add(node);
-    }
+    fn(node, shadows);
     for (const key in node) {
       if (key === "type" || key === "start" || key === "end" || key === "loc") continue;
       const child = node[key];
@@ -235,7 +255,6 @@ function shadowedIdentifiers(ast: any, watched: Set<string>): WeakSet<any> {
   // A function body's block is its function's scope, already pushed: visiting it again as
   // a block only repeats the same names, which is harmless.
   visit(ast);
-  return shadowed;
 }
 
 /**
@@ -726,8 +745,8 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
       const finish = (adapted: Adapted | null) => {
         if (!adapted?.changed) return null;
         if (adapted.usesSetup) adapted.s.prepend(setupAccessor(adapted.vi.name));
-        // At the end, after every mapped line: an import binds before the module runs,
-        // wherever it is written.
+        // An import binds before the module runs, wherever it is written. Stack traces keep
+        // the file's own lines through the source map, as for the accessor above.
         if (adapted.vi.add) adapted.s.append(`\nimport { ${adapted.vi.name} } from "vitest";\n`);
         return { code: adapted.s.toString(), map: adapted.s.generateMap({ hires: true }) };
       };
@@ -1003,8 +1022,20 @@ function rewrite(
   const s = new MagicString(code);
   let changed = false;
   // Decided at the first call rewritten: a file with none keeps whatever names it has.
+  // The name is written at each call, and at each requireActual an async factory moves.
   let chosen: Adapted["vi"] | undefined;
-  const vi = () => (chosen ??= vitestName(ast, id)).name;
+  const vi = () => {
+    if (chosen) return chosen.name;
+    const sites = new Set<any>([...toAsync.values()].flat().map((call) => call.node));
+    walk(ast, (node) => {
+      if (node.type !== "CallExpression" || node.callee?.type !== "MemberExpression") return;
+      const { computed, object, property } = node.callee;
+      if (!computed && jest.isJest(object) && HOISTABLE.has(propertyName(property) ?? "")) {
+        sites.add(node);
+      }
+    });
+    return (chosen = vitestName(ast, id, sites)).name;
+  };
   // Statements at the top level, where a registration can be hoisted beside them.
   const topLevel = new Map<any, any>();
   for (const statement of ast.body) {
