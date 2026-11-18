@@ -1,0 +1,12 @@
+{
+  "name": "vn-dual-lib",
+  "version": "1.0.0",
+  "private": true,
+  "exports": {
+    "./cid": {
+      "import": "./esm/cid.mjs",
+      "require": "./cjs/cid.cjs"
+    },
+    "./package.json": "./package.json"
+  }
+}

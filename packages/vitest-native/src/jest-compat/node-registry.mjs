@@ -312,11 +312,12 @@ function createState() {
   }
 
   /**
-   * A root mock (a `__mocks__` manual mock) of an import-only subpath, for the file
-   * another installed copy of the package gives that subpath (#898). Jest matches a root
-   * mock by name (jest-runtime's `requireModule` takes `getMockModule(from, name)` for any
-   * `from`), so every copy is mocked; the entry is keyed by the root copy's file only
-   * (importOnlyFile), and a nested copy, as `multiformats` often is, resolves to its own.
+   * A root mock (a `__mocks__` manual mock) of a package, for the files any installed
+   * copy of the package gives its subpath (#898). Jest matches a root mock by name
+   * (jest-runtime's `requireModule` takes `getMockModule(from, name)` for any `from`), so
+   * every copy is mocked, through `import` and `require` alike. The entry is keyed by one
+   * file, the root copy's; another copy, as a nested `multiformats` often is, resolves the
+   * subpath to its own, and a dual subpath gives `import` and `require` different files.
    * An explicit jest.mock factory is keyed by the file it resolves to, under Jest too, so
    * it is not matched here. Undefined when no such mock applies to `file`.
    */
@@ -329,22 +330,36 @@ function createState() {
     if (candidates === undefined) return undefined;
     const pkgDir = installedPackageDirOf(file);
     for (const entry of candidates) {
-      const subpath = subpathOf(entry.spec);
-      const key = `${pkgDir}\0${subpath}`;
-      let copyFile = copyFiles.get(key);
-      if (copyFile === undefined) {
-        let manifest;
-        try {
-          manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
-        } catch {
-          manifest = null; // No readable manifest: not a copy Node's import resolves into.
-        }
-        copyFile = manifest === null ? null : exportFileIn(pkgDir, manifest, subpath);
-        copyFiles.set(key, copyFile);
+      const key = `${pkgDir}\0${entry.spec}`;
+      let files = copyFiles.get(key);
+      if (files === undefined) {
+        files = filesOfCopy(pkgDir, entry.spec);
+        copyFiles.set(key, files);
       }
-      if (copyFile === file) return entry;
+      if (files.includes(file)) return entry;
     }
     return undefined;
+  }
+
+  /**
+   * The files the copy of a package at `pkgDir` gives the bare `spec`: Node's `import`
+   * target, from its `exports`, and Node's `require` answer from beside that copy, which
+   * is its own (a copy's `node_modules` directory holds it under its name).
+   */
+  function filesOfCopy(pkgDir, spec) {
+    const files = [];
+    let manifest;
+    try {
+      manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
+    } catch {
+      manifest = null; // No readable manifest: no `exports` for an import to follow.
+    }
+    const imported = manifest === null ? null : exportFileIn(pkgDir, manifest, subpathOf(spec));
+    if (imported !== null) files.push(imported);
+    const beside = pkgDir.slice(0, pkgDir.lastIndexOf("/node_modules/"));
+    const required = nodeResolution(spec, parentModuleFor(path.join(beside, "package.json")));
+    if (required !== null && installedPackageDirOf(required) === pkgDir) files.push(required);
+    return files;
   }
 
   /** The jest.mock registered for `file` (a real path), or for it in another copy. */
@@ -456,8 +471,9 @@ function createState() {
       factory,
       asyncFactory,
       manual,
-      // A root mock of an import-only subpath reaches it in every copy of its package.
-      everyCopy: manual && required === null && filename !== null,
+      // A root mock of a package reaches its subpath in every copy of the package.
+      everyCopy:
+        manual && isBare(spec) && filename !== null && installedPackageDirOf(filename) !== null,
       has: false,
       value: undefined,
       pending: null,

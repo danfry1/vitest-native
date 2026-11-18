@@ -1,0 +1,10 @@
+{
+  "name": "vn-dual-consumer",
+  "version": "1.0.0",
+  "private": true,
+  "exports": {
+    ".": "./index.mjs",
+    "./require": "./require.cjs",
+    "./package.json": "./package.json"
+  }
+}

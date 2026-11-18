@@ -9,7 +9,8 @@
 // - `vn-esm-only-lib`, an ES-module package whose subpath has an `import` condition only,
 //   so `require` cannot resolve it, and `vn-esm-only-consumer`, which imports it (#896);
 // - `vn-esm-only-nested-consumer`, with its own nested copy of vn-esm-only-lib
-//   (fixtures/vn-esm-only-lib-v2) (#898).
+//   (fixtures/vn-esm-only-lib-v2), and the dual-package consumers and copies beside it
+//   (vn-dual-*, vn-esm-only-lib-v3) (#898).
 //
 // Several configs run at once (scripts/run-scripts.mjs), and each runs this setup. A
 // package already built from the current fixtures (its stamp matches) is left alone:
@@ -105,6 +106,20 @@ export function setup() {
       );
     },
   );
+  for (const name of ["vn-dual-lib", "vn-dual-consumer"]) {
+    place(name, [name], (dir) => fs.cpSync(path.join(fixtures, name), dir, { recursive: true }));
+  }
+  for (const [name, copy, lib] of [
+    ["vn-dual-nested-consumer", "vn-dual-lib-v2", "vn-dual-lib"],
+    ["vn-esm-only-dual-consumer", "vn-esm-only-lib-v3", "vn-esm-only-lib"],
+  ]) {
+    place(name, [name, copy], (dir) => {
+      fs.cpSync(path.join(fixtures, name), dir, { recursive: true });
+      fs.cpSync(path.join(fixtures, copy), path.join(dir, "node_modules", lib), {
+        recursive: true,
+      });
+    });
+  }
   place("dispatch-consumer-lib", ["dispatch-consumer-lib"], (dir) =>
     fs.cpSync(path.join(fixtures, "dispatch-consumer-lib"), dir, { recursive: true }),
   );
