@@ -8,10 +8,12 @@ import { runTempRoot } from "./support/run-temp-root";
 // @ts-expect-error — runtime .mjs, no types
 import { CI_VARIABLES } from "../src/native/registry-process.mjs";
 
-// On a cold cache the native engine starts the run without waiting for the precompiled
-// registry: it compiles in a background child, test files that start before it lands
-// load React Native file by file, and later ones use it (registry-process.mjs). These
-// run real Vitest processes against a scratch project, each with its own cache.
+// On a cold cache the native engine builds the precompiled registry before the run by
+// default (registryBuild: 'wait'). With registryBuild: 'background' it starts the run
+// without waiting: the registry compiles in a background child, test files that start
+// before it lands load React Native file by file, and later ones use it
+// (registry-process.mjs). These run real Vitest processes against a scratch project,
+// each with its own cache.
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(path.join(packageRoot, "package.json"));
