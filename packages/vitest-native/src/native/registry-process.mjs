@@ -22,16 +22,27 @@ const DEFAULT_TIMEOUT_MS = 120_000;
  */
 export const COLD_WAIT_NOTICE_MS = 5_000;
 
+/** Whether this process has printed the cold-wait notice: one line per run, however many
+ * projects wait (Vitest initialises projects concurrently). */
+let coldWaitNoticePrinted = false;
+/** Test seam: let the next slow wait print the notice again. */
+export function _resetColdWaitNotice() {
+  coldWaitNoticePrinted = false;
+}
+
 /**
  * Prints one line if the run is still waiting COLD_WAIT_NOTICE_MS from now, saying what
- * it waits for. The returned function cancels it: a wait that ends sooner prints nothing
- * and is not delayed.
+ * it waits for, unless this process already has. The returned function cancels it: a
+ * wait that ends sooner prints nothing and is not delayed.
  */
 function noticeIfSlow() {
   const timer = setTimeout(() => {
+    if (coldWaitNoticePrinted) return;
+    coldWaitNoticePrinted = true;
     console.warn(
-      "[vitest-native] (native) building the precompiled module registry for this " +
-        "project before the first test file; tests start when the build ends.",
+      "[vitest-native] (native) building the precompiled module registry before the " +
+        "first test file; tests start when the build ends. If it hangs, the run falls " +
+        `back to per-file module loading after ${DEFAULT_TIMEOUT_MS / 1000} s.`,
     );
   }, COLD_WAIT_NOTICE_MS);
   // Never what keeps this process alive.

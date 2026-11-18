@@ -8,6 +8,7 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 // @ts-expect-error — internal runtime .mjs, intentionally not public API
 import {
   COLD_WAIT_NOTICE_MS,
+  _resetColdWaitNotice,
   _resetFailedRegistries,
   _setRegistryBuildOptions,
   buildRegistryFor,
@@ -341,6 +342,7 @@ describe("background registry build", () => {
     const NOTICE = /building the precompiled module registry/;
     /** The notices printed so far, and the spy to restore. */
     function watchNotices() {
+      _resetColdWaitNotice();
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       return {
         notices: () => warn.mock.calls.filter(([line]) => NOTICE.test(String(line))),
@@ -369,6 +371,67 @@ describe("background registry build", () => {
         expect(watch.notices()).toHaveLength(1);
       } finally {
         watch.restore();
+        vi.useRealTimers();
+      }
+    });
+
+    it("prints one line for the run when several projects wait at once", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const watch = watchNotices();
+      try {
+        // ios and android on a cold cache: two entries, two compiles, one line.
+        const ios = heldCompiler();
+        const android = heldCompiler();
+        const waits = [
+          buildRegistryFor(coldOptions("both-ios"), ios.compiler),
+          buildRegistryFor(
+            { ...coldOptions("both-android"), platform: "android" },
+            android.compiler,
+          ),
+        ];
+        await vi.advanceTimersByTimeAsync(COLD_WAIT_NOTICE_MS * 2);
+        expect(ios.calls).toHaveLength(1);
+        expect(android.calls).toHaveLength(1);
+        expect(watch.notices()).toHaveLength(1);
+        ios.finish();
+        android.finish();
+        await vi.runAllTimersAsync();
+        await Promise.all(waits);
+        expect(watch.notices()).toHaveLength(1);
+      } finally {
+        watch.restore();
+        vi.useRealTimers();
+      }
+    });
+
+    it("never keeps the process alive with its timer", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const fakeSetTimeout = globalThis.setTimeout;
+      const unrefs: ReturnType<typeof vi.fn>[] = [];
+      // Wrap each handle's unref as it is created, before the caller can call it.
+      const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+        fn: () => void,
+        ms?: number,
+      ) => {
+        const handle = fakeSetTimeout(fn, ms) as unknown as { unref: () => unknown };
+        const unref = vi.fn(handle.unref.bind(handle));
+        handle.unref = unref;
+        unrefs.push(unref);
+        return handle;
+      }) as typeof setTimeout);
+      const watch = watchNotices();
+      try {
+        const held = heldCompiler();
+        const waiting = buildRegistryFor(coldOptions("unref-wait"), held.compiler);
+        expect(spy).toHaveBeenCalledWith(expect.any(Function), COLD_WAIT_NOTICE_MS);
+        const noticeTimer = spy.mock.calls.findIndex(([, ms]) => ms === COLD_WAIT_NOTICE_MS);
+        expect(unrefs[noticeTimer]).toHaveBeenCalledTimes(1);
+        held.finish();
+        await vi.runAllTimersAsync();
+        await waiting;
+      } finally {
+        watch.restore();
+        spy.mockRestore();
         vi.useRealTimers();
       }
     });
