@@ -531,12 +531,13 @@ export interface VitestNativeOptions {
    * is not in the cache yet (first install, an upgrade of React Native or
    * vitest-native, a Babel toolchain change, a cleared cache).
    *
-   * - `'background'` *(default)*: the run starts at once and the registry compiles in
-   *   a low-priority background process. Test files that start before it is ready
-   *   load React Native file by file; files that start after use it. When Vitest
-   *   closes, a build still running gets up to half of `teardownTimeout` to finish,
-   *   so the next run starts warm.
-   * - `'wait'`: compile the registry before the run starts, as in earlier versions.
+   * - `'wait'` *(default)*: compile the registry before the first test file starts.
+   * - `'background'`: the run starts at once and the registry compiles in a
+   *   low-priority background process. Test files that start before it is ready load
+   *   React Native file by file, compiling it inside their tests, so on a cold cache
+   *   their tests run slower and can reach `testTimeout`; files that start after use
+   *   it. When Vitest closes, a build still running gets up to half of
+   *   `teardownTimeout` to finish, so the next run starts warm.
    *
    * The hot runtime, CI runs and `experimental.ownershipModel` always wait.
    */

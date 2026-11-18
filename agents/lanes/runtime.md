@@ -48,6 +48,7 @@ The native engine: ownership, resolution, the Node front door, loaders, workers,
 - **React Native stays resident in a hot worker,** so anything added to its classes or prototypes is shared by every file in that worker. Probe a change like that across files, under hot and stock.
 - **On Windows, pass child input through a temp file, not stdin.** Stdin held exit for 14 s.
 - **Key every jest.mock by the file Node loads, for `import` too.** A spec `require` cannot resolve (a package subpath whose `exports` has an `import` condition only) is keyed by the file Node's ESM resolution gives it (`importOnlyFile`); keyed by its specifier, Node's ESM loader, which asks by file, missed it and fell through to Vitest's async copy of the mock (#896). It stays keyed by name too, for a `require` of it. Binding it to a file on the first import instead made the result depend on load order. Known limit: only the copy Node's resolution reaches from the project root is keyed, so a nested copy of the package gets the real module.
+- **A cold transform cache is not shared in time between workers.** Workers that start together miss the same file together, and each one compiles it: on a cold run, loading React Native file by file cost several times the registry build's own compiles, inside test bodies, because React Native's exports load on first use (#873). Count compiles per file across workers before calling per-file loading cheaper than a build.
 - **Not ours:** Node 24.13.0 has a V8 GC SIGSEGV (exit 139, no output). The CI leg is pinned to 24.12.0.
 
 ## Verification

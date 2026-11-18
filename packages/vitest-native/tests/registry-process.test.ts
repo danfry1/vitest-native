@@ -640,25 +640,28 @@ describe("the plugin on a cold cache", () => {
   };
   const SERVE_ENV = { command: "serve", mode: "test" } as const;
 
-  it("waits for the build when a test forces it, and starts it in the background otherwise", async () => {
+  it("starts the build in the background only with registryBuild: 'background', and waits by default (#873)", async () => {
     const root = projectWithReactNative();
     try {
       vi.stubEnv("CI", "false");
       _setRegistryBuildOptions({});
       const background = contextOf(
-        await runPluginConfig(reactNative({ engine: "native" }) as any, { root }, SERVE_ENV),
+        await runPluginConfig(
+          reactNative({ engine: "native", registryBuild: "background" }) as any,
+          { root },
+          SERVE_ENV,
+        ),
       );
       expect(background.registryPending).toBeDefined();
       expect(background.registry).toBeUndefined();
       await settleRegistryBuilds(0, { cancelled: true });
-      _setRegistryBuildOptions({ wait: true });
-      const waited = contextOf(
-        await runPluginConfig(reactNative({ engine: "native" }) as any, { root }, SERVE_ENV),
-      );
       // Waited: no build left pending. (Whether this suite's workers can use the result is
       // another matter: their react-native is the mock engine's virtual module, see
       // tests/support/registry-wait.setup.ts, so the build is checked by mode, not by its file.)
-      expect(waited.registryPending).toBeUndefined();
+      const byDefault = contextOf(
+        await runPluginConfig(reactNative({ engine: "native" }) as any, { root }, SERVE_ENV),
+      );
+      expect(byDefault.registryPending).toBeUndefined();
     } finally {
       vi.unstubAllEnvs();
       _setRegistryBuildOptions({ wait: true });

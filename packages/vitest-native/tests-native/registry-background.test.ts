@@ -61,8 +61,15 @@ const registryProcessUrl = pathToFileURL(
   path.join(packageRoot, "dist/native/registry-process.mjs"),
 ).href;
 
+/** The plugin options of a scratch project that builds in the background. */
+const BACKGROUND = '{ engine: "native", registryBuild: "background" }';
+
 let count = 0;
-function project(files = ["a.test.mjs"], test: Record<string, unknown> = {}) {
+function project(
+  files = ["a.test.mjs"],
+  test: Record<string, unknown> = {},
+  plugin = BACKGROUND,
+) {
   const root = path.join(scratch, `p${count++}`);
   for (const name of ["react", "react-native", "@babel/core", "@react-native/babel-preset"]) {
     const link = path.join(root, "node_modules", ...name.split("/"));
@@ -82,7 +89,7 @@ function project(files = ["a.test.mjs"], test: Record<string, unknown> = {}) {
     `import { reactNative } from ${JSON.stringify(pathToFileURL(path.join(packageRoot, "dist/index.mjs")).href)};\n` +
       `import { _setRegistryBuildOptions } from ${JSON.stringify(registryProcessUrl)};\n` +
       `_setRegistryBuildOptions({ compilerDelayMs: Number(process.env.${DELAY}) || 0 });\n` +
-      `export default { plugins: [reactNative({ engine: "native" })], test: ${JSON.stringify({
+      `export default { plugins: [reactNative(${plugin})], test: ${JSON.stringify({
         globals: true,
         include: ["*.test.mjs"],
         maxWorkers: 1,
@@ -241,6 +248,21 @@ const records = (out: string) =>
     .split("\n")
     .map((line) => JSON.parse(line) as { installed: boolean; before: boolean });
 
+describe("native engine: a cold cache with the default options", () => {
+  it("builds the registry before the run, so every test file uses it (#873)", async () => {
+    // Files loading React Native file by file on a cold cache compile it inside their
+    // tests, each worker the same files at once, which outran Vitest's test timeout.
+    // Several workers start at once here, and the compiler is held for a few seconds,
+    // so a run that did not wait would start every file before the registry landed.
+    const files = ["a.test.mjs", "b.test.mjs", "c.test.mjs", "d.test.mjs"];
+    const p = project(files, { maxWorkers: 2, fileParallelism: true }, '{ engine: "native" }');
+    const run = await start(p, { [DELAY]: "3000" }).done;
+    expect(run.code, run.output).toBe(0);
+    expect(records(p.out)).toEqual(files.map(() => ({ installed: true, before: false })));
+    if (posix) expect(await settled(run.pid)).toEqual([]);
+  }, 120_000);
+});
+
 describe("native engine: the registry builds in the background on a cold cache", () => {
   it("starts without it, picks it up for later files, and leaves it for the next run", async () => {
     const p = project(["a.test.mjs", "b.test.mjs"]);
@@ -277,17 +299,7 @@ describe("native engine: the registry builds in the background on a cold cache",
   }, 120_000);
 
   it("waits for the build with registryBuild: 'wait'", async () => {
-    const p = project();
-    const config = path.join(p.root, "vitest.config.mjs");
-    fs.writeFileSync(
-      config,
-      fs
-        .readFileSync(config, "utf8")
-        .replace(
-          'reactNative({ engine: "native" })',
-          'reactNative({ engine: "native", registryBuild: "wait" })',
-        ),
-    );
+    const p = project(undefined, {}, '{ engine: "native", registryBuild: "wait" }');
     const run = await start(p).done;
     expect(run.code, run.output).toBe(0);
     expect(records(p.out)).toEqual([{ installed: true, before: false }]);
@@ -334,7 +346,7 @@ describe("native engine: the registry builds in the background on a cold cache",
               `const timing = { name: "timing", closeBundle: () => mark("viteClosed"), configureVitest: ({ vitest }) => { vitest.onClose(() => mark("hooks")); timed(vitest, "close", null, "closed"); timed(vitest, "_clearTmpDir", "tmpStart", "tmpEnd"); } };\n` +
               "export default {",
           )
-          .replace('reactNative({ engine: "native" })', 'reactNative({ engine: "native" }), timing')
+          .replace(`reactNative(${BACKGROUND})`, `reactNative(${BACKGROUND}), timing`)
           .replace(
             '"maxWorkers"',
             'reporters: ["default", { onTestRunEnd: (_m, _e, reason) => mark("end", { reason }) }], "maxWorkers"',
