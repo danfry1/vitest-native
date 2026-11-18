@@ -8,6 +8,7 @@ import { CANARY_INSTALL_FLAGS } from "./release-age.mjs";
 import { HERO_RUN, HERO_TEST, heroRunLines, writeSnippets } from "./doc-snippets.mjs";
 import { scratchInstall } from "./scratch-install.mjs";
 import { floorBannerProblem } from "./support/engine-banner.mjs";
+import { expoLatestEntries, runEachExpoEntry } from "./support/expo-latest.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixturesRoot = path.join(packageRoot, "consumer-tests");
@@ -316,11 +317,8 @@ function runExpoPnpmSuites(tarball) {
 // cooldown (scripts/release-age.mjs, imported above). Expo's CLI runs offline, so the
 // versions it aligns to are the installed expo release's own list (as old as that
 // release), not its online API's, which names releases younger than the gate allows.
-/** Each supported SDK's fixture, with `expo` following that SDK to its newest patch. */
-const EXPO_LATEST = [
-  { fixture: "expo", expo: "~58.0.0" },
-  { fixture: "expo-sdk57", expo: "~57.0.0" },
-];
+// The list is one entry per SDK in SUPPORTED_EXPO_SDKS, each checked against the SDK its
+// fixture pins (scripts/support/expo-latest.mjs).
 
 /**
  * The newest SDK's fixture on the Expo prerelease in VN_EXPO_VERSION, which the canary
@@ -338,7 +336,8 @@ function expoNext() {
  * aligning the rest (expo-*, react-native, the router), as an app upgrading would.
  */
 function runExpoVersions(tarball, leg, entries) {
-  for (const { fixture, expo } of entries) {
+  // Every entry runs, so a red run shows which SDKs drifted, not only the first.
+  runEachExpoEntry(entries, ({ fixture, expo }, resolved) => {
     const fixtureRoot = path.join(tempRoot, `${fixture}-${leg}`);
     fs.cpSync(path.join(fixturesRoot, fixture), fixtureRoot, { recursive: true });
     if (fixture === "expo-sdk57") {
@@ -381,12 +380,20 @@ function runExpoVersions(tarball, leg, entries) {
       JSON.parse(
         fs.readFileSync(path.join(fixtureRoot, "node_modules", name, "package.json"), "utf8"),
       ).version;
+    const versions = {
+      expo: version("expo"),
+      "react-native": version("react-native"),
+      "expo-router": version("expo-router"),
+    };
+    resolved(versions);
     console.log(
-      `\n${fixture}: expo ${version("expo")}, react-native ${version("react-native")}, expo-router ${version("expo-router")}`,
+      `\n${fixture}: ${Object.entries(versions)
+        .map(([name, v]) => `${name} ${v}`)
+        .join(", ")}`,
     );
     run("npm", ["test"], fixtureRoot);
     run("npm", ["run", "test:router"], fixtureRoot);
-  }
+  });
 }
 
 // The code on the SNIPPET_PAGES pages, run as written (scripts/doc-snippets.mjs).
@@ -634,8 +641,10 @@ try {
   if (runs("library-floors")) await runLibraryFloors(tarball);
   if (runs("expo-pnpm-suite")) runExpoPnpmSuites(tarball);
   // Only when asked for: they install the newest Expo patches, or an Expo prerelease, so
-  // they run on a schedule (compat-check.yml), never as part of a pull request's gate.
-  if (only === "expo-latest") runExpoVersions(tarball, only, EXPO_LATEST);
+  // they never run in a pull request's gate. expo-latest runs on every push to main
+  // (ci.yml expo-latest) and weekly (compat-check.yml); expo-next only in compat-check.yml's
+  // canary job.
+  if (only === "expo-latest") runExpoVersions(tarball, only, expoLatestEntries());
   if (only === "expo-next") runExpoVersions(tarball, only, expoNext());
 
   console.log("\nThe packed consumer fixtures passed.");
