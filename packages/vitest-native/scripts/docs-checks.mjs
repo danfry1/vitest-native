@@ -17,12 +17,15 @@
 // End-to-end tests (`*.e2e.test.ts`) qualify the same way but are excluded from
 // vitest.config.ts, so they run in a second Vitest run under vitest.e2e.config.ts. Each
 // run writes a JSON report, and the script fails when a listed file did not run (#890).
+//
+// File arguments (paths under tests/) replace the derived list, as the end-to-end test
+// of this script (tests/docs-checks.e2e.test.ts) uses them.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import os from "node:os";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const testsDir = path.join(packageRoot, "tests");
@@ -82,11 +85,17 @@ export function notRun(listed, report) {
       )
       .map((file) => path.basename(file.name)),
   );
-  return listed.filter((file) => !ran.has(file));
+  return listed.filter((file) => !ran.has(path.basename(file)));
 }
 
-function main() {
-  const { unit, e2e } = selectDocsChecks();
+function main(args) {
+  const { unit, e2e } =
+    args.length > 0
+      ? {
+          unit: args.filter((file) => !file.endsWith(".e2e.test.ts")),
+          e2e: args.filter((file) => file.endsWith(".e2e.test.ts")),
+        }
+      : selectDocsChecks();
   const listed = [...unit, ...e2e];
   console.log(`docs checks: ${listed.length} test files read repository Markdown`);
   for (const file of listed) console.log(`  tests/${file}`);
@@ -110,7 +119,10 @@ function main() {
         "run",
         ...config,
         ...files.map((file) => path.join("tests", file)),
+        // A --reporter on the command line replaces the config's reporters: keep the
+        // terminal output and, on GitHub Actions, the inline annotations.
         "--reporter=default",
+        ...(process.env.GITHUB_ACTIONS === "true" ? ["--reporter=github-actions"] : []),
         "--reporter=json",
         `--outputFile.json=${out}`,
       ],
@@ -130,6 +142,15 @@ function main() {
   return status;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  process.exit(main());
+// Compared through realpath: run through a symlinked path (macOS's /tmp), argv[1] keeps
+// the link while import.meta.url is resolved, and main() would be skipped with exit 0.
+function isMain() {
+  if (!process.argv[1]) return false;
+  try {
+    return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
 }
+
+if (isMain()) process.exit(main(process.argv.slice(2)));
