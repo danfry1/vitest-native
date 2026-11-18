@@ -73,11 +73,26 @@ const runsPackageManager = (source: string) =>
 /** Scripts that run a package manager without resolving anything from the registry. */
 const EXEMPT: Record<string, string> = {
   "scripts/check-package-size.mjs": "npm pack --dry-run of this package: nothing is resolved",
-  "scripts/support/expo-latest.mjs": "npm --version, to check the npm the Expo legs need",
+};
+
+/**
+ * Single calls that run a package manager without resolving anything from the registry,
+ * by file. Only that exact text is left out, so any other call in the file still counts.
+ */
+const EXEMPT_CALLS: Record<string, { call: string; reason: string }> = {
+  "scripts/support/expo-latest.mjs": {
+    call: 'execFileSync("npm", ["--version"]',
+    reason: "npm --version, to check the npm the Expo legs need",
+  },
+};
+
+const withoutExemptCalls = (file: string) => {
+  const exempt = EXEMPT_CALLS[file];
+  return exempt ? code(file).split(exempt.call).join("") : code(file);
 };
 
 const installers = scriptFiles().filter(
-  (file) => file !== "scripts/release-age.mjs" && runsPackageManager(code(file)),
+  (file) => file !== "scripts/release-age.mjs" && runsPackageManager(withoutExemptCalls(file)),
 );
 
 describe("release cooldown", () => {
@@ -92,6 +107,11 @@ describe("release cooldown", () => {
     expect(installers).not.toContain("validation/bug-museum/build-ref.mjs");
     // Every exemption still names a file that runs a package manager.
     for (const file of Object.keys(EXEMPT)) expect(installers).toContain(file);
+    // Each exempt call is still there, and is what made its file count as an installer.
+    for (const [file, { call }] of Object.entries(EXEMPT_CALLS)) {
+      expect(code(file)).toContain(call);
+      expect(runsPackageManager(code(file))).toBe(true);
+    }
   });
 
   it("is applied by every script that runs a package manager, at the top of the file", () => {
