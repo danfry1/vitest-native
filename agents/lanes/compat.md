@@ -31,6 +31,7 @@ The Jest compatibility layer, library presets, the mock engine and matchers: eve
 - **Wrappers around Vitest mock APIs must be idempotent** and must not change what the calling API is iterating. A `mockReset` wrapper made `vi.resetAllMocks()` loop forever at 100% CPU.
 - **`jestMockTransform` rewrites a literal `jest.mock(`, even in our own `dist`.** Don't name a parameter that.
 - **Its queued `vi.*` calls look like pending mocks to `nodeMocks`.** Let jest-compat answer for the files it decided.
+- **`nodeMocks` serves a mocked ESM import as a facade that `require`s the file by absolute path.** A registry match by file is not enough: `mayIntercept` must also let that path through, or the load goes to Node unmocked (#898).
 - **Vitest fake timers leave `queueMicrotask` real; Jest's don't.** In Vitest 5.1, passing only `toNotFake` adds `nextTick` and `queueMicrotask` back to it, so faking `queueMicrotask` needs an explicit `toFake`. `vi.useFakeTimers(config)` also overrides a project's own `test.fakeTimers.toFake`.
 
 ## Not ours (recognise these and send them back)
