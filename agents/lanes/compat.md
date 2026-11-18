@@ -5,7 +5,6 @@ The Jest compatibility layer, library presets, the mock engine and matchers: eve
 **Where to look:** `src/jest-compat/` (`setup`, `node-registry`, `transform`, `root-mocks`), `src/preset-map.ts`, `src/presets/index.ts`, `src/mocks/registry.ts`, `src/rntl-support.mjs`, `src/native/boundary.mjs`, `src/native/library-jest.mjs`, `src/native/jest-resolvers.mjs`.
 
 ## Invariants
-
 - **The native boundary is a strict subset of RN's `jest/setup.js`.** (ADR 0012; `boundary.mjs`)
 - **Prefer each library's own test support.** Hand-written presets are fallbacks with a drift gate. Corrections are version-ranged deviations with a probe; never edit a library's mock module. (ADR 0012, 0017)
 - **Hand `jest` to library support files as a function parameter.** Never set `globalThis.jest`, not even conditionally. (ADR 0011, 0017)
@@ -14,7 +13,6 @@ The Jest compatibility layer, library presets, the mock engine and matchers: eve
 - **`jest.mock` reaches Node `require`, the registry side channel and Vite.** (ADR 0004; `node-registry.mjs`)
 
 ## Settled decisions
-
 - No auto-discovery of library test support.
 - No codegen TurboModule stubs; keep the regex scan.
 - Don't delete the mock engine.
@@ -24,14 +22,12 @@ The Jest compatibility layer, library presets, the mock engine and matchers: eve
 - **Triage:** a missing public API that real apps call is medium or high priority. A gap in a subset nobody touches is low.
 
 ## Conventions
-
 - **Review a preset against the installed library's real source and its own mock.** Changes are additive and keep identities stable.
 - **Adding a preset:** export it from `src/presets/index.ts`, map it in `src/preset-map.ts`, and test it in `tests/presets.test.ts`.
 - **Adding a mock:** components go in `src/mocks/components/` and APIs in `src/mocks/apis/`. Register each in its barrel file and in `src/mocks/registry.ts`.
 - **Every conformance waiver names an `#issue`,** or gives an `n/a (internal | type-only | upstream declaration)` reason.
 
 ## Traps
-
 - **Wrappers around Vitest mock APIs must be idempotent** and must not change what the calling API is iterating. A `mockReset` wrapper made `vi.resetAllMocks()` loop forever at 100% CPU.
 - **`jestMockTransform` rewrites a literal `jest.mock(`, even in our own `dist`.** Don't name a parameter that.
 - **Its queued `vi.*` calls look like pending mocks to `nodeMocks`.** Let jest-compat answer for the files it decided.
@@ -39,12 +35,10 @@ The Jest compatibility layer, library presets, the mock engine and matchers: eve
 - **Vitest fake timers leave `queueMicrotask` real; Jest's don't.** In Vitest 5.1, passing only `toNotFake` adds `nextTick` and `queueMicrotask` back to it, so faking `queueMicrotask` needs an explicit `toFake`. `vi.useFakeTimers(config)` also overrides a project's own `test.fakeTimers.toFake`.
 
 ## Not ours (recognise these and send them back)
-
 - **App tests coupled to Jest's fakes:** `'View'` host names, a 1024-px window. The app should query by testID or role. Don't emulate the fake outside jest-compat. jest-compat models the preset, so it mirrors the preset's View class (`instanceof View`, `View.prototype`) because suites depend on it.
 - **Partial `jest.mock`s hidden by `lazyImports`.** A plain `require` throws the same error.
 - **A `requireActual` spread that needs the worklets Babel plugin**, just as it does under Jest.
 - **Snapshots re-recorded under an old bug.** Score against the upstream Jest snapshots.
 
 ## Verification
-
 - **Test every mock-API wrapper through `resetAllMocks`, `restoreAllMocks` and `clearAllMocks`,** with a deadline and in a reused worker.

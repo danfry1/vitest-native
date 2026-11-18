@@ -324,7 +324,7 @@ function createState() {
   function copyEntryOf(file) {
     const index = reachIndex();
     if (index.copies.size === 0) return undefined;
-    const name = owningPackageOfFile(file.replace(/\\/g, "/"));
+    const name = owningPackageOfFile(file);
     const candidates = name === null ? undefined : index.copies.get(name);
     if (candidates === undefined) return undefined;
     const pkgDir = installedPackageDirOf(file);
@@ -715,9 +715,7 @@ function createState() {
     const target = from === null ? request : path.resolve(path.dirname(from), request);
     if (index.dirs.has(installedPackageDirOf(target))) return true;
     // A root mock reaches every copy of its package (copyEntryOf), wherever installed.
-    return (
-      index.copies.size > 0 && index.copies.has(owningPackageOfFile(target.replace(/\\/g, "/")))
-    );
+    return index.copies.size > 0 && index.copies.has(owningPackageOfFile(target));
   };
 
   return state;
