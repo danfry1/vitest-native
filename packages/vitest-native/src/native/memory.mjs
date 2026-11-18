@@ -131,6 +131,24 @@ export function formatBytes(bytes) {
 }
 
 /**
+ * The count the plan runs when memory is what held it below the count requested, else
+ * null: the plan runs what was requested, or the automatic cap of four chose, which a
+ * count the user sets lifts and which is not about memory. What memory alone admits
+ * comes from the plan's own figures (createHotMemoryPlan).
+ */
+export function memoryLoweredWorkers(plan) {
+  if (plan.maxWorkers >= plan.requestedWorkers || plan.softRssLimit == null) return null;
+  const memoryAdmits = Math.max(
+    1,
+    Math.floor(
+      Math.max(0, plan.softRssLimit - plan.mainProcessReserve - plan.replacementOverlapReserve) /
+        WORKER_RSS_ADMISSION_COST,
+    ),
+  );
+  return plan.admittedWorkers < memoryAdmits ? null : plan.maxWorkers;
+}
+
+/**
  * The hot runtime's worker decision as one line of the startup log, so a user can tune
  * `maxWorkers` or report a run without turning diagnostics on (formatHotMemoryPlan has
  * the full envelope).
@@ -141,22 +159,9 @@ export function formatHotWorkerDecision(plan) {
       ? "memory unknown"
       : `${formatBytes(plan.effectiveLimit)} ${plan.source === "constrained" ? "memory limit" : "host memory"}`;
   if (plan.maxWorkers < plan.requestedWorkers) {
-    // What memory alone admits, from the plan's own figures (createHotMemoryPlan). Fewer
-    // admitted than that is the automatic cap, which a count the user sets lifts: say
-    // which of the two chose the number, since only one of them is about memory.
-    const memoryAdmits =
-      plan.softRssLimit == null
-        ? null
-        : Math.max(
-            1,
-            Math.floor(
-              Math.max(
-                0,
-                plan.softRssLimit - plan.mainProcessReserve - plan.replacementOverlapReserve,
-              ) / WORKER_RSS_ADMISSION_COST,
-            ),
-          );
-    if (memoryAdmits === null || plan.admittedWorkers < memoryAdmits) {
+    // Say which of memory and the automatic cap chose the number, since only one of
+    // them is about memory.
+    if (memoryLoweredWorkers(plan) === null) {
       return `workers: ${plan.maxWorkers} (automatic cap of ${MAX_AUTO_WORKERS}; ${plan.requestedWorkers} available, set maxWorkers to run more; ${memory})`;
     }
     return `workers: ${plan.maxWorkers} (memory plan admitted ${plan.admittedWorkers} of ${plan.requestedWorkers} requested, ${memory})`;

@@ -71,7 +71,7 @@ import {
   packageDirOf,
 } from "./native/match.mjs";
 type AssetModules = typeof import("./native/assets.mjs");
-import type { HotMemoryPlan } from "./native/memory.mjs";
+import { memoryLoweredWorkers, type HotMemoryPlan } from "./native/memory.mjs";
 import type { NativePoolOptions } from "./native/pool.js";
 import { workerVitestMismatch } from "./native/worker-vitest.js";
 import {
@@ -1596,16 +1596,18 @@ type GroupedProject = {
  *
  * The remedy it names first is one worker count for the whole group: a separate
  * groupOrder also avoids the clash, but Vitest runs groups one after another (#911).
- * `plan` is the hot project's memory plan; when it admitted fewer workers than were
- * requested, the plan made the difference (projects given the same count differ on a
- * machine with less memory), so the message names the admitted count.
+ * `lowered` is set when the hot project's memory plan held its count below the one
+ * requested, which is how projects given the same count (or none) differ on a machine
+ * with less memory; the message then names the admitted count. A count from
+ * `--maxWorkers` or `VITEST_MAX_WORKERS` (`flag`) reaches every project already, so
+ * there the remedy is a smaller value.
  */
 export function sharedGroupConflict(
   self: GroupedProject,
   others: readonly GroupedProject[],
   root: { maxWorkers?: unknown; watch?: boolean },
   cpus?: number,
-  plan?: { requestedWorkers: number; maxWorkers: number },
+  lowered?: { admitted: number; requested: number; flag: boolean },
 ): string | null {
   const order = (p: GroupedProject) => Number(p.config.sequence?.groupOrder ?? 0);
   const workers = (p: GroupedProject) =>
@@ -1618,12 +1620,17 @@ export function sharedGroupConflict(
     if (other === self || ownGroup(other) || order(other) !== order(self)) continue;
     if (workers(other) !== workers(self)) {
       const name = String(other.name ?? other.config.name ?? "another project");
-      const lowered = plan !== undefined && plan.maxWorkers < plan.requestedWorkers;
-      const remedy = lowered
-        ? `the memory plan admits ${plan.maxWorkers} of the ${plan.requestedWorkers} ` +
-          `workers requested on this machine; give every project in the group the same ` +
-          `test.maxWorkers, one the smallest machine you run on admits`
-        : `give every project in the group the same test.maxWorkers`;
+      const admits =
+        lowered &&
+        `the memory plan admits ${lowered.admitted} of the ${lowered.requested} workers ` +
+          `requested on this machine; `;
+      const remedy = !lowered
+        ? `give every project in the group the same test.maxWorkers`
+        : lowered.flag
+          ? `${admits}every project takes the --maxWorkers or VITEST_MAX_WORKERS count, ` +
+            `so pass ${lowered.admitted} or fewer here`
+          : `${admits}give every project in the group the same test.maxWorkers, one the ` +
+            `smallest machine you run on admits`;
       return (
         `the project '${name}' is in the same sequence.groupOrder (${order(self)}) with ` +
         `${workers(other)} workers to this project's ${workers(self)}, which Vitest rejects ` +
@@ -1647,6 +1654,14 @@ function vmPoolUnsupported(pool: string): VitestNativeError {
       `Node's module hooks, which a VM pool's context does not use — React Native fails to ` +
       `resolve its platform files there. Use 'threads' (the default) or 'forks', or switch ` +
       `to engine:'mock', which needs no hooks.`,
+  );
+}
+
+/** hotRuntime: true beside a project in its group with another worker count. */
+function hotRuntimeGroupConflict(conflict: string): VitestNativeError {
+  return new VitestNativeError(
+    "HOT_RUNTIME_OVERRIDDEN",
+    `hotRuntime was requested, but ${conflict}.`,
   );
 }
 
@@ -4153,18 +4168,26 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       override === null && selection.memory
         ? replanForVitestWorkers(selection.memory, projectConfig)
         : undefined;
-    const reason =
-      override ??
-      sharedGroupConflict(
-        project,
-        vitest.projects ?? [],
-        { maxWorkers: vitest.config?.maxWorkers, watch: vitest.config?.watch },
-        undefined,
-        // The plan that set this count: rebuilt for Vitest's count, or config()'s when
-        // it lowered a count the user set (capWarning). The automatic cap of four
-        // lowers no count anyone set, so it is not named.
-        replanned ?? (selection.memory?.capWarning ? selection.memory.plan : undefined),
-      );
+    // The plan that set this count: rebuilt for Vitest's count, or config()'s.
+    const plan = replanned ?? selection.memory?.plan;
+    const admitted = plan ? memoryLoweredWorkers(plan) : null;
+    const conflict =
+      override === null
+        ? sharedGroupConflict(
+            project,
+            vitest.projects ?? [],
+            { maxWorkers: vitest.config?.maxWorkers, watch: vitest.config?.watch },
+            undefined,
+            plan && admitted !== null
+              ? {
+                  admitted,
+                  requested: plan.requestedWorkers,
+                  flag: cli.maxWorkers !== undefined || Boolean(process.env.VITEST_MAX_WORKERS),
+                }
+              : undefined,
+          )
+        : null;
+    const reason = override ?? conflict;
     if (reason === null) {
       if (replanned && selection.memory) {
         applyHotMemoryPlan(selection.memory, replanned, projectConfig, diagnostics);
@@ -4181,7 +4204,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     }
     // Hot is off, so the count Vitest resolved applies as it stood.
     projectConfig.maxWorkers = vitestWorkers;
-    if (!hotRuntimeAuto) throw hotRuntimeOverridden(reason);
+    if (!hotRuntimeAuto) {
+      throw conflict !== null ? hotRuntimeGroupConflict(conflict) : hotRuntimeOverridden(reason);
+    }
     projectConfig.pool = cli.pool ?? selection.userPool ?? "threads";
     projectConfig.isolate = cli.isolate ?? true;
     projectConfig.runner = (selection.userRunner as string | undefined) ?? testRunnerPath;

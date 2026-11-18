@@ -152,20 +152,28 @@ describe("sharedGroupConflict", () => {
 
   it("names the count the memory plan admitted when it lowered only the hot project's", () => {
     const lowered = { name: "native", config: { maxWorkers: 2 } };
-    const reason = sharedGroupConflict(lowered, [project("node", { maxWorkers: 4 })], {}, 10, {
-      requestedWorkers: 4,
-      maxWorkers: 2,
+    const node = project("node", { maxWorkers: 4 });
+    const reason = sharedGroupConflict(lowered, [node], {}, 10, {
+      admitted: 2,
+      requested: 4,
+      flag: false,
     });
     expect(reason).toMatch(/'node' .* with 4 workers to this project's 2/);
     expect(reason).toMatch(
       /the memory plan admits 2 of the 4 workers requested on this machine; give every project in the group the same test.maxWorkers, one the smallest machine you run on admits/,
     );
-    // A plan that ran what was asked lowered nothing.
-    expect(
-      sharedGroupConflict(lowered, [project("node", { maxWorkers: 4 })], {}, 10, {
-        requestedWorkers: 2,
-        maxWorkers: 2,
-      }),
-    ).not.toMatch(/memory plan/);
+  });
+
+  it("asks for a smaller --maxWorkers when the flag set the count every project runs", () => {
+    const lowered = { name: "native", config: { maxWorkers: 4 } };
+    const reason = sharedGroupConflict(lowered, [project("node", { maxWorkers: 8 })], {}, 10, {
+      admitted: 4,
+      requested: 8,
+      flag: true,
+    });
+    expect(reason).toMatch(
+      /the memory plan admits 4 of the 8 workers requested on this machine; every project takes the --maxWorkers or VITEST_MAX_WORKERS count, so pass 4 or fewer here/,
+    );
+    expect(reason).not.toMatch(/same test.maxWorkers/);
   });
 });
