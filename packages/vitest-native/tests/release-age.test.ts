@@ -107,10 +107,10 @@ describe("release cooldown", () => {
     expect(installers).not.toContain("validation/bug-museum/build-ref.mjs");
     // Every exemption still names a file that runs a package manager.
     for (const file of Object.keys(EXEMPT)) expect(installers).toContain(file);
-    // Each exempt call is still there, and is what made its file count as an installer.
+    // Each exempt call is still in its file, and is itself a call the detector counts.
     for (const [file, { call }] of Object.entries(EXEMPT_CALLS)) {
       expect(code(file)).toContain(call);
-      expect(runsPackageManager(code(file))).toBe(true);
+      expect(runsPackageManager(call)).toBe(true);
     }
   });
 

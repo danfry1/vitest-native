@@ -7,6 +7,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   EXPO_SDK_FIXTURES,
@@ -128,9 +129,9 @@ describe("runEachExpoEntry", () => {
   });
 });
 
-// #909: Expo SDK 57's newest patches pin react 19.2.3, while expo-router's
-// react-server-dom-webpack peer resolves to a release that asks for react ^19.2.9. npm 11.20
-// installs that tree; npm 11.19 stops with ERESOLVE. The Expo legs refuse an older npm by name.
+/** An `npm-version:` pin in a workflow, with any prerelease suffix. */
+const PIN = /npm-version: .*?(\d+\.\d+\.\d+(?:-[\w.]+)?)/g;
+
 /**
  * Whether `version` is MINIMUM_NPM or later, comparing each part as a number. A prerelease
  * of a version comes before it, as semver orders them.
@@ -142,6 +143,10 @@ const atLeastMinimum = (version: string) => {
   return !pre;
 };
 
+// #909: `expo install --fix` sets react to the 19.2.3 in Expo SDK 57's
+// bundledNativeModules.json, while expo-router's optional react-server-dom-webpack peer
+// (~19.2.4) needs react 19.2.4 or later. npm 11.20 installs that tree; npm 11.19 stops with
+// ERESOLVE. The Expo legs refuse an older npm by name.
 describe("the npm the Expo legs install with", () => {
   const entries = [{ fixture: "expo", sdk: 58, expo: "~58.0.0" }];
 
@@ -183,7 +188,7 @@ describe("the npm the Expo legs install with", () => {
     // No npm on PATH: the child's `npm --version` fails, and the error must still name it.
     const script = [
       `import { runEachExpoEntry } from ${JSON.stringify(
-        path.resolve(import.meta.dirname, "../scripts/support/expo-latest.mjs"),
+        pathToFileURL(path.resolve(import.meta.dirname, "../scripts/support/expo-latest.mjs")).href,
       )};`,
       `runEachExpoEntry([], () => {}, { log: () => {} });`,
     ].join("\n");
@@ -216,6 +221,14 @@ describe("the npm the Expo legs install with", () => {
     }
   });
 
+  it("counts a prerelease of the minimum as below it when reading a pin", () => {
+    expect(atLeastMinimum(MINIMUM_NPM)).toBe(true);
+    expect(atLeastMinimum(`${MINIMUM_NPM}-pre.1`)).toBe(false);
+    // The pin reader keeps the suffix, so a prerelease pin reaches that branch.
+    const [pin] = [..."npm-version: 11.20.0-pre.1\n".matchAll(PIN)].map((m) => m[1]);
+    expect(pin).toBe("11.20.0-pre.1");
+  });
+
   it("is at or below the npm CI pins for every job that runs an Expo leg", () => {
     const dir = path.resolve(import.meta.dirname, "../../../.github/workflows");
     let checked = 0;
@@ -230,7 +243,7 @@ describe("the npm the Expo legs install with", () => {
             /\$\{\{|\$/,
           );
           if (!/^expo-(latest|next)$/.test(value)) continue;
-          const pins = [...job.matchAll(/npm-version: .*?(\d+\.\d+\.\d+)/g)].map((m) => m[1]);
+          const pins = [...job.matchAll(PIN)].map((m) => m[1]);
           expect(pins, `${name} runs ${value} without pinning npm`).not.toEqual([]);
           for (const pin of pins) expect(atLeastMinimum(pin), `${name} pins npm ${pin}`).toBe(true);
           checked++;
