@@ -91,25 +91,28 @@ describe("runEachExpoEntry", () => {
       thrown = error as Error;
     }
     expect(ran).toEqual(["expo-sdk57", "expo"]);
-    expect(thrown?.message).toContain("Expo versions: 1 of 2 failed");
-    for (const text of [logged.join("\n"), thrown!.message]) {
-      expect(text).toContain(
-        "expo-sdk57 (SDK 57): failed: npm test exited with code 1 (expo 57.0.9, react-native 0.86.1)",
-      );
-      expect(text).toContain("expo (SDK 58): passed (expo 58.0.9, react-native 0.87.1)");
-    }
+    expect(thrown?.message).toBe("Expo versions: 1 of 2 failed (expo-sdk57); see the list above");
+    const text = logged.join("\n");
+    expect(text).toContain(
+      "expo-sdk57 (SDK 57): failed: npm test exited with code 1 (expo 57.0.9, react-native 0.86.1)",
+    );
+    expect(text).toContain("expo (SDK 58): passed (expo 58.0.9, react-native 0.87.1)");
   });
 
   it("reports an entry that failed before it resolved its versions", () => {
+    const logged: string[] = [];
     expect(() =>
       runEachExpoEntry(
         [entries[1]],
         () => {
           throw new Error("npm install exited with code 1");
         },
-        () => {},
+        (line: string) => logged.push(line),
       ),
-    ).toThrow("expo (SDK 58): failed: npm install exited with code 1 (versions not resolved)");
+    ).toThrow("Expo versions: 1 of 1 failed (expo)");
+    expect(logged.join("\n")).toContain(
+      "expo (SDK 58): failed: npm install exited with code 1 (versions not resolved)",
+    );
   });
 
   it("does not throw when every SDK passes", () => {
@@ -143,5 +146,29 @@ describe("where the Expo latest-supported legs run", () => {
     const ci = read("../../.github/workflows/ci.yml");
     expect(ci).toMatch(/\n {2}expo-latest:\n[\s\S]*?VN_CONSUMERS: expo-latest/);
     expect(read("../../.github/workflows/compat-check.yml")).toContain("VN_CONSUMERS: expo-latest");
+  });
+});
+
+describe("test-consumers.mjs", () => {
+  const source = fs.readFileSync(
+    path.resolve(import.meta.dirname, "../scripts/test-consumers.mjs"),
+    "utf8",
+  );
+
+  it("runs the expo-latest leg on the derived list, not a hand-written one", () => {
+    expect(source).toContain(
+      'if (only === "expo-latest") runExpoVersions(tarball, only, expoLatestEntries());',
+    );
+    expect(source).not.toMatch(/expo:\s*"~\d+\.0\.0"/);
+  });
+
+  it("runs every Expo entry through runEachExpoEntry", () => {
+    const start = source.indexOf("function runExpoVersions(");
+    expect(start).toBeGreaterThan(-1);
+    const body = source.slice(start, source.indexOf("\n}\n", start));
+    expect(body).toMatch(
+      /^function runExpoVersions\([^)]*\) \{\n(?:\s*\/\/.*\n)*\s*runEachExpoEntry\(entries, /,
+    );
+    expect(body).not.toMatch(/\bfor \(/);
   });
 });

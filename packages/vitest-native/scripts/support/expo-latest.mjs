@@ -50,7 +50,7 @@ export function expoLatestEntries({
     const pinnedSdk = Number(/^\D*(\d+)\./.exec(pin ?? "")?.[1]);
     if (pinnedSdk !== sdk) {
       problems.push(
-        `consumer-tests/${fixture} pins expo ${pin} (SDK ${pinnedSdk || "unknown"}), ` +
+        `consumer-tests/${fixture} pins ${pin ? `expo ${pin}` : "no expo dependency"} (SDK ${pinnedSdk || "unknown"}), ` +
           `but its latest-supported entry is SDK ${sdk}`,
       );
       continue;
@@ -104,8 +104,9 @@ export function runEachExpoEntry(entries, runEntry, log = console.log) {
   log(`\nExpo versions:\n- ${lines.join("\n- ")}`);
   const failed = results.filter((result) => result.error).length;
   if (failed > 0) {
+    const names = results.filter((result) => result.error).map(({ entry }) => entry.fixture);
     throw new Error(
-      `Expo versions: ${failed} of ${results.length} failed\n- ${lines.join("\n- ")}`,
+      `Expo versions: ${failed} of ${results.length} failed (${names.join(", ")}); see the list above`,
     );
   }
 }
