@@ -28,7 +28,7 @@ The [`hotRuntime` option](/guide/plugin-options#hotruntime) lists every value an
 
 - the run has one worker (`maxWorkers: 1`, `--maxWorkers=1`, `--no-file-parallelism`, or a memory plan that admits only one), because Vitest then runs every file as one task and a worker cannot be recycled between them;
 - the config or the command line chooses a pool or isolation explicitly (`pool`, `test.isolate`, `--pool`, `--isolate`, `--no-isolate`). An explicit choice is always kept;
-- another project in the same `sequence.groupOrder` runs a different worker count, which Vitest does not allow. Give the native project its own `test.sequence.groupOrder` to keep the hot runtime;
+- another project in the same `sequence.groupOrder` runs a different worker count, which Vitest does not allow. Give every project the same `maxWorkers` to keep the hot runtime (see [projects in one run](#react-native-and-other-projects-in-one-run));
 - the hot worker would load a different Vitest version from the one running the tests.
 
 With `hotRuntime: true` these fail at startup instead: a one-worker config (`maxWorkers: 1`, `fileParallelism: false`) or memory plan with `HOT_MEMORY_UNBOUNDED`; a one-worker CLI flag or `VITEST_MAX_WORKERS=1`, an explicit pool or isolation, or a `groupOrder` clash with `HOT_RUNTIME_OVERRIDDEN`; a different Vitest version with `HOT_RUNTIME_UNAVAILABLE`.
@@ -71,6 +71,12 @@ The hot runtime plans its workers from the lower of the host's and the container
 - **The full plan** (limits, reserves and the heap threshold) is printed with `reactNative({ diagnostics: true })` or by `vitest-native doctor`.
 - **Your own threshold.** `hotRuntime: { mode: 'auto', memoryLimit }` (bytes) sets the heap at which a worker is recycled and keeps `'auto'`'s fallback; without `mode`, an object requires the hot runtime. The heap a worker reports is read when its file finishes, before garbage collection, so it can sit above what the worker really retains: leave headroom.
 - **One worker.** Recycling needs two or more workers, so use `maxWorkers` of 2 or more. If something outside the run already bounds its memory, `hotRuntime: { allowUnboundedMemory: true }` accepts a single-worker run; it also turns off the automatic worker cap, recycling on process memory and the memory hard stop, and warns when Vitest batches the files into one task.
+
+### React Native and other projects in one run
+
+Vitest requires every project in one `sequence.groupOrder` to run the same number of workers. When a run mixes `reactNative()` projects with node or web projects, give every project the same explicit `test.maxWorkers`. Use a count the memory plan admits: the startup log names the count the hot project runs.
+
+Don't give the React Native projects their own `groupOrder` instead. Vitest runs groups one after another, so every node and web project would finish before any React Native file starts.
 
 ## Caches
 
