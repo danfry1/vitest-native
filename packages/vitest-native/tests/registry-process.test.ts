@@ -7,6 +7,7 @@ import path from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 // @ts-expect-error — internal runtime .mjs, intentionally not public API
 import {
+  COLD_WAIT_NOTICE_MS,
   _resetFailedRegistries,
   _setRegistryBuildOptions,
   buildRegistryFor,
@@ -324,7 +325,8 @@ describe("background registry build", () => {
     const run = (
       _file: string,
       _options: unknown,
-      control: { signal?: AbortSignal; priority?: number },
+      // buildRegistryFor passes no control: it waits, and is never cancelled.
+      control: { signal?: AbortSignal; priority?: number } = {},
     ) => {
       calls.push(control);
       return new Promise<{ ok: boolean; cancelled?: boolean; error?: string }>((resolve) => {
@@ -334,6 +336,84 @@ describe("background registry build", () => {
     };
     return { compiler: run, calls, finish: () => finish() };
   }
+
+  describe("notice while a cold run waits (#913)", () => {
+    const NOTICE = /building React Native's precompiled modules/;
+    /** The notices printed so far, and the spy to restore. */
+    function watchNotices() {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      return {
+        notices: () => warn.mock.calls.filter(([line]) => NOTICE.test(String(line))),
+        restore: () => warn.mockRestore(),
+      };
+    }
+
+    it("prints one line to stderr once a held compile outlasts the threshold", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const watch = watchNotices();
+      try {
+        const held = heldCompiler();
+        const waiting = buildRegistryFor(coldOptions("slow-wait"), held.compiler);
+        await vi.advanceTimersByTimeAsync(COLD_WAIT_NOTICE_MS - 1);
+        expect(held.calls).toHaveLength(1);
+        expect(watch.notices()).toHaveLength(0);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(watch.notices()).toHaveLength(1);
+        // Still waiting, still one line.
+        await vi.advanceTimersByTimeAsync(COLD_WAIT_NOTICE_MS * 10);
+        expect(watch.notices()).toHaveLength(1);
+        // The wait then ends as before: here a failed compile, so per-file loading.
+        held.finish();
+        await vi.runAllTimersAsync();
+        expect(await waiting).toBeNull();
+        expect(watch.notices()).toHaveLength(1);
+      } finally {
+        watch.restore();
+        vi.useRealTimers();
+      }
+    });
+
+    it("prints it too while a wait joins a held background build", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const watch = watchNotices();
+      try {
+        const options = coldOptions("slow-join");
+        const held = heldCompiler();
+        startRegistryBuild(options, held.compiler);
+        const waiting = buildRegistryFor(options, async () => ({ ok: false, error: "unused" }));
+        await vi.advanceTimersByTimeAsync(COLD_WAIT_NOTICE_MS);
+        expect(watch.notices()).toHaveLength(1);
+        held.finish();
+        await vi.runAllTimersAsync();
+        await waiting;
+        expect(watch.notices()).toHaveLength(1);
+      } finally {
+        watch.restore();
+        vi.useRealTimers();
+      }
+    });
+
+    it("prints nothing for a compile that ends before the threshold, and does not delay it", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const watch = watchNotices();
+      try {
+        const held = heldCompiler();
+        const waiting = buildRegistryFor(coldOptions("fast-wait"), held.compiler);
+        await vi.advanceTimersByTimeAsync(COLD_WAIT_NOTICE_MS - 1_000);
+        held.finish();
+        // Only the retry delays after a failed compile (150 ms in all) stand between
+        // the compiler and the result: no wait for the threshold.
+        await vi.advanceTimersByTimeAsync(150);
+        expect(await waiting).toBeNull();
+        await vi.advanceTimersByTimeAsync(COLD_WAIT_NOTICE_MS * 10);
+        expect(watch.notices()).toHaveLength(0);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        watch.restore();
+        vi.useRealTimers();
+      }
+    });
+  });
 
   it("falls back at once for an entry whose compile already failed in this process", async () => {
     // #689: every later project or reload compiled again, each up to its timeout.
