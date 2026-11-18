@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -73,11 +74,63 @@ export function expoLatestEntries({
 }
 
 /**
+ * The oldest npm the Expo legs install with. `expo install --fix` sets react to the 19.2.3
+ * that Expo SDK 57's bundledNativeModules.json lists, while expo-router's optional
+ * react-server-dom-webpack peer (`~19.2.4`) needs react 19.2.4 or later in every release
+ * it allows. npm 11.20 installs that tree; npm 11.19 stops with ERESOLVE (#909). This is
+ * a floor: a later npm that is strict again would need its own fix. CI pins npm at or
+ * above it (tests/expo-latest.test.ts checks it).
+ */
+export const MINIMUM_NPM = "11.20.0";
+
+const NEED_NPM = `The Expo consumer runs need npm ${MINIMUM_NPM} or later`;
+
+function installedNpmVersion() {
+  try {
+    return execFileSync("npm", ["--version"], {
+      encoding: "utf8",
+      shell: process.platform === "win32",
+    }).trim();
+  } catch (error) {
+    throw new Error(`${NEED_NPM}; running npm --version failed: ${error.message}`, {
+      cause: error,
+    });
+  }
+}
+
+/**
+ * Throws, naming the minimum and the reason, when `version` is older than MINIMUM_NPM. A
+ * prerelease of a version comes before it, as semver orders them.
+ */
+function checkNpmVersion(version) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(-\S+)?$/.exec(version ?? "");
+  if (!match) throw new Error(`${NEED_NPM}; could not read the npm version from "${version}"`);
+  const parts = match.slice(1, 4).map(Number);
+  const minimum = MINIMUM_NPM.split(".").map(Number);
+  const index = parts.findIndex((part, i) => part !== minimum[i]);
+  const older = index === -1 ? Boolean(match[4]) : parts[index] < minimum[index];
+  if (older) {
+    throw new Error(
+      `${NEED_NPM}; this is npm ${version}. Older npm stops with ERESOLVE on react, between ` +
+        "the react version Expo SDK 57 pins in its bundledNativeModules.json and the newer " +
+        "one expo-router's react-server-dom-webpack peer asks for (#909). CI pins npm " +
+        "through .github/actions/setup (npm-version).",
+    );
+  }
+}
+
+/**
  * Runs `runEntry(entry, resolved)` for every entry, even after one fails. `runEntry` calls
  * `resolved(versions)` once it knows what it installed. Logs each entry's result and
- * versions, then throws if any failed.
+ * versions, then throws if any failed. Before any entry, it refuses an npm older than
+ * MINIMUM_NPM (`npmVersion`, read from `npm --version` when not given).
  */
-export function runEachExpoEntry(entries, runEntry, log = console.log) {
+export function runEachExpoEntry(
+  entries,
+  runEntry,
+  { log = console.log, npmVersion = installedNpmVersion() } = {},
+) {
+  checkNpmVersion(npmVersion);
   const results = [];
   for (const entry of entries) {
     const result = { entry, versions: undefined, error: undefined };

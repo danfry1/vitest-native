@@ -176,6 +176,16 @@ toward the length or the vocabulary check. Empty changesets are exempt. Run it l
 | `bun run format` | Format with oxfmt |
 | `bun run format:check` | Check formatting (CI) |
 | `bun run typecheck` | Type-check with tsc |
+| `bun run test:consumers` | Build, pack, and run the consumer fixtures against the packed package (`VN_CONSUMERS` picks one leg) |
+
+### The npm the consumer runs need
+
+The consumer runs install their fixtures with npm, and need npm 11. The npm 10 that Node 22
+bundles crashes on these fixtures' dependency graphs. The Expo runs
+(`VN_CONSUMERS=expo-latest` and `VN_CONSUMERS=expo-next`) need npm 11.20.0 or later, the
+version CI pins. With an older npm, Expo SDK 57's install stops with `ERESOLVE` on `react`,
+so these runs check the version first and stop with a message naming the minimum. The check
+is a floor only: it cannot tell whether a later npm rejects the same install.
 
 ### Why the build runs tsdown under bun
 
