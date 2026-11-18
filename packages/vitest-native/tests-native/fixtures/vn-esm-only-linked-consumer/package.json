@@ -1,0 +1,10 @@
+{
+  "name": "vn-esm-only-linked-consumer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  }
+}

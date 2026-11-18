@@ -26,6 +26,9 @@ export default defineConfig(({ mode }) => {
     plugins: [
       reactNative({
         engine: "native",
+        // Fixture packages only: no library's own Jest setup registers mocks, so a file's
+        // jest.* calls are the only registrations (unmock-every-root.test.ts).
+        presets: [],
         hotRuntime: mode === "hot" ? { allowUnboundedMemory: true } : false,
         experimental:
           mode === "resolution"

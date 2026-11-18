@@ -32,6 +32,7 @@ The Jest compatibility layer, library presets, the mock engine and matchers: eve
 - **`jestMockTransform` rewrites a literal `jest.mock(`, even in our own `dist`.** Don't name a parameter that.
 - **Its queued `vi.*` calls look like pending mocks to `nodeMocks`.** Let jest-compat answer for the files it decided.
 - **`nodeMocks` serves a mocked ESM import as a facade that `require`s the file by absolute path.** A registry match by file is not enough: `mayIntercept` must also let that path through, or the load goes to Node unmocked (#898).
+- **Jest decides an explicit mock by module id and a root `__mocks__` mock by request name.** A `jest.mock` or `jest.unmock` covers every file of the copy the test file resolves (its `import` and `require` targets). A root mock reaches every copy by name, but a relative request of its file stays real. The registry keeps root mocks apart (`byName`) so an explicit call never removes them from other copies (#899).
 - **Vitest fake timers leave `queueMicrotask` real; Jest's don't.** In Vitest 5.1, passing only `toNotFake` adds `nextTick` and `queueMicrotask` back to it, so faking `queueMicrotask` needs an explicit `toFake`. `vi.useFakeTimers(config)` also overrides a project's own `test.fakeTimers.toFake`.
 
 ## Not ours (recognise these and send them back)
