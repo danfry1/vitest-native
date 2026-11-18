@@ -59,7 +59,8 @@ export const registryCompilerDefaults = Object.freeze({
 
 const COMPILER_FILE = () => fileURLToPath(new URL("./registry-compiler.mjs", import.meta.url));
 
-// Test seam: `wait` (as registryBuild: 'wait'); `compilerDelayMs` holds the compiler.
+// Test seam: `wait` (waits even with registryBuild: 'background'); `compilerDelayMs` holds
+// the compiler.
 let seams = {};
 export function _setRegistryBuildOptions(options = {}) {
   seams = options;
@@ -128,11 +129,14 @@ function removeSignalHandlers() {
 }
 
 /**
- * Resolve a warm registry, or start compiling a cache miss without waiting for it.
+ * Resolve a warm registry, or start compiling a cache miss without waiting for it:
+ * `registryBuild: 'background'` only. The default, 'wait', builds a miss before the run
+ * (buildRegistryFor), as do the hot runtime and CI.
  *
  * Loading React Native file by file runs the same modules with the same semantics, so
- * a cold run can start at once and use the registry when it lands; the plugin still
- * waits under the hot runtime, on CI and with registryBuild: 'wait'. Rejected: a
+ * a cold run can start at once and use the registry when it lands. It is not the
+ * default, because files that start before the registry lands compile React Native
+ * inside their tests, each worker the same files at once (#873). Rejected: a
  * detached child (it outlives the run), building in teardown (slower than building
  * first), and building only for the next run (a large cold suite would load React
  * Native file by file throughout, which costs more than the build past roughly thirty

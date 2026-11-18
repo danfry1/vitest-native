@@ -3118,18 +3118,21 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // from Vitest's worker arguments). It is built there, before any worker starts,
         // and waited for.
         //
-        // Otherwise, on a cache miss the registry compiles in the background and this run
-        // loads React Native file by file, which is the same React Native; a test file
-        // that starts after the registry lands uses it (startRegistryBuild records why,
-        // and the options rejected). It waits instead under the hot runtime (a hot worker
-        // keeps React Native resident from its first file), on CI (only total time counts
-        // there, and per-file loading costs more than the build on a large suite), and
-        // with `registryBuild: 'wait'` (or its test seam, registryWaitForced).
+        // Otherwise a cache miss is built before the run (`registryBuild: 'wait'`, the
+        // default). Files that start before a background build lands load React Native
+        // file by file, and compile it inside their tests: every worker the same files at
+        // once, since none is in the transform cache yet. On a cold run that is several
+        // times the build's own work, counted against the test timeout (#873). With
+        // `registryBuild: 'background'` the registry compiles beside the run and later
+        // files use it (startRegistryBuild records why, and the options rejected); it
+        // still waits under the hot runtime (a hot worker keeps React Native resident from
+        // its first file), on CI (only total time counts there), and under the test seam
+        // registryWaitForced.
         if (fields.ownershipModel) {
           pendingRegistries.set(directoryKey(resolvedRoot), registryOptions);
         } else if (
           hotMemory !== undefined ||
-          options?.registryBuild === "wait" ||
+          options?.registryBuild !== "background" ||
           (await loadRegistryProcess().then((rp) => rp.registryWaitForced() || rp.isCI()))
         ) {
           useRegistries(await buildRegistryFor(registryOptions));
