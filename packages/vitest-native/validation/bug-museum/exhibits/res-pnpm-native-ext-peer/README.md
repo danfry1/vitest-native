@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** #349 (bisected to #336: expo-router native-stack threw requireNativeViewManager on a pnpm Expo 58 app); reshaped for reanimated's resolver once #419's library Jest resolvers are in the engine
-- **Fixed by:** the engine consulting a library's own Jest resolver only for that library's own files (97183394, in the Track B stack); #363 reverted the first form (#336)
+- **Fixed by:** the engine consults a library's own Jest resolver only for that library's files (97183394, in #444, closed unmerged); #363 reverted the first form (#336) (`origin/perf/library-registry`)
 - **Needs:** layout pnpm
 
 ## The bug

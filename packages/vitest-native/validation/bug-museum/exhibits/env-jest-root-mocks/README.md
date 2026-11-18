@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** obytes template (#562)
-- **Fixed by:** #566
+- **Fixed by:** #566 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

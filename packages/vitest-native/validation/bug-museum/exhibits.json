@@ -1635,7 +1635,7 @@
       "class": "transform/resolution",
       "title": "A library whose pnpm store directory names reanimated loses its .native files",
       "source": "#349 (bisected to #336: expo-router native-stack threw requireNativeViewManager on a pnpm Expo 58 app); reshaped to reanimated's resolver, the live risk once #419's library Jest resolvers are in the engine",
-      "fixedBy": "the engine consults a library's own Jest resolver only for that library's files (97183394, in #444); #363 reverted the first form (#336)",
+      "fixedBy": "the engine consults a library's own Jest resolver only for that library's files (97183394, in #444, closed unmerged); #363 reverted the first form (#336)",
       "fixRef": "origin/perf/library-registry",
       "requires": {
         "layout": "pnpm"

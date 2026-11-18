@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** react-native-paper trial (#573)
-- **Fixed by:** #582
+- **Fixed by:** #582 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** ownership ledger (#353), found by running the suites under ownership: 'error'
-- **Fixed by:** #353 (`origin/feat/fail-closed-ownership`)
+- **Fixed by:** #353 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug
