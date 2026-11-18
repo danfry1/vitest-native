@@ -400,23 +400,24 @@ function createState() {
     return files.includes(filename) ? files : [filename, ...files];
   }
 
-  /** The jest.mock registered for `file` (a real path), or for it in another copy. */
-  state.entryOf = (file) =>
-    state.entries.get(file) ?? (state.unmocked.has(file) ? undefined : copyEntryOf(file));
-
   /**
-   * The entry a request for `file` (a real path) gets, `request` as written: BYPASSED for
-   * a relative request of a file a root mock covers. Jest matches a root mock by name,
-   * and its module id for a request includes the root mock it names (jest-resolve
+   * The jest.mock a request for `file` (a real path) gets, `request` as written: the one
+   * registered for that file, or a root mock of it in another copy. A relative request of
+   * a file a root mock covers gets BYPASSED, the real module. Jest matches a root mock by
+   * name, and its module id for a request includes the root mock it names (jest-resolve
    * `getModuleID`), so a package's own relative import of the file is the real module,
    * past an explicit jest.mock of the spec too (#899). A request by name, or by the
    * absolute path the engine's own loads use (its ESM mock facade, React Native's
    * precompiled registry), is matched by file.
    */
-  state.entryFor = (file, request) =>
-    typeof request === "string" && request.startsWith(".") && copyEntryOf(file) !== undefined
-      ? BYPASSED
-      : state.entryOf(file);
+  state.entryOf = (file, request) => {
+    const relative = typeof request === "string" && request.startsWith(".");
+    const registered = state.entries.get(file);
+    if (registered !== undefined && !relative) return registered;
+    const byName = copyEntryOf(file);
+    if (relative && byName !== undefined) return BYPASSED;
+    return registered ?? (state.unmocked.has(file) ? undefined : byName);
+  };
 
   // The memoized mock: `requireMock` caches the factory's result in `_mockRegistry`.
   //
@@ -505,7 +506,7 @@ function createState() {
       state.bypass = null;
       return BYPASSED;
     }
-    return filename !== null ? state.entryFor(filename, request) : state.unresolved.get(request);
+    return filename !== null ? state.entryOf(filename, request) : state.unresolved.get(request);
   };
 
   // `asyncFactory` is jestMockTransform's async variant of `factory`, when it made one.
@@ -1479,7 +1480,7 @@ function installLoadHook(state) {
   Object.defineProperty(globalThis, "__vitest_native_node_mock_for", {
     configurable: true,
     get: () =>
-      state.entries.size === 0 && (!nodeMocks || (!vitestHasMocks() && pendingCount() === 0))
+      state.isEmpty() && (!nodeMocks || (!vitestHasMocks() && pendingCount() === 0))
         ? undefined
         : nodeMockForRegistry,
   });
@@ -1599,7 +1600,8 @@ function installLoadHook(state) {
   nodeMockForRegistry.mayReach = (request, parentFile) => {
     if (!nodeMocks) return false;
     if (request.startsWith("file:")) request = fileOfUrl(request);
-    if (state.entries.size > 0 || pendingCount() > 0) return true;
+    // A root mock a jest.unmock left by name only (byName) still reaches other copies.
+    if (!state.isEmpty() || pendingCount() > 0) return true;
     const index = vitestMocks();
     return index !== null && mayReachMock(index, request, { filename: parentFile });
   };
@@ -1610,8 +1612,8 @@ function installLoadHook(state) {
   nodeMockForRegistry.markFor = (file, request, parentFile) => {
     if (!nodeMocks) return null;
     const parent = { filename: parentFile };
-    const jestEntry = state.entryFor(canonical(file), request);
-    // A package's own relative import of a file a root mock covers is real (entryFor).
+    const jestEntry = state.entryOf(canonical(file), request);
+    // A package's own relative import of a file a root mock covers is real (entryOf).
     if (jestEntry === BYPASSED) return null;
     if (jestEntry !== undefined) return markOf(jestEntry);
     if (pendingCount() > 0 && assertNoPendingMockOf(state, file, request, parent)) return null;

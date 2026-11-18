@@ -146,6 +146,23 @@ const plainRoot = write("node_modules/plain-lib/cid.js");
 write("node_modules/consumer-e/package.json", '{ "name": "consumer-e" }');
 link("vendor/plain-lib", "node_modules/consumer-e/node_modules/plain-lib");
 
+// A pnpm layout with a dual subpath: consumer-f's dual-lib lives in the store, so its
+// `require` target is resolved from there (#899).
+manifest("node_modules/.pnpm/dual-lib@3.0.0/node_modules/dual-lib", "dual-lib", dual);
+const dualStoreImport = write("node_modules/.pnpm/dual-lib@3.0.0/node_modules/dual-lib/esm/cid.js");
+const dualStoreRequire = write(
+  "node_modules/.pnpm/dual-lib@3.0.0/node_modules/dual-lib/cjs/cid.cjs",
+);
+write(
+  "node_modules/.pnpm/consumer-f@1.0.0/node_modules/consumer-f/package.json",
+  '{ "name": "consumer-f" }',
+);
+const consumerF = write("node_modules/.pnpm/consumer-f@1.0.0/node_modules/consumer-f/index.js");
+link(
+  "node_modules/.pnpm/dual-lib@3.0.0/node_modules/dual-lib",
+  "node_modules/.pnpm/consumer-f@1.0.0/node_modules/dual-lib",
+);
+
 /** The mock a load is served, or undefined for the real module (a lookup's marker for it). */
 const served = (file: string, request: string) => {
   const entry = registry.lookup(file, request);
@@ -208,6 +225,14 @@ describe("jest.mock, jest.unmock and root mocks across copies, as Jest decides t
   it("serves a factory with no root mock to a relative request of its file", () => {
     const entry = factoryMock("other");
     expect(served(otherIndex, "./index.js")).toBe(entry);
+  });
+
+  it("reaches a dual copy in a pnpm store by its require target and its import target", () => {
+    const entry = rootMock("dual-lib/cid");
+    // Node's require from the consumer's real path resolves the store copy's CommonJS file.
+    expect(registry.resolveFrom("dual-lib/cid", consumerF)).toBe(dualStoreRequire);
+    expect(registry.lookup(dualStoreRequire, "dual-lib/cid")).toBe(entry);
+    expect(registry.lookup(dualStoreImport, "dual-lib/cid")).toBe(entry);
   });
 
   it("reaches a copy linked from outside node_modules, by its real path", () => {
