@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** #763 (react-native-calendars 1.1314.0)
-- **Fixed by:** open
+- **Fixed by:** #767 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

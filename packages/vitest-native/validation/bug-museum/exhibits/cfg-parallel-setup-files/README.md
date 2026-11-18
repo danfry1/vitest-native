@@ -2,7 +2,7 @@
 
 - **Class:** config
 - **Source:** a survey of public projects that use vitest-native
-- **Fixed by:** the setup-file order fix
+- **Fixed by:** #766 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

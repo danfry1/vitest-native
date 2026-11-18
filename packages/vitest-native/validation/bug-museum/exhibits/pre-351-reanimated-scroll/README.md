@@ -2,7 +2,7 @@
 
 - **Class:** presets
 - **Source:** issue #351 (a user's migration: ~50 s under Jest -> ~8 s)
-- **Fixed by:** local branch fix/issue-351-own-library-mocks (no PR yet; main has the hand-written preset again since #363 reverted #336) (`fix/issue-351-own-library-mocks`)
+- **Fixed by:** #500 (merged; #499, reanimated's scroll handlers corrected)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug
@@ -15,4 +15,4 @@ A scroll event fired at an Animated.ScrollView reaches the handler's onScroll wi
 
 ## Notes
 
-The fix branch is local (not pushed): it is stacked on feat/library-jest-scope (GH and flash-list run as themselves) and #349. The jest.mock workarounds posted in #351 are not used here: the exhibit asserts the libraries work as installed.
+The fix landed in #500, which runs Gesture Handler and flash-list as themselves. The jest.mock workarounds posted in #351 are not used here: the exhibit asserts the libraries work as installed.

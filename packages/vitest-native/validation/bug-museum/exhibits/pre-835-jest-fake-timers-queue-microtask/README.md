@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** #835
-- **Fixed by:** open
+- **Fixed by:** #869 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

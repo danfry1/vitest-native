@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** ownership track A3 mechanism spike and its review (2026-11-04)
-- **Fixed by:** #447 (draft, `fix/hot-rule7-esm-residency`)
+- **Fixed by:** #447 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

@@ -2,7 +2,7 @@
 
 - **Class:** presets
 - **Source:** #712 (found by the mock conformance probe)
-- **Fixed by:** open
+- **Fixed by:** #829 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

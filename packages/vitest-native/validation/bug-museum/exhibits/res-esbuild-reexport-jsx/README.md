@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** a survey of public projects that use vitest-native (a tsup-built primitives library)
-- **Fixed by:** the compiled re-export names fix
+- **Fixed by:** #769 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

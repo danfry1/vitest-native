@@ -2,7 +2,7 @@
 
 - **Class:** per-file-state
 - **Source:** #670 (Rocket.Chat, cold hot runs only)
-- **Fixed by:** #670's fix: a require from a package the hot worker keeps resident is not served a file's mock
+- **Fixed by:** #673 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

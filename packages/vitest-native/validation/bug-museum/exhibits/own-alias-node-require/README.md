@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** #344 (`monorepo-source-ownership.test.ts`, the required case)
-- **Fixed by:** #454 (`experimental.ownershipModel: 'resolver'`; open)
+- **Fixed by:** open (#454, experimental.ownershipModel: 'resolver', closed unmerged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

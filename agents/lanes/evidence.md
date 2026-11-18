@@ -30,6 +30,7 @@ The proof apparatus: the bug museum, cross-check, consumer tests, the ecosystem 
 - **When two runners share a copy, run Jest before Vitest.** Vitest rewrites `.snap` headers.
 - **`run.mjs` runs only exhibits listed in `exhibits.json`.** Add a new exhibit's entry first. To merge the file, insert the entry's text before the closing `]`, so no other line changes.
 - **A landed exhibit names `preFixRef: "<squash>^"`, not a branch commit.** A squash merge leaves branch commits off `main`, so a `fixRef` to one stops resolving.
+- **A column run proves only bugs that occur on the machine's Node.** `run-columns.mjs` runs every column on one Node. An exhibit whose bug needs another major, such as `pfs-hot-compiled-mjs-require` on Node 22, passes its `preFixRef` on Node 24; give it a `fixVerification` naming the Node it needs.
 - **A zero-load baseline is invalid.** Recorders must refuse it.
 - **Vitest writes `.vitest-cache` into `node_modules`.** In a container, mount a fixture's `node_modules` read-only elsewhere and link its entries into a writable `node_modules`.
 - **Under `CI=1`, a missing snapshot fails instead of being written.** A container that sets it writes new snapshots only with an explicit `--update=all`.

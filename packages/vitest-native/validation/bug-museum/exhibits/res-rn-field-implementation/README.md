@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** ADR-0005 decision 7 (the `react-native` field classification): a field can name a native build where `main` names a web build
-- **Fixed by:** #370 (draft; `experimental.ownershipModel: 'resolver'`, ownership track A1)
+- **Fixed by:** #500 (merged; #484, a package with a react-native field is one module)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

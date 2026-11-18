@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** Rocket.Chat trial (#579)
-- **Fixed by:** #586
+- **Fixed by:** #586 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

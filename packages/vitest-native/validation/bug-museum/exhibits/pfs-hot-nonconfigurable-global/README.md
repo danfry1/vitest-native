@@ -2,7 +2,7 @@
 
 - **Class:** per-file-state
 - **Source:** #773 (an app's suite reaching the openai SDK, 2026-11-11)
-- **Fixed by:** a property no reset can remove joins the worker's baseline
+- **Fixed by:** #774 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

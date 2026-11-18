@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** Bluesky trial (#571)
-- **Fixed by:** #580
+- **Fixed by:** #580 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug
