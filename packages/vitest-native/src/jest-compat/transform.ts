@@ -37,14 +37,70 @@ const JEST_SOURCES = new Set(["@jest/globals", "vitest-native/jest-compat/jest-g
 // a function". The error is VitestNativeError by shape (name and code), which is how
 // errors.mjs identifies one: generated code cannot import that module.
 const SETUP = "__vn_jest_compat__";
-/** Prepended to a file whose mock factories use the setup. Exported for tests. */
-export const SETUP_ACCESSOR =
-  `const ${SETUP} = vi.hoisted(() => (name) => {\n` +
-  `  if (typeof globalThis[name] === "function") return globalThis[name];\n` +
-  `  throw Object.assign(new Error("[vitest-native] jest.mock() factories need the jest-compat setup, which this test run does not load. " +\n` +
-  `    "Add jestCompatSetup from 'vitest-native/jest-compat' to test.setupFiles, ahead of any setup file that calls jest.mock()."),\n` +
-  `    { name: "VitestNativeError", code: "JEST_COMPAT_SETUP_MISSING" });\n` +
-  `});\n`;
+/** Prepended to a file whose mock factories use the setup, through `vi` named `vi`. */
+function setupAccessor(vi: VitestName): string {
+  return (
+    `const ${SETUP} = ${vi}.hoisted(() => (name) => {\n` +
+    `  if (typeof globalThis[name] === "function") return globalThis[name];\n` +
+    `  throw Object.assign(new Error("[vitest-native] jest.mock() factories need the jest-compat setup, which this test run does not load. " +\n` +
+    `    "Add jestCompatSetup from 'vitest-native/jest-compat' to test.setupFiles, ahead of any setup file that calls jest.mock()."),\n` +
+    `    { name: "VitestNativeError", code: "JEST_COMPAT_SETUP_MISSING" });\n` +
+    `});\n`
+  );
+}
+/** The accessor of a file that reaches Vitest as `vi`. Exported for tests. */
+export const SETUP_ACCESSOR = setupAccessor("vi");
+
+// The names Vitest's hoister recognises for its `vi` object (@vitest/mocker hoistMocks
+// `utilsObjectNames`); `vitest` is the same object, exported under a second name.
+type VitestName = "vi" | "vitest";
+
+/**
+ * The name the rewritten calls reach Vitest's `vi` by, and whether the file must import it.
+ *
+ * Vitest's hoister adds `import { vi } from "vitest"` itself only to a file that imports
+ * nothing from 'vitest'. A file that imports `test` and `expect` from there, under the
+ * default `globals: false`, otherwise reaches no `vi` at all (#818). So the transform
+ * binds the name itself, unless the file already imports it from 'vitest'. A file that
+ * declares `vi` as something else, at any depth, gets `vitest` instead, so neither the
+ * file's binding nor the transform's changes meaning. A file that takes both names cannot
+ * be rewritten, and fails, naming them.
+ */
+function vitestName(ast: any, id: string): { name: VitestName; add: boolean } {
+  const declared = { vi: [] as boolean[], vitest: [] as boolean[] };
+  const note = (names: string[], fromVitest = false) => {
+    for (const name of names) {
+      if (name === "vi" || name === "vitest") declared[name].push(fromVitest);
+    }
+  };
+  walk(ast, (node) => {
+    if (node.type === "ImportDeclaration") {
+      for (const spec of node.specifiers) {
+        const imported = spec.type === "ImportSpecifier" ? propertyName(spec.imported) : null;
+        note(
+          [spec.local.name],
+          node.source.value === "vitest" && (imported === "vi" || imported === "vitest"),
+        );
+      }
+    } else if (node.type === "VariableDeclarator") note(patternNames(node.id));
+    else if (FUNCTION.has(node.type)) {
+      note(node.params.flatMap((param: any) => patternNames(param)));
+      if (node.id) note([node.id.name]);
+    } else if (node.type === "ClassDeclaration" || node.type === "ClassExpression") {
+      if (node.id) note([node.id.name]);
+    } else if (node.type === "CatchClause") note(patternNames(node.param));
+  });
+  for (const name of ["vi", "vitest"] as const) {
+    if (declared[name].length === 0) return { name, add: true };
+    if (declared[name].every(Boolean)) return { name, add: false };
+  }
+  throw new VitestNativeError(
+    "JEST_MOCK_VI_UNAVAILABLE",
+    `[vitest-native] jestMockTransform rewrites jest.mock() in ${id.split("?")[0]} to a call on ` +
+      "Vitest's `vi` object, which Vitest hoists only under the name `vi` or `vitest`. This file " +
+      "declares both names as something else. Rename one of them, or import it from 'vitest'.",
+  );
+}
 
 /**
  * Visit every node in an ESTree AST (depth-first), calling `fn` on each. Returning
@@ -540,7 +596,7 @@ function isViteOwnedSource(
  *    `jest.requireActual` loads, and `jest.requireMock` see the same mock the imports
  *    do, as under Jest's single per-file module registry (see node-registry.mjs).
  *
- * Opt-in: add after `reactNative()`; pair with `jestCompatSetup` + `globals: true`.
+ * Opt-in: add after `reactNative()`; pair with `jestCompatSetup`.
  */
 export function jestMockTransform(options: JestMockTransformOptions = {}): Plugin {
   let project: Project = {
@@ -669,7 +725,10 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
       };
       const finish = (adapted: Adapted | null) => {
         if (!adapted?.changed) return null;
-        if (adapted.usesSetup) adapted.s.prepend(SETUP_ACCESSOR);
+        if (adapted.usesSetup) adapted.s.prepend(setupAccessor(adapted.vi.name));
+        // At the end, after every mapped line: an import binds before the module runs,
+        // wherever it is written.
+        if (adapted.vi.add) adapted.s.append(`\nimport { ${adapted.vi.name} } from "vitest";\n`);
         return { code: adapted.s.toString(), map: adapted.s.generateMap({ hires: true }) };
       };
       // Synchronous unless a factory's jest.requireActual has to be resolved.
@@ -860,6 +919,7 @@ interface Adapted {
   s: MagicString;
   changed: boolean;
   usesSetup: boolean;
+  vi: { name: VitestName; add: boolean };
 }
 
 function adapt(
@@ -889,7 +949,7 @@ function adapt(
     if (calls.length > 0) candidates.set(factory, calls);
   });
   if (candidates.size === 0) {
-    return rewrite(code, ast, jest, new Map(), manualMockFor, automockable);
+    return rewrite(code, ast, jest, id, new Map(), manualMockFor, automockable);
   }
 
   const specs = new Set([...candidates.values()].flat().map((call) => call.spec));
@@ -908,7 +968,7 @@ function adapt(
       const moved = calls.filter((call) => owned.has(call.spec));
       if (moved.length > 0) toAsync.set(factory, moved);
     }
-    return rewrite(code, ast, jest, toAsync, manualMockFor, automockable);
+    return rewrite(code, ast, jest, id, toAsync, manualMockFor, automockable);
   });
 }
 
@@ -935,12 +995,16 @@ function rewrite(
   code: string,
   ast: any,
   jest: JestBindings,
+  id: string,
   toAsync: Map<any, { node: any; spec: string; kind: LoadKind }[]>,
   manualMockFor: (spec: string) => string | null = () => null,
   automockable: (spec: string) => boolean = () => false,
 ): Adapted {
   const s = new MagicString(code);
   let changed = false;
+  // Decided at the first call rewritten: a file with none keeps whatever names it has.
+  let chosen: Adapted["vi"] | undefined;
+  const vi = () => (chosen ??= vitestName(ast, id)).name;
   // Statements at the top level, where a registration can be hoisted beside them.
   const topLevel = new Map<any, any>();
   for (const statement of ast.body) {
@@ -962,7 +1026,7 @@ function rewrite(
       text +=
         kind === "require"
           ? `(await ${SETUP}("__vnFactoryRequire")(import.meta.url, ${spec}, () => import(${spec})))`
-          : `(${SETUP}("__vnActualExports")(await vi.importActual(${spec})))`;
+          : `(${SETUP}("__vnActualExports")(await ${vi()}.importActual(${spec})))`;
       at = call.end;
     }
     text += code.slice(at, factory.end);
@@ -980,7 +1044,7 @@ function rewrite(
     if (!prop || prop.type !== "Identifier" || !HOISTABLE.has(prop.name)) return;
 
     // jest.<method> → vi.<method>, whatever the file calls the jest object.
-    s.overwrite(obj.start, obj.end, "vi");
+    s.overwrite(obj.start, obj.end, vi());
     changed = true;
     // A jest.mock / jest.unmock that is not a top-level statement (inside a helper the
     // test calls, say) applies when it runs, under Jest as for vi.doMock: Vitest
@@ -1020,9 +1084,9 @@ function rewrite(
       // The name as written is a string literal; the generated code carries its value.
       const name = jsString(literal);
       const original = manualMockFactory(manualMock);
-      const viaVite = `async () => (${SETUP}("__vnActualExports")(await vi.importActual(${jsString(viteId(manualMock))})))`;
+      const viaVite = `async () => (${SETUP}("__vnActualExports")(await ${vi()}.importActual(${jsString(viteId(manualMock))})))`;
       const register = `globalThis.__vnJestMock?.(import.meta.url, ${name}, ${original}, ${viaVite})`;
-      s.prependLeft(mockStatement.start, `vi.hoisted(() => ${register});\n`);
+      s.prependLeft(mockStatement.start, `${vi()}.hoisted(() => ${register});\n`);
       s.appendLeft(specNode.end, `, () => ${SETUP}("__vnJestMocked")(import.meta.url, ${name})`);
       return;
     }
@@ -1040,11 +1104,11 @@ function rewrite(
     ) {
       usesSetup = true;
       const name = jsString(literal);
-      const factory = `function __vnAutomock() { return vi.mockObject(jest.requireActual(${name})); }`;
+      const factory = `function __vnAutomock() { return ${vi()}.mockObject(jest.requireActual(${name})); }`;
       const register = `globalThis.__vnJestMock?.(import.meta.url, ${name}, ${factory})`;
       const lookup = `() => ${SETUP}("__vnJestMocked")(import.meta.url, ${name})`;
       if (prop.name === "mock" && mockStatement) {
-        s.prependLeft(mockStatement.start, `vi.hoisted(() => ${register});\n`);
+        s.prependLeft(mockStatement.start, `${vi()}.hoisted(() => ${register});\n`);
         s.appendLeft(specNode.end, `, ${lookup}`);
       } else {
         s.appendLeft(specNode.end, `, (${register}, ${lookup})`);
@@ -1070,7 +1134,7 @@ function rewrite(
             // when the second argument is an inline function (@vitest/mocker
             // hoistMocks: `hasFactory`), so the registration goes in a vi.hoisted
             // beside it, which Vitest hoists in source order.
-            s.prependLeft(statement.start, `vi.hoisted(() => ${register});\n`);
+            s.prependLeft(statement.start, `${vi()}.hoisted(() => ${register});\n`);
             s.overwrite(factory.start, factory.end, lookup);
           } else {
             s.overwrite(factory.start, factory.end, `(${register}, ${lookup})`);
@@ -1095,5 +1159,5 @@ function rewrite(
     }
   });
 
-  return { s, changed, usesSetup };
+  return { s, changed, usesSetup, vi: chosen ?? { name: "vi", add: false } };
 }

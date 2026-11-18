@@ -33,11 +33,16 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
     const t = plugin.transform as (this: any, c: string, i: string) => unknown;
     return t.call({ parse, resolve }, code, id);
   };
-  /** The output after the setup accessor, which a file using a factory starts with. */
+  /**
+   * The output between the setup accessor, which a file using a factory starts with, and
+   * the import of `vi` a file that does not import it ends with (#818).
+   */
   const body = (code: string) => {
     expect(code.startsWith(SETUP_ACCESSOR)).toBe(true);
-    return code.slice(SETUP_ACCESSOR.length);
+    expect(code.endsWith(IMPORT_VI)).toBe(true);
+    return code.slice(SETUP_ACCESSOR.length, -IMPORT_VI.length);
   };
+  const IMPORT_VI = '\nimport { vi } from "vitest";\n';
   const hoistRe = /\b(?:vi|vitest)\s*\.\s*(?:mock|unmock|hoisted|doMock|doUnmock)\s*\(/;
 
   it("turns a jest.mock / jest.unmock inside a function into vi.doMock / vi.doUnmock (#573)", () => {
@@ -528,7 +533,7 @@ describe("jest-compat: jestMockTransform (hoist + CJS interop)", () => {
 
   it("leaves a factory-less mock as it is", () => {
     const out = run("jest.mock('m')");
-    expect(out!.code).toBe("vi.mock('m')");
+    expect(out!.code).toBe(`vi.mock('m')${IMPORT_VI}`);
   });
 
   it("leaves non-hoistable jest.* calls untouched", () => {

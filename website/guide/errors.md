@@ -151,6 +151,10 @@ A test file uses `jest.mock()` factories, but the jest-compat setup is not loade
 
 `jestMockTransform()` met a `jest.mock`, `unmock`, `doMock` or `doUnmock` call through a further top-level name for the jest object, such as `const j = jest; j.mock(…)` or `const { mock } = jest; mock(…)`. It would not be hoisted or registered, so the test file fails instead of running without the mock. The message names the binding and both lines. Call the method on the jest object itself: the global `jest`, or `jest` imported from `@jest/globals` under any name. Jest does not hoist such a call either.
 
+### `JEST_MOCK_VI_UNAVAILABLE` {#JEST_MOCK_VI_UNAVAILABLE}
+
+`jestMockTransform()` rewrites `jest.mock()` and its siblings to calls on Vitest's `vi` object, which Vitest hoists only under the name `vi` or `vitest`. The test file declares both names as something else, so neither can reach it. Rename one of them, or import it from `vitest`.
+
 ### `JEST_MOCK_FACTORY_CYCLE` {#JEST_MOCK_FACTORY_CYCLE}
 
 A `jest.mock` factory requires the module it mocks, directly or through something it loads. Use `jest.requireActual()` inside the factory for the real module, or break the cycle. It also fires when something requires the mocked module while its factory is still loading the real module, which `require()` cannot wait for: break the cycle, or import the module instead of requiring it.

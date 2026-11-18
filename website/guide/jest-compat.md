@@ -115,6 +115,7 @@ Remaining differences:
 - Two errors are compared as Vitest compares them, except that an own property that is a function on both is left out, so two identical zod 3 `ZodError`s, whose methods are per-instance closures, are equal. `expect` is shared, so this applies to Vitest-style assertions anywhere in the project too.
 - Errors that differ in a data property, their `name` or their `cause` still differ under `toEqual`, as in Vitest. Jest compares two errors by message alone there, so it passes them.
 - Without `jestCompatSetup` in `test.setupFiles`, a `jest.mock` factory fails with an error naming it (`JEST_COMPAT_SETUP_MISSING`). It must come before any setup file that calls `jest.mock`.
+- `jest.mock` does not need `globals: true`: `jestMockTransform()` imports `vi` from `vitest` in each file it rewrites, unless the file already imports it. A file that declares its own `vi` gets Vitest's other name for it, `vitest`. A file that declares both names as something else fails with [`JEST_MOCK_VI_UNAVAILABLE`](/guide/errors#JEST_MOCK_VI_UNAVAILABLE).
 
 ## What it does *not* do
 
