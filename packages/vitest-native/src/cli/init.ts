@@ -7,6 +7,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { usesVitePlus } from "../host.js";
 import { docsUrl } from "../docs-url.mjs";
+import { REACT_DEDUPE } from "../native/react-dedupe.mjs";
+
+/** The engine's own dedupe list, as config source. */
+const DEDUPE_SOURCE = REACT_DEDUPE.map((name) => `'${name}'`).join(", ");
 
 /**
  * Printed after `init` and `migrate`: the hot runtime is off by default, so a user
@@ -59,7 +63,7 @@ export default defineConfig({
   // Vitest's own mock hoister. Its position relative to reactNative() does not matter.
   plugins: [reactNative(), jestMockTransform()],
   resolve: {
-    dedupe: ['react', 'react-test-renderer', 'react-is'],
+    dedupe: [${DEDUPE_SOURCE}],
     alias: { ...jestCompatAliases() },
   },
   test: {

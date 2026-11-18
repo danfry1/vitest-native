@@ -1,0 +1,17 @@
+{
+  "name": "museum-badge",
+  "version": "1.0.0",
+  "main": "build/index.js",
+  "module": "build/index.mjs",
+  "exports": {
+    ".": {
+      "import": "./build/index.mjs",
+      "require": "./build/index.js",
+      "default": "./build/index.js"
+    }
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  }
+}

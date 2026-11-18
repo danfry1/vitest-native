@@ -98,14 +98,20 @@ const MOCK_NATIVE_COMPONENT = `
   ]);
   const mockNativeComponent = (viewName) => {
     const hostName = __TEXT_INPUT_VIEWS.has(viewName) ? "TextInput" : viewName;
-    // The native methods a ref has, on a plain object the class delegates to: a spy that
-    // replaces one there reaches every ref of this view. jest-compat gives it to View,
-    // Text and ScrollView as their prototype, as React Native's Jest preset has one. It
-    // is not the class's own prototype, which would make React construct those function
-    // components as classes.
-    const nativeMethods = {
+    // The native methods a ref has, on an object between the class's prototype and
+    // React.Component's, so a ref inherits them and anything else put there: jest-compat
+    // gives it to View as its prototype, as React Native's Jest preset has one, and suites
+    // spy on methods there or add their own (react-native-paper's Menu tests add
+    // querySelector). A spy that replaces one reaches every ref of this view. The object
+    // shadows isReactComponent with undefined, so a component given it as its prototype is
+    // not taken for a class (by React, or by a library's createAnimatedComponent); the
+    // class keeps its own.
+    const nativeMethods = Object.create(React.Component.prototype, {
+      isReactComponent: { value: undefined, writable: true, configurable: true },
+    });
+    Object.assign(nativeMethods, {
       blur() {}, focus() {}, measure() {}, measureInWindow() {}, measureLayout() {}, setNativeProps() {},
-    };
+    });
     const C = class extends React.Component {
       constructor(p) { super(p); this._nativeTag = __tag++; }
       render() {
@@ -116,13 +122,11 @@ const MOCK_NATIVE_COMPONENT = `
         }
         return React.createElement(hostName, props, props.children);
       }
-      blur(...a) { return nativeMethods.blur.apply(this, a); }
-      focus(...a) { return nativeMethods.focus.apply(this, a); }
-      measure(...a) { return nativeMethods.measure.apply(this, a); }
-      measureInWindow(...a) { return nativeMethods.measureInWindow.apply(this, a); }
-      measureLayout(...a) { return nativeMethods.measureLayout.apply(this, a); }
-      setNativeProps(...a) { return nativeMethods.setNativeProps.apply(this, a); }
     };
+    Object.setPrototypeOf(C.prototype, nativeMethods);
+    Object.defineProperty(C.prototype, "isReactComponent", {
+      value: React.Component.prototype.isReactComponent, writable: true, configurable: true,
+    });
     C.displayName = viewName === "RCTView" ? "View" : hostName;
     C.nativeMethods = nativeMethods;
     return C;
@@ -447,11 +451,42 @@ const EXPO_DEV_STUBS = {
 };
 const EXPO_SUFFIXES = Object.keys(EXPO_DEV_STUBS);
 
+/**
+ * expo-modules-core's `createSnapshotFriendlyRef` (src/Refs.ts) is React's `createRef`.
+ * Expo modules pass refs made with it to their native views as props: expo-image's
+ * `nativeViewRef` and `containerViewRef`. A snapshot then printed the host instance and
+ * React's fiber tree behind them, thousands of lines with render timings that differ on
+ * every run. jest-expo serves a ref that prints as "[React.ref]" (src/preset/setup.js),
+ * and this is that ref: `{ current: null }` with a non-enumerable `toJSON`.
+ */
+const SNAPSHOT_FRIENDLY_REF = `
+  exports.createSnapshotFriendlyRef = function createSnapshotFriendlyRef() {
+    const ref = { current: null };
+    Object.defineProperty(ref, "toJSON", { value: () => "[React.ref]" });
+    return ref;
+  };
+`;
+const EXPO_MODULES_CORE_STUBS = {
+  "build/Refs.js": SNAPSHOT_FRIENDLY_REF,
+  "src/Refs.ts": SNAPSHOT_FRIENDLY_REF,
+};
+const EXPO_MODULES_CORE_SUFFIXES = Object.keys(EXPO_MODULES_CORE_STUBS);
+
+/**
+ * The stand-ins for files outside react-native, by package directory. The registry keys
+ * on them, so a changed stand-in is not served from a registry built with the old one.
+ */
+export const PACKAGE_STUBS = {
+  expo: EXPO_DEV_STUBS,
+  "expo-modules-core": EXPO_MODULES_CORE_STUBS,
+};
+
 /** Normalised-path test: is this a native-boundary module? */
 export function isBoundary(normPath) {
   return (
     SUFFIXES.some((s) => normPath.endsWith("/react-native/" + s)) ||
-    EXPO_SUFFIXES.some((s) => normPath.endsWith("/expo/" + s))
+    EXPO_SUFFIXES.some((s) => normPath.endsWith("/expo/" + s)) ||
+    EXPO_MODULES_CORE_SUFFIXES.some((s) => normPath.endsWith("/expo-modules-core/" + s))
   );
 }
 
@@ -465,6 +500,9 @@ export function boundarySourceFor(normPath, platform = "ios", version = "0.0.0")
   }
   for (const s of EXPO_SUFFIXES) {
     if (normPath.endsWith("/expo/" + s)) return EXPO_DEV_STUBS[s];
+  }
+  for (const s of EXPO_MODULES_CORE_SUFFIXES) {
+    if (normPath.endsWith("/expo-modules-core/" + s)) return EXPO_MODULES_CORE_STUBS[s];
   }
   return null;
 }

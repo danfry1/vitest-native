@@ -40,6 +40,7 @@ export default defineConfig({
 | `new` on a `jest.fn(() => ({ ... }))` | returns the implementation's object, as in Jest — Vitest's own `vi.fn` requires a `function` or `class` implementation for `new`, and `jest.fn` does not |
 | `import { jest } from '@jest/globals'` or `require('@jest/globals')` | resolves to the `vi`-backed `jest` (aliased), the same module either way, also when the real `@jest/globals` is installed |
 | top-level `jest.mock('m', factory)` | hoisted + applied, with Jest's factory interop |
+| `import { jest as mockJest } from '@jest/globals'`, or `import * as g` and `g.jest` | the same `jest`: `mockJest.mock(…)` is hoisted and applied like `jest.mock(…)`. A call through a further name (`const j = mockJest; j.mock(…)`) fails with [`JEST_BINDING_NOT_FOLLOWED`](/guide/errors#JEST_BINDING_NOT_FOLLOWED) |
 | `__mocks__/<package>` beside `node_modules` | applied with no `jest.mock()` call — see [Manual mocks of `node_modules` packages](#manual-mocks-of-node-modules-packages) |
 | `jest.replaceProperty(Platform, 'OS', 'android')` | replaced in place and restored by the handle's `restore()`, `jest.restoreAllMocks()`, the `restoreMocks` setting, or the end of the test file, with Jest's errors. A bare `vi.restoreAllMocks()` leaves it: that is Vitest's own |
 | `jest.spyOn(View.prototype, 'measure')` | reaches every `View` ref, as with the Jest preset's `View` stand-in: under the native engine, jest-compat gives `View` a prototype holding the native methods its refs call. `Text` and `ScrollView` keep React Native's own shape, without one |
@@ -66,9 +67,11 @@ The `__mocks__` folders are read when the run starts. After adding, renaming or 
 
 `jest.useFakeTimers(options)` translates Jest's options into Vitest's the way Jest translates them for `@sinonjs/fake-timers`, which both runners use: `advanceTimers` (`true` or a step in ms), `doNotFake`, `now` and `timerLimit` (default 100,000 as in Jest, where Vitest's is 10,000). It returns the `jest` object, as Jest does, so `jest.useFakeTimers().setSystemTime(date)` chains. Calling `vi.useFakeTimers` directly still takes Vitest's options.
 
+`queueMicrotask` is faked, as in Jest, so a callback queued with it (react-native-worklets' Jest mock reports `runOnJS` and `scheduleOnRN` calls this way) runs when the timers run. `jest.useFakeTimers({ doNotFake: ['queueMicrotask'] })` keeps it real. A project whose `test.fakeTimers` sets `toFake` or `toNotFake` keeps its own list.
+
 Two differences remain:
 
-- `process.nextTick` and `queueMicrotask` stay real. Jest fakes them by default; Vitest does not, because Node and Vitest's runner depend on them. Name them in Vitest's `toFake` if a test needs them faked.
+- `process.nextTick` stays real. Jest fakes it by default; Vitest does not, because Node and Vitest's runner depend on it, and refuses to under the forks pool.
 - `legacyFakeTimers: true` runs modern fake timers over the timer functions and leaves `Date` real, as legacy timers do. The timer functions are not mock functions, so assertions such as `expect(setTimeout).toHaveBeenCalled()` do not work; the first such call logs a warning.
 
 Options set in Jest's `fakeTimers` config are not read. Pass them to `jest.useFakeTimers(...)` in the tests, where a `beforeEach(() => jest.useFakeTimers({ ... }))` in a setup file covers every test. Or set them in Vitest's names under `test.fakeTimers` (`doNotFake` as `toFake`, `advanceTimers` as `shouldAdvanceTime` and `advanceTimeDelta`), which applies to every call except for `loopLimit` and `now`: `jest.useFakeTimers` always passes Jest's `timerLimit`, and starts the clock at the real time unless given `now`.

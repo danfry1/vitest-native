@@ -98,6 +98,74 @@ const COMPONENT_TYPES = new Set(["ReactElement", "ReactNode", "Element", "JSX.El
 const isComponent = (name: string, declared: ExportContract) =>
   /^[A-Z]/.test(name) || (!!declared.returns?.type && COMPONENT_TYPES.has(declared.returns.type));
 
+/**
+ * What differs between `module[name]` and its declared contract, one line each. What it
+ * cannot check goes to `report.unchecked`, and members beyond the declared ones to
+ * `report.extra`. A function that throws when called differs: its return goes unchecked.
+ */
+export async function checkExport(
+  module: Record<string, unknown>,
+  name: string,
+  declared: ExportContract,
+  options: ProbeOptions,
+  report: { unchecked: string[]; extra: string[] },
+): Promise<string[]> {
+  const found: string[] = [];
+  if (!(name in module)) {
+    found.push(`${name}: missing, declared ${describeShape(declared)}`);
+  } else {
+    const value = module[name];
+    if (declared.kind === "class") {
+      // A class component may be served as an exotic object (forwardRef, memo), which
+      // renders the same; it is checked as a component, not constructed.
+      const component =
+        typeof value === "object" && value !== null && "$$typeof" in (value as object);
+      if (component) {
+        report.unchecked.push(`${name} (a component, served as an exotic object)`);
+      } else if (typeof value !== "function") {
+        found.push(`${name}: is ${typeof value}, declared class`);
+      }
+    } else if (declared.kind === "function") {
+      if (typeof value === "string" && isComponent(name, declared)) {
+        // A host component's name, as a library's own Jest mock often serves a view
+        // (`KeyboardProvider: "KeyboardProvider"`): a valid element type that renders.
+        report.unchecked.push(`${name} (a host component, "${value}")`);
+      } else if (typeof value !== "function") {
+        // A component may be an exotic object (forwardRef, memo): checked, not called.
+        found.push(...differences(value, { kind: "function" }, name));
+        if (found.length === 0) report.unchecked.push(`${name} (a component)`);
+      } else if (options.noCall?.[name] !== undefined) {
+        report.unchecked.push(`${name} (${options.noCall[name]})`);
+      } else if (isComponent(name, declared)) {
+        report.unchecked.push(`${name} (a component)`);
+      } else {
+        const args = options.args?.[name]?.() ?? argumentsFor(declared);
+        const call = () => (value as (...a: unknown[]) => unknown)(...args);
+        try {
+          const given = /^use[A-Z]/.test(name) ? await inRender(call, options.wrapper) : call();
+          if (declared.returns) {
+            // The overload whose return the result matches, else the last one's differences.
+            const shapes = [declared.returns, ...(declared.alsoReturns ?? [])];
+            const matching = shapes.find((shape) => differences(given, shape, "").length === 0);
+            const against = matching ?? declared.returns;
+            found.push(...differences(given, against, `${name}()`));
+            report.extra.push(...extras(given, against, `${name}()`));
+          }
+        } catch (error) {
+          // A throw leaves the return unchecked, so it fails like any other difference:
+          // a function that rejects the arguments made up for it needs working ones
+          // (`args`) or a `noCall` entry saying why.
+          found.push(`${name}(): threw: ${String((error as Error)?.message ?? error)}`);
+        }
+      }
+    } else {
+      found.push(...differences(value, declared, name));
+      report.extra.push(...extras(value, declared, name));
+    }
+  }
+  return found;
+}
+
 /** Registers one test per declared export of `contract`, against `module`. */
 export function probeModule(
   module: Record<string, unknown>,
@@ -119,58 +187,7 @@ export function probeModule(
 
   for (const [name, declared] of Object.entries(contract.exports)) {
     it(`${contract.package} ${contract.version}: ${name}`, async () => {
-      const found: string[] = [];
-      if (!(name in module)) {
-        found.push(`${name}: missing, declared ${describeShape(declared)}`);
-      } else {
-        const value = module[name];
-        if (declared.kind === "class") {
-          // A class component may be served as an exotic object (forwardRef, memo), which
-          // renders the same; it is checked as a component, not constructed.
-          const component =
-            typeof value === "object" && value !== null && "$$typeof" in (value as object);
-          if (component) {
-            report.unchecked.push(`${name} (a component, served as an exotic object)`);
-          } else if (typeof value !== "function") {
-            found.push(`${name}: is ${typeof value}, declared class`);
-          }
-        } else if (declared.kind === "function") {
-          if (typeof value === "string" && isComponent(name, declared)) {
-            // A host component's name, as a library's own Jest mock often serves a view
-            // (`KeyboardProvider: "KeyboardProvider"`): a valid element type that renders.
-            report.unchecked.push(`${name} (a host component, "${value}")`);
-          } else if (typeof value !== "function") {
-            // A component may be an exotic object (forwardRef, memo): checked, not called.
-            found.push(...differences(value, { kind: "function" }, name));
-            if (found.length === 0) report.unchecked.push(`${name} (a component)`);
-          } else if (options.noCall?.[name] !== undefined) {
-            report.unchecked.push(`${name} (${options.noCall[name]})`);
-          } else if (isComponent(name, declared)) {
-            report.unchecked.push(`${name} (a component)`);
-          } else {
-            const args = options.args?.[name]?.() ?? argumentsFor(declared);
-            const call = () => (value as (...a: unknown[]) => unknown)(...args);
-            try {
-              const given = /^use[A-Z]/.test(name) ? await inRender(call, options.wrapper) : call();
-              if (declared.returns) {
-                // The overload whose return the result matches, else the last one's differences.
-                const shapes = [declared.returns, ...(declared.alsoReturns ?? [])];
-                const matching = shapes.find((shape) => differences(given, shape, "").length === 0);
-                const against = matching ?? declared.returns;
-                found.push(...differences(given, against, `${name}()`));
-                report.extra.push(...extras(given, against, `${name}()`));
-              }
-            } catch (error) {
-              report.unchecked.push(
-                `${name} (threw: ${String((error as Error)?.message ?? error).slice(0, 80)})`,
-              );
-            }
-          }
-        } else {
-          found.push(...differences(value, declared, name));
-          report.extra.push(...extras(value, declared, name));
-        }
-      }
+      const found = await checkExport(module, name, declared, options, report);
       const remaining = waive(name, found);
       // One line per difference, in full: an array in an assertion message is truncated.
       if (remaining.length > 0)
