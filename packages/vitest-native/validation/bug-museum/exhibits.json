@@ -174,7 +174,7 @@
       "class": "ownership",
       "title": "A workspace library regex-aliased to source cannot be loaded",
       "source": "migration testing (2026-10)",
-      "fixedBy": "#344 (draft)",
+      "fixedBy": "open (#344 fixed it on its branch and closed unmerged)",
       "fixRef": "origin/fix/source-aliased-workspace-ownership",
       "links": {
         "@m/feature": "packages/feature",
@@ -205,7 +205,7 @@
       "class": "ownership",
       "title": "One regex alias covering every workspace package cannot be loaded",
       "source": "#344 review (#344 still fails it)",
-      "fixedBy": "open (outside #344's scope by design, though #344's description implies regex aliases are covered)",
+      "fixedBy": "open (outside #344's scope by design; #344 closed unmerged)",
       "fixRef": "origin/fix/source-aliased-workspace-ownership",
       "links": {
         "@m/feature": "packages/feature",
@@ -326,7 +326,7 @@
       "class": "ownership",
       "title": "An installed package requiring a source-aliased workspace library by name gets its built copy",
       "source": "#344 (monorepo-source-ownership.test.ts, the required case)",
-      "fixedBy": "#454 (ownershipModel resolver; open)",
+      "fixedBy": "open (#454, experimental.ownershipModel: 'resolver', closed unmerged)",
       "links": {
         "@m/feature": "packages/feature",
         "@m/validator": "packages/validator"
@@ -641,7 +641,7 @@
       "class": "ownership",
       "title": "A package with separate import and require builds loads twice",
       "source": "ADR-0004 dual-export-file; #370's identity probes",
-      "fixedBy": "#370 (draft, experimental.ownershipModel: 'resolver')",
+      "fixedBy": "open (#370, experimental.ownershipModel: 'resolver', closed unmerged)",
       "bugSignature": "^dual-export\\.test\\.ts: AssertionError: one museum-dual, whichever condition loaded it: expected null to be 'configured'",
       "control": {
         "why": "Both conditions name the same build, so there is one file to load: the bug's precondition, two builds, is gone.",
@@ -799,7 +799,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "5fc91885^"
     },
     {
       "id": "env-jest-error-equality",
@@ -814,7 +814,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "d425b0ed^"
     },
     {
       "id": "env-jest-fake-timer-options",
@@ -829,7 +829,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "11110622^"
     },
     {
       "id": "env-jest-fake-timers-recall",
@@ -844,7 +844,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "11110622^"
     },
     {
       "id": "env-recoverable-error",
@@ -863,7 +863,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "5fc91885^"
     },
     {
       "id": "env-report-error-feature-detect",
@@ -894,7 +894,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "8319b1fe^"
     },
     {
       "id": "env-rntl-cleanup-reexport-hot",
@@ -909,7 +909,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "8319b1fe^"
     },
     {
       "id": "env-rntl-findby-fake-timers",
@@ -935,7 +935,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "cd55d7bd^"
     },
     {
       "id": "pfs-hot-dropped-file",
@@ -962,14 +962,14 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "ff23fded^"
     },
     {
       "id": "pfs-hot-library-mock-cost",
       "class": "per-file-state",
       "title": "Under hot, every file re-resolves a library's own-mock graph",
       "source": "M0 gate G3 (2026-10-28) and migration testing (2026-10) (the hot worker re-read the filesystem per file)",
-      "fixedBy": "#364 (merged)",
+      "fixedBy": "#363 (merged: reverts #336, which introduced it); #364 (merged) keeps a re-loaded library graph from re-resolving",
       "bugSignature": "^[bc]\\.test\\.tsx: AssertionError: a warm file's (Module\\._resolveFilename|fs\\.readFileSync) calls: expected \\d+ to be less than (60|150)",
       "control": {
         "why": "Without the libraries (a plain render), a warm file's cost is the RN-core baseline.",
@@ -998,7 +998,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "2f1c5190^"
     },
     {
       "id": "pfs-hot-scheduler-fake-timers",
@@ -1203,7 +1203,8 @@
         "preFix": "PASS",
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "NOT PROVEN"
-      }
+      },
+      "fixVerification": "requires Node 22. Node 24 and later link a compiled ES index's require() of a CommonJS sibling on any build, so on Node 24 the build before #850 (ff4dba7c^) passes and the bug cannot be shown. The museum's CI job runs on Node 22.22.3."
     },
     {
       "id": "pfs-hot-nonconfigurable-global",
@@ -1405,7 +1406,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "f312a7e9^"
     },
     {
       "id": "pre-mock-stylesheet-compose",
@@ -1449,7 +1450,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "f312a7e9^"
     },
     {
       "id": "pre-rntl13-nested-text",
@@ -1467,7 +1468,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "838b1a86^"
     },
     {
       "id": "pre-screens-native-stack-header",
@@ -1485,7 +1486,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "838b1a86^"
     },
     {
       "id": "res-esbuild-reexport-jsx",
@@ -1670,8 +1671,7 @@
       "class": "transform/resolution",
       "title": "Reanimated in a pnpm store resolves its web build",
       "source": "#349",
-      "fixedBy": "#363 (merged: reverts #336, which introduced it); #349 keeps it fixed when #336 relands",
-      "fixRef": "origin/fix/library-resolver-pnpm-store",
+      "fixedBy": "#363 (merged: reverts #336, which introduced it)",
       "requires": {
         "layout": "pnpm"
       },
@@ -1683,12 +1683,11 @@
       "fixVerification": "requires-CI: a real pnpm install. Locally the fix cannot be shown: a COPY of reanimated outside bun's store fails to load its JS implementation on any build, with or without worklets in the directory name (Cannot read properties of undefined (reading 'get') in worklets' NativeWorkletsModule), so the local pnpm simulation reaches the bug but not a passing run.",
       "status": {
         "main": "PASS",
-        "fix": "FAIL (other)",
         "preFix": "FAIL (bug)",
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "2f1c5190^"
     },
     {
       "id": "res-registry-sloppy-modules",
@@ -1863,7 +1862,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "8319b1fe^"
     },
     {
       "id": "pre-rntl13-native-stack-header",
@@ -1884,7 +1883,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "838b1a86^"
     },
     {
       "id": "cfg-explicit-max-workers",
@@ -1899,7 +1898,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "c9de6481^"
     },
     {
       "id": "cfg-group-conflict-fallback",
@@ -1933,7 +1932,7 @@
         "measuredOn": "2c79d4aa269b45d5785a6fa46892c514b5e9d694",
         "proof": "landed proven"
       },
-      "preFixRef": "0f2400e"
+      "preFixRef": "c9de6481^"
     },
     {
       "id": "cfg-jest-mock-transform-globals-off",

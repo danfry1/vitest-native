@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** #351 reporter's app shape (root `__mocks__` under jest-compat), found by the 0.15 re-check (#732)
-- **Fixed by:** #733
+- **Fixed by:** #733 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

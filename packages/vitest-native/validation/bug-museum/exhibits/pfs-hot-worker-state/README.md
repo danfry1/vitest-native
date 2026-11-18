@@ -2,7 +2,7 @@
 
 - **Class:** per-file-state
 - **Source:** #690
-- **Fixed by:** #690's fix: the hot reset leaves Vitest's globals alone, and verifies that Vitest's worker state names the file starting
+- **Fixed by:** #698 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

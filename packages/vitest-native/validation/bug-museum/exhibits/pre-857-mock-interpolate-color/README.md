@@ -2,7 +2,7 @@
 
 - **Class:** presets
 - **Source:** #857
-- **Fixed by:** open
+- **Fixed by:** #862 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

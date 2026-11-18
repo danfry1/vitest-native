@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** reproducing #351 (#688)
-- **Fixed by:** #688's fix (detection reads installed React Native packages the run does not declare)
+- **Fixed by:** #718 (merged)
 - **Needs:** react-native-gesture-handler, which this repository installs
 
 ## The bug

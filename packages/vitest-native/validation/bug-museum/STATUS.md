@@ -15,12 +15,12 @@ Columns: **main** is origin/main. **With fix** is the exhibit against the build 
 | [own-alias-parent](exhibits/own-alias-parent/README.md) | ownership | #371 (merged) | PASS | before the fix: FAIL (bug) (a5592d2^) | PASS | landed proven |
 | [own-alias-plugin](exhibits/own-alias-plugin/README.md) | ownership | #371 (merged) | PASS | before the fix: FAIL (bug) (a5592d2^) | PASS | landed proven |
 | [own-alias-project](exhibits/own-alias-project/README.md) | ownership | #371 (merged) | PASS | before the fix: FAIL (bug) (a5592d2^) | PASS | landed proven |
-| [own-alias-regex](exhibits/own-alias-regex/README.md) | ownership | #344 (draft) | FAIL (bug) | PASS (fix/source-aliased-workspace-ownership) | PASS | fix proven |
-| [own-alias-regex-all](exhibits/own-alias-regex-all/README.md) | ownership | open (outside #344's scope by design, though #344's description implies regex aliases are covered) | FAIL (bug) | FAIL (bug) (fix/source-aliased-workspace-ownership) | PASS | open (control passes) |
+| [own-alias-regex](exhibits/own-alias-regex/README.md) | ownership | open (#344 fixed it on its branch and closed unmerged) | FAIL (bug) | PASS (fix/source-aliased-workspace-ownership) | PASS | fix proven |
+| [own-alias-regex-all](exhibits/own-alias-regex-all/README.md) | ownership | open (outside #344's scope by design; #344 closed unmerged) | FAIL (bug) | FAIL (bug) (fix/source-aliased-workspace-ownership) | PASS | open (control passes) |
 | [own-alias-root](exhibits/own-alias-root/README.md) | ownership | #371 (merged) | PASS | before the fix: FAIL (bug) (a5592d2^) | PASS | landed proven |
 | [own-alias-string](exhibits/own-alias-string/README.md) | ownership | #371 (merged) | PASS | before the fix: FAIL (bug) (a5592d2^) | PASS | landed proven |
 | [own-alias-renamed](exhibits/own-alias-renamed/README.md) | ownership | #371 (merged; guard for #344's renamed-alias case) | PASS | before the fix: FAIL (bug) (a5592d2^) | PASS | landed proven |
-| [own-alias-node-require](exhibits/own-alias-node-require/README.md) | ownership | #454 (ownershipModel resolver; open) | FAIL (bug) | - | PASS | open (control passes) |
+| [own-alias-node-require](exhibits/own-alias-node-require/README.md) | ownership | open (#454, experimental.ownershipModel: 'resolver', closed unmerged) | FAIL (bug) | - | PASS | open (control passes) |
 | [own-jest-require-imported-cjs](exhibits/own-jest-require-imported-cjs/README.md) | ownership | #353 (merged) | PASS | before the fix: FAIL (bug) (dae3119e^) | - | landed proven |
 | [own-partial-mock-store](exhibits/own-partial-mock-store/README.md) | ownership | #345 (merged) | PASS | before the fix: FAIL (bug) (5f819d6^) | - | landed proven |
 | [own-partial-mock-workspace](exhibits/own-partial-mock-workspace/README.md) | ownership | #345 (merged; regression guard for its first version) | PASS | bug build: FAIL (bug) on 64b47ec | - | guard proven |
@@ -33,7 +33,7 @@ Columns: **main** is origin/main. **With fix** is the exhibit against the build 
 | [own-bridge-stress](exhibits/own-bridge-stress/README.md) | ownership | open (ownership track A3, under experimental.ownershipModel: 'resolution') | FAIL (bug) | - | - | NOT PROVEN |
 | [own-hot-rule7-esm-residency](exhibits/own-hot-rule7-esm-residency/README.md) | ownership | #447 (merged) | PASS | before the fix: FAIL (bug) (b9c9c5d4^) | PASS | landed proven |
 | [own-vi-mock-node-consumer](exhibits/own-vi-mock-node-consumer/README.md) | ownership | open (ownership track A6) | FAIL (bug) | - | PASS | open (control passes) |
-| [own-dual-export-file](exhibits/own-dual-export-file/README.md) | ownership | #370 (draft, experimental.ownershipModel: 'resolver') | FAIL (bug) | - | PASS | open (control passes) |
+| [own-dual-export-file](exhibits/own-dual-export-file/README.md) | ownership | open (#370, experimental.ownershipModel: 'resolver', closed unmerged) | FAIL (bug) | - | PASS | open (control passes) |
 | [own-registry-react-alias](exhibits/own-registry-react-alias/README.md) | ownership | open (ownership track A1: registry externals through the resolver) | FAIL (bug) | - | PASS | open (control passes) |
 | [own-pnpm-store-peer-name](exhibits/own-pnpm-store-peer-name/README.md) | ownership | open (guard for ownership track A5: the total predicate) | PASS | - | PASS | NOT PROVEN |
 | [own-expo-runtime-undeclared](exhibits/own-expo-runtime-undeclared/README.md) | ownership | #432 (merged) | PASS | before the fix: FAIL (bug) (858e0c76^) | PASS | landed proven |
@@ -44,15 +44,15 @@ Columns: **main** is origin/main. **With fix** is the exhibit against the build 
 | [own-jest-factory-require-source](exhibits/own-jest-factory-require-source/README.md) | ownership | #580 (merged) | PASS | before the fix: FAIL (bug) (b9a5b67d^) | - | landed proven |
 | [env-jest-renamed-jest-mock](exhibits/env-jest-renamed-jest-mock/README.md) | env-contract | #843 (merged) | PASS | before the fix: FAIL (bug) (628e964c^) | - | landed proven |
 | [env-permissive-expo-dev-launcher](exhibits/env-permissive-expo-dev-launcher/README.md) | env-contract | #439 (merged) | PASS | before the fix: FAIL (bug) (1ce2f5de^) | PASS | landed proven |
-| [env-expo-os](exhibits/env-expo-os/README.md) | env-contract | #343 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
-| [env-jest-error-equality](exhibits/env-jest-error-equality/README.md) | env-contract | #346 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
-| [env-jest-fake-timer-options](exhibits/env-jest-fake-timer-options/README.md) | env-contract | #340 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
-| [env-jest-fake-timers-recall](exhibits/env-jest-fake-timers-recall/README.md) | env-contract | #340 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
-| [env-recoverable-error](exhibits/env-recoverable-error/README.md) | env-contract | #343 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
+| [env-expo-os](exhibits/env-expo-os/README.md) | env-contract | #343 (merged) | PASS | before the fix: FAIL (bug) (5fc91885^) | - | landed proven |
+| [env-jest-error-equality](exhibits/env-jest-error-equality/README.md) | env-contract | #346 (merged) | PASS | before the fix: FAIL (bug) (d425b0ed^) | - | landed proven |
+| [env-jest-fake-timer-options](exhibits/env-jest-fake-timer-options/README.md) | env-contract | #340 (merged) | PASS | before the fix: FAIL (bug) (11110622^) | - | landed proven |
+| [env-jest-fake-timers-recall](exhibits/env-jest-fake-timers-recall/README.md) | env-contract | #340 (merged) | PASS | before the fix: FAIL (bug) (11110622^) | - | landed proven |
+| [env-recoverable-error](exhibits/env-recoverable-error/README.md) | env-contract | #343 (merged) | PASS | before the fix: FAIL (bug) (5fc91885^) | - | landed proven |
 | [env-report-error-feature-detect](exhibits/env-report-error-feature-detect/README.md) | env-contract | #343 (merged; regression guard for its first version) | PASS | bug build: FAIL (bug) on da5cd6c | - | guard proven |
-| [env-rntl-auto-cleanup](exhibits/env-rntl-auto-cleanup/README.md) | env-contract | #342 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
-| [env-rntl-cleanup-reexport-hot](exhibits/env-rntl-cleanup-reexport-hot/README.md) | env-contract | #342 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
-| [env-rntl-findby-fake-timers](exhibits/env-rntl-findby-fake-timers/README.md) | env-contract | #374 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | PASS | landed proven |
+| [env-rntl-auto-cleanup](exhibits/env-rntl-auto-cleanup/README.md) | env-contract | #342 (merged) | PASS | before the fix: FAIL (bug) (8319b1fe^) | - | landed proven |
+| [env-rntl-cleanup-reexport-hot](exhibits/env-rntl-cleanup-reexport-hot/README.md) | env-contract | #342 (merged) | PASS | before the fix: FAIL (bug) (8319b1fe^) | - | landed proven |
+| [env-rntl-findby-fake-timers](exhibits/env-rntl-findby-fake-timers/README.md) | env-contract | #374 (merged) | PASS | before the fix: FAIL (bug) (cd55d7bd^) | PASS | landed proven |
 | [env-jest-replace-property](exhibits/env-jest-replace-property/README.md) | env-contract | #588 (merged) | PASS | before the fix: FAIL (bug) (23275f88^) | - | landed proven |
 | [env-jest-require-globals](exhibits/env-jest-require-globals/README.md) | env-contract | #587 (merged) | PASS | before the fix: FAIL (bug) (3a0143cc^) | - | landed proven |
 | [env-host-ref-prop](exhibits/env-host-ref-prop/README.md) | env-contract | #585 (merged) | PASS | before the fix: FAIL (bug) (e5173880^) | - | landed proven |
@@ -64,8 +64,8 @@ Columns: **main** is origin/main. **With fix** is the exhibit against the build 
 | [env-jest-view-prototype-spy](exhibits/env-jest-view-prototype-spy/README.md) | env-contract | #594 (merged) | PASS | before the fix: FAIL (bug) (41959dad^) | - | landed proven |
 | [env-expo-snapshot-friendly-ref](exhibits/env-expo-snapshot-friendly-ref/README.md) | env-contract | #852 (merged) | PASS | before the fix: FAIL (bug) (9def928e^) | - | landed proven |
 | [pre-835-jest-fake-timers-queue-microtask](exhibits/pre-835-jest-fake-timers-queue-microtask/README.md) | env-contract | #869 (merged) | PASS | before the fix: FAIL (bug) (b93dacda^) | - | landed proven |
-| [pfs-hot-dropped-file](exhibits/pfs-hot-dropped-file/README.md) | per-file-state | #350 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | PASS | landed proven |
-| [pfs-hot-library-mock-cost](exhibits/pfs-hot-library-mock-cost/README.md) | per-file-state | #364 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | PASS | landed proven |
+| [pfs-hot-dropped-file](exhibits/pfs-hot-dropped-file/README.md) | per-file-state | #350 (merged) | PASS | before the fix: FAIL (bug) (ff23fded^) | PASS | landed proven |
+| [pfs-hot-library-mock-cost](exhibits/pfs-hot-library-mock-cost/README.md) | per-file-state | #363 (merged: reverts #336, which introduced it); #364 (merged) keeps a re-loaded library graph from re-resolving | PASS | before the fix: FAIL (bug) (2f1c5190^) | PASS | landed proven |
 | [pfs-hot-scheduler-fake-timers](exhibits/pfs-hot-scheduler-fake-timers/README.md) | per-file-state | open (the v2 per-file world) | FAIL (bug) | - | PASS | open (control passes) |
 | [pfs-hot-act-scope-timeout](exhibits/pfs-hot-act-scope-timeout/README.md) | per-file-state | #452 (merged) | PASS | before the fix: FAIL (bug) (f6d7a758^) | PASS | landed proven |
 | [pfs-hot-unawaited-act](exhibits/pfs-hot-unawaited-act/README.md) | per-file-state | #452: fails by name, the accepted outcome with one worker | FAIL (other) | - | PASS | NOT PROVEN |
@@ -84,11 +84,11 @@ Columns: **main** is origin/main. **With fix** is the exhibit against the build 
 | [pre-351-reanimated-timestamp-get](exhibits/pre-351-reanimated-timestamp-get/README.md) | presets | #684 (merged) | PASS | before the fix: FAIL (bug) (6d8ec6ab^) | - | landed proven |
 | [pre-351-reanimated-derived-stale](exhibits/pre-351-reanimated-derived-stale/README.md) | presets | #753 (merged) | PASS | before the fix: FAIL (bug) (6dbaa56d^) | - | landed proven |
 | [pre-351-gh-buttons-unpressable](exhibits/pre-351-gh-buttons-unpressable/README.md) | presets | #777 (merged) | PASS | before the fix: FAIL (bug) (fbcebbc3^) | - | landed proven |
-| [pre-banner-names-presets](exhibits/pre-banner-names-presets/README.md) | presets | #348 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
+| [pre-banner-names-presets](exhibits/pre-banner-names-presets/README.md) | presets | #348 (merged) | PASS | before the fix: FAIL (bug) (f312a7e9^) | - | landed proven |
 | [pre-mock-stylesheet-compose](exhibits/pre-mock-stylesheet-compose/README.md) | presets | #359 (merged) | PASS | before the fix: FAIL (bug) (c50112c^) | - | landed proven |
-| [pre-navigation-off-isolated](exhibits/pre-navigation-off-isolated/README.md) | presets | #348 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | PASS | landed proven |
-| [pre-rntl13-nested-text](exhibits/pre-rntl13-nested-text/README.md) | presets | #341 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
-| [pre-screens-native-stack-header](exhibits/pre-screens-native-stack-header/README.md) | presets | #341 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
+| [pre-navigation-off-isolated](exhibits/pre-navigation-off-isolated/README.md) | presets | #348 (merged) | PASS | before the fix: FAIL (bug) (f312a7e9^) | PASS | landed proven |
+| [pre-rntl13-nested-text](exhibits/pre-rntl13-nested-text/README.md) | presets | #341 (merged) | PASS | before the fix: FAIL (bug) (838b1a86^) | - | landed proven |
+| [pre-screens-native-stack-header](exhibits/pre-screens-native-stack-header/README.md) | presets | #341 (merged) | PASS | before the fix: FAIL (bug) (838b1a86^) | - | landed proven |
 | [pre-712-navigation-ref-reset-root](exhibits/pre-712-navigation-ref-reset-root/README.md) | presets | #829 (merged) | PASS | before the fix: FAIL (bug) (1ad8a8dd^) | - | landed proven |
 | [pre-857-mock-interpolate-color](exhibits/pre-857-mock-interpolate-color/README.md) | presets | #862 (merged) | PASS | before the fix: FAIL (bug) (bca755b8^) | - | landed proven |
 | [pre-717-screens-transition-progress](exhibits/pre-717-screens-transition-progress/README.md) | presets | #853 (merged) | PASS | before the fix: FAIL (bug) (1b2b7d53^) | - | landed proven |
@@ -105,7 +105,7 @@ Columns: **main** is origin/main. **With fix** is the exhibit against the build 
 | [res-package-js-jsx](exhibits/res-package-js-jsx/README.md) | transform/resolution | #767 (merged) | PASS | before the fix: FAIL (bug) (17ab16a6^) | - | landed proven |
 | [res-peer-typescript](exhibits/res-peer-typescript/README.md) | transform/resolution | #323 (merged) | PASS | before the fix: FAIL (bug) (191c286^) | - | landed proven |
 | [res-pnpm-native-ext-peer](exhibits/res-pnpm-native-ext-peer/README.md) | transform/resolution | the engine consults a library's own Jest resolver only for that library's files (97183394, in #444); #363 reverted the first form (#336) | PASS | bug build: FAIL (bug) on 0e72c2b3; PASS (perf/library-registry); before the fix: FAIL (bug) (0f2400e) | PASS | guard proven |
-| [res-pnpm-reanimated-render](exhibits/res-pnpm-reanimated-render/README.md) | transform/resolution | #363 (merged: reverts #336, which introduced it); #349 keeps it fixed when #336 relands | PASS | FAIL (other) (fix/library-resolver-pnpm-store); before the fix: FAIL (bug) (0f2400e) | - | landed proven |
+| [res-pnpm-reanimated-render](exhibits/res-pnpm-reanimated-render/README.md) | transform/resolution | #363 (merged: reverts #336, which introduced it) | PASS | before the fix: FAIL (bug) (2f1c5190^) | - | landed proven |
 | [res-registry-sloppy-modules](exhibits/res-registry-sloppy-modules/README.md) | transform/resolution | #385 (merged) | PASS | before the fix: FAIL (bug) (97615f3^) | - | landed proven |
 | [res-sibling-declared-closure](exhibits/res-sibling-declared-closure/README.md) | transform/resolution | #388 (merged) | PASS | before the fix: FAIL (bug) (43139a6^) | PASS | landed proven |
 | [res-undeclared-required-peer](exhibits/res-undeclared-required-peer/README.md) | transform/resolution | #519 (merged) | PASS | before the fix: FAIL (bug) (0dd12ca1^) | PASS | landed proven |
@@ -117,10 +117,10 @@ Columns: **main** is origin/main. **With fix** is the exhibit against the build 
 | [res-regex-alias-member-closure](exhibits/res-regex-alias-member-closure/README.md) | transform/resolution | #473 (merged) | PASS | before the fix: FAIL (bug) (5f991ede^) | PASS | landed proven |
 | [res-project-js-jsx](exhibits/res-project-js-jsx/README.md) | transform/resolution | #564 (merged) | PASS | before the fix: FAIL (bug) (499f8886^) | - | landed proven |
 | [res-compile-error-location](exhibits/res-compile-error-location/README.md) | transform/resolution | #586 (merged) | PASS | before the fix: FAIL (bug) (587167d4^) | - | landed proven |
-| [env-rntl13-auto-cleanup](exhibits/env-rntl13-auto-cleanup/README.md) | harness | #342 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
-| [pre-rntl13-native-stack-header](exhibits/pre-rntl13-native-stack-header/README.md) | harness | #341 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
-| [cfg-explicit-max-workers](exhibits/cfg-explicit-max-workers/README.md) | config | #347 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
-| [cfg-group-conflict-fallback](exhibits/cfg-group-conflict-fallback/README.md) | config | #347 (merged) | PASS | before the fix: FAIL (bug) (0f2400e) | - | landed proven |
+| [env-rntl13-auto-cleanup](exhibits/env-rntl13-auto-cleanup/README.md) | harness | #342 (merged) | PASS | before the fix: FAIL (bug) (8319b1fe^) | - | landed proven |
+| [pre-rntl13-native-stack-header](exhibits/pre-rntl13-native-stack-header/README.md) | harness | #341 (merged) | PASS | before the fix: FAIL (bug) (838b1a86^) | - | landed proven |
+| [cfg-explicit-max-workers](exhibits/cfg-explicit-max-workers/README.md) | config | #347 (merged) | PASS | before the fix: FAIL (bug) (c9de6481^) | - | landed proven |
+| [cfg-group-conflict-fallback](exhibits/cfg-group-conflict-fallback/README.md) | config | #347 (merged) | PASS | before the fix: FAIL (bug) (c9de6481^) | - | landed proven |
 | [cfg-jest-mock-transform-globals-off](exhibits/cfg-jest-mock-transform-globals-off/README.md) | config | open (#818) | FAIL (bug) | - | PASS | open (control passes) |
 | [cfg-parallel-setup-files](exhibits/cfg-parallel-setup-files/README.md) | config | #766 (merged) | PASS | before the fix: FAIL (bug) (e477632c^) | PASS | landed proven |
 
@@ -157,4 +157,5 @@ Columns: **main** is origin/main. **With fix** is the exhibit against the build 
 
 ## Not verifiable locally
 
+- `pfs-hot-compiled-mjs-require`: requires Node 22. Node 24 and later link a compiled ES index's require() of a CommonJS sibling on any build, so on Node 24 the build before #850 (ff4dba7c^) passes and the bug cannot be shown. The museum's CI job runs on Node 22.22.3.
 - `res-pnpm-reanimated-render`: requires-CI: a real pnpm install. Locally the fix cannot be shown: a COPY of reanimated outside bun's store fails to load its JS implementation on any build, with or without worklets in the directory name (Cannot read properties of undefined (reading 'get') in worklets' NativeWorkletsModule), so the local pnpm simulation reaches the bug but not a passing run.

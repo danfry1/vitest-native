@@ -2,7 +2,7 @@
 
 - **Class:** per-file-state
 - **Source:** M0 gate G3 (2026-10-28) and migration testing (2026-10) (the hot worker re-read the filesystem per file)
-- **Fixed by:** #364 (merged)
+- **Fixed by:** #363 (merged: reverts #336, which introduced it); #364 (merged) keeps a re-loaded library graph from re-resolving
 - **Needs:** nothing beyond this repository's install
 
 ## The bug
@@ -15,4 +15,4 @@ A warm file (not the first in its worker) costs fewer than 60 `Module._resolveFi
 
 ## Notes
 
-Per-file counts are printed as `[museum:g3]` lines (MUSEUM_DEBUG=1 shows the output). The fix branch is a WIP commit (fdc443c) with no tests or parity run yet.
+Per-file counts are printed as `[museum:g3]` lines (MUSEUM_DEBUG=1 shows the output). #363 removed the graph by reverting #336; #364 later stopped a re-loaded graph re-resolving.

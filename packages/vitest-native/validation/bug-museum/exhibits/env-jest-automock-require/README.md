@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** review of #566 (#621)
-- **Fixed by:** #621's fix PR
+- **Fixed by:** #656 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

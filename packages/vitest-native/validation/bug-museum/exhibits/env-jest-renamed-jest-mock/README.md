@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** react-native-paper bake-off (#833)
-- **Fixed by:** open
+- **Fixed by:** #843 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

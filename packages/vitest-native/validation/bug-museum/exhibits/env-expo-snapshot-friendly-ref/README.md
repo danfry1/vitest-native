@@ -2,7 +2,7 @@
 
 - **Class:** env-contract
 - **Source:** #849
-- **Fixed by:** #849 (open)
+- **Fixed by:** #852 (merged)
 - **Needs:** nothing beyond this repository's install (expo-modules-core's `Refs` is vendored)
 
 ## The bug

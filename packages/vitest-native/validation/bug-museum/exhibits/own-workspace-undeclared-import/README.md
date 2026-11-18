@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** a monorepo report, reproduced here (#692)
-- **Fixed by:** #692's fix (the closure walk follows a workspace package's undeclared runtime imports)
+- **Fixed by:** #705 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

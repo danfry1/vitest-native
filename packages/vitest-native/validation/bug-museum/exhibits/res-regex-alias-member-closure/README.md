@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** a monorepo package that imports a sibling workspace library's source through a `resolve.alias` entry whose `find` is a RegExp, without declaring the library; the library declares expo-image, an app package declares expo
-- **Fixed by:** open (fix/regex-alias-closure-seed)
+- **Fixed by:** #473 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

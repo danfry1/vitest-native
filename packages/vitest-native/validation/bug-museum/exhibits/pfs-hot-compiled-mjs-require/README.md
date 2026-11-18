@@ -2,7 +2,7 @@
 
 - **Class:** per-file-state
 - **Source:** #847, found by a test of an esbuild-built component library (2026-11-14)
-- **Fixed by:** a require() from compiled code the loader serves as source is served as Node's CommonJS loader serves a require, behind no generation facade
+- **Fixed by:** #850 (merged)
 - **Needs:** Node 22 (Node 24 and later link it)
 
 ## The bug

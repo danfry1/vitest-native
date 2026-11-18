@@ -2,7 +2,7 @@
 
 - **Class:** transform/resolution
 - **Source:** #296 and #508. An Expo app declares expo-router but not expo-linking, its required peer, which pnpm installs itself. expo-router's compiled `require('expo-linking')` reached expo-linking's published ES module build: "Cannot require() ES Module …/expo-linking/build/Linking.js because it is not yet fully loaded", and on that path "Cannot find module …/Linking.types" (#506).
-- **Fixed by:** open (#508)
+- **Fixed by:** #519 (merged)
 - **Needs:** nothing beyond this repository's install (`vendor/` holds expo-router's and expo-linking's shapes)
 
 ## The bug

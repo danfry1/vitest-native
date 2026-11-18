@@ -2,7 +2,7 @@
 
 - **Class:** per-file-state
 - **Source:** hot runtime probe of the synthetic preset module (2026-11-11), #670 class
-- **Fixed by:** the preset module an ES import links carries the hot generation, one per test file
+- **Fixed by:** #749 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug
