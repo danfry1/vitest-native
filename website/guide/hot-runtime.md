@@ -74,7 +74,7 @@ The hot runtime plans its workers from the lower of the host's and the container
 
 ### React Native and other projects in one run
 
-Vitest requires every project in one `sequence.groupOrder` to run the same number of workers. When a run mixes `reactNative()` projects with node or web projects, give every project the same explicit `test.maxWorkers`. Use a count the memory plan admits: the startup log names the count the hot project runs.
+Vitest requires every project in one `sequence.groupOrder` to run the same number of workers. When a run mixes `reactNative()` projects with node or web projects, give every project the same explicit `test.maxWorkers`. The hot runtime lowers its own project's count to what the memory plan admits on the machine running the tests, and the other projects keep theirs. Pick a count that the smallest machine you run on admits, such as a CI runner; the startup log names the count the hot project runs. Where the plan admits fewer, the counts differ: `'auto'` turns the hot runtime off and prints why, and `hotRuntime: true` fails with [`HOT_RUNTIME_OVERRIDDEN`](/guide/errors#HOT_RUNTIME_OVERRIDDEN).
 
 Don't give the React Native projects their own `groupOrder` instead. Vitest runs groups one after another, so every node and web project would finish before any React Native file starts.
 
