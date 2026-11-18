@@ -30,8 +30,8 @@ export const COLD_WAIT_NOTICE_MS = 5_000;
 function noticeIfSlow() {
   const timer = setTimeout(() => {
     console.warn(
-      "[vitest-native] (native) building React Native's precompiled modules for this " +
-        "project; tests start when it finishes. Later runs reuse it from the cache.",
+      "[vitest-native] (native) building the precompiled module registry for this " +
+        "project before the first test file; tests start when the build ends.",
     );
   }, COLD_WAIT_NOTICE_MS);
   // Never what keeps this process alive.

@@ -338,7 +338,7 @@ describe("background registry build", () => {
   }
 
   describe("notice while a cold run waits (#913)", () => {
-    const NOTICE = /building React Native's precompiled modules/;
+    const NOTICE = /building the precompiled module registry/;
     /** The notices printed so far, and the spy to restore. */
     function watchNotices() {
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
