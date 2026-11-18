@@ -131,10 +131,17 @@ describe("runEachExpoEntry", () => {
 // #909: Expo SDK 57's newest patches pin react 19.2.3, while expo-router's
 // react-server-dom-webpack peer resolves to a release that asks for react ^19.2.9. npm 11.20
 // installs that tree; npm 11.19 stops with ERESOLVE. The Expo legs refuse an older npm by name.
+/** Whether `version` is MINIMUM_NPM or newer, comparing each part as a number. */
+const atLeastMinimum = (version: string) => {
+  const [a, b] = [version, MINIMUM_NPM].map((v) => v.split(".").map(Number));
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+  return true;
+};
+
 describe("the npm the Expo legs install with", () => {
   const entries = [{ fixture: "expo", sdk: 58, expo: "~58.0.0" }];
 
-  it.each(["11.19.0", "10.9.2", "11.19.9"])(
+  it.each(["11.19.0", "10.9.2", "11.19.9", "9.99.99"])(
     "refuses npm %s before installing anything, naming the minimum",
     (npmVersion) => {
       const ran: string[] = [];
@@ -150,14 +157,17 @@ describe("the npm the Expo legs install with", () => {
     },
   );
 
-  it.each([MINIMUM_NPM, "11.20.1", "11.21.0", "12.0.0"])("runs on npm %s", (npmVersion) => {
-    const ran: string[] = [];
-    runEachExpoEntry(entries, (entry: { fixture: string }) => ran.push(entry.fixture), {
-      log: () => {},
-      npmVersion,
-    });
-    expect(ran).toEqual(["expo"]);
-  });
+  it.each([MINIMUM_NPM, "11.20.1", "11.21.0", "11.100.0", "12.0.0", "100.0.0"])(
+    "runs on npm %s",
+    (npmVersion) => {
+      const ran: string[] = [];
+      runEachExpoEntry(entries, (entry: { fixture: string }) => ran.push(entry.fixture), {
+        log: () => {},
+        npmVersion,
+      });
+      expect(ran).toEqual(["expo"]);
+    },
+  );
 
   it("refuses a version it cannot read", () => {
     expect(() => runEachExpoEntry(entries, () => {}, { log: () => {}, npmVersion: "" })).toThrow(
@@ -175,9 +185,7 @@ describe("the npm the Expo legs install with", () => {
       runEachExpoEntry(entries, (entry: { fixture: string }) => ran.push(entry.fixture), {
         log: () => {},
       });
-    const [major, minor] = installed.split(".").map(Number);
-    const [minMajor, minMinor] = MINIMUM_NPM.split(".").map(Number);
-    if (major > minMajor || (major === minMajor && minor >= minMinor)) {
+    if (atLeastMinimum(installed)) {
       call();
       expect(ran).toEqual(["expo"]);
     } else {
@@ -188,12 +196,6 @@ describe("the npm the Expo legs install with", () => {
 
   it("is at or below the npm CI pins for every job that runs an Expo leg", () => {
     const root = path.resolve(import.meta.dirname, "../../..");
-    const parse = (v: string) => v.split(".").map(Number);
-    const atLeast = (v: string) => {
-      const [a, b] = [parse(v), parse(MINIMUM_NPM)];
-      for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
-      return true;
-    };
     let checked = 0;
     for (const file of ["ci.yml", "compat-check.yml"]) {
       const text = fs.readFileSync(path.join(root, ".github/workflows", file), "utf8");
@@ -202,7 +204,7 @@ describe("the npm the Expo legs install with", () => {
         if (!/VN_CONSUMERS: expo-(latest|next)/.test(job)) continue;
         const pins = [...job.matchAll(/npm-version: .*?(\d+\.\d+\.\d+)/g)].map((m) => m[1]);
         expect(pins, `${file}: ${job.split("\n")[1]}`).not.toEqual([]);
-        for (const pin of pins) expect(atLeast(pin), `${file} pins npm ${pin}`).toBe(true);
+        for (const pin of pins) expect(atLeastMinimum(pin), `${file} pins npm ${pin}`).toBe(true);
         checked++;
       }
     }
