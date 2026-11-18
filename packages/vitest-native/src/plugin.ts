@@ -1593,12 +1593,19 @@ type GroupedProject = {
  * so a native project next to a mock or non-React-Native project failed on any machine
  * with more than five cores. Mirrors Vitest's resolveMaxWorkers and its grouping,
  * including the exemption for a single-worker isolated project in the default group.
+ *
+ * The remedy it names first is one worker count for the whole group: a separate
+ * groupOrder also avoids the clash, but Vitest runs groups one after another (#911).
+ * `plan` is the hot project's memory plan; when it admitted fewer workers than were
+ * requested, the plan made the difference (projects given the same count differ on a
+ * machine with less memory), so the message names the admitted count.
  */
 export function sharedGroupConflict(
   self: GroupedProject,
   others: readonly GroupedProject[],
   root: { maxWorkers?: unknown; watch?: boolean },
   cpus?: number,
+  plan?: { requestedWorkers: number; maxWorkers: number },
 ): string | null {
   const order = (p: GroupedProject) => Number(p.config.sequence?.groupOrder ?? 0);
   const workers = (p: GroupedProject) =>
@@ -1611,10 +1618,18 @@ export function sharedGroupConflict(
     if (other === self || ownGroup(other) || order(other) !== order(self)) continue;
     if (workers(other) !== workers(self)) {
       const name = String(other.name ?? other.config.name ?? "another project");
+      const lowered = plan !== undefined && plan.maxWorkers < plan.requestedWorkers;
+      const remedy = lowered
+        ? `the memory plan admits ${plan.maxWorkers} of the ${plan.requestedWorkers} ` +
+          `workers requested on this machine; give every project in the group the same ` +
+          `test.maxWorkers, one the smallest machine you run on admits`
+        : `give every project in the group the same test.maxWorkers`;
       return (
         `the project '${name}' is in the same sequence.groupOrder (${order(self)}) with ` +
         `${workers(other)} workers to this project's ${workers(self)}, which Vitest rejects ` +
-        `(a distinct test.sequence.groupOrder runs them as separate groups)`
+        `(${remedy}. A distinct test.sequence.groupOrder also works, but Vitest runs the ` +
+        `groups one after another. See ` +
+        `${docsUrl("/guide/hot-runtime#react-native-and-other-projects-in-one-run")})`
       );
     }
   }
@@ -4140,10 +4155,16 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         : undefined;
     const reason =
       override ??
-      sharedGroupConflict(project, vitest.projects ?? [], {
-        maxWorkers: vitest.config?.maxWorkers,
-        watch: vitest.config?.watch,
-      });
+      sharedGroupConflict(
+        project,
+        vitest.projects ?? [],
+        { maxWorkers: vitest.config?.maxWorkers, watch: vitest.config?.watch },
+        undefined,
+        // The plan that set this count: rebuilt for Vitest's count, or config()'s when
+        // it lowered a count the user set (capWarning). The automatic cap of four
+        // lowers no count anyone set, so it is not named.
+        replanned ?? (selection.memory?.capWarning ? selection.memory.plan : undefined),
+      );
     if (reason === null) {
       if (replanned && selection.memory) {
         applyHotMemoryPlan(selection.memory, replanned, projectConfig, diagnostics);

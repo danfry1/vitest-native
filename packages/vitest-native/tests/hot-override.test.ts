@@ -134,4 +134,38 @@ describe("sharedGroupConflict", () => {
     ).toBe(null);
     expect(sharedGroupConflict(hot, [hot], {}, 10)).toBe(null);
   });
+
+  // #911: a separate groupOrder runs the groups one after another, so the message
+  // recommends one worker count for the whole group and names groupOrder second.
+  it("recommends the same maxWorkers first, and groupOrder only as the serial alternative", () => {
+    const reason = sharedGroupConflict(hot, [project("mock")], {}, 10) ?? "";
+    const same = reason.indexOf("give every project in the group the same test.maxWorkers");
+    const order = reason.indexOf("test.sequence.groupOrder");
+    expect(same).toBeGreaterThan(-1);
+    expect(order).toBeGreaterThan(same);
+    expect(reason).toMatch(/groupOrder also works, but Vitest runs the groups one after another/);
+    expect(reason).toContain(
+      "https://vitest-native.danfry.dev/guide/hot-runtime#react-native-and-other-projects-in-one-run",
+    );
+    expect(reason).not.toMatch(/memory plan/);
+  });
+
+  it("names the count the memory plan admitted when it lowered only the hot project's", () => {
+    const lowered = { name: "native", config: { maxWorkers: 2 } };
+    const reason = sharedGroupConflict(lowered, [project("node", { maxWorkers: 4 })], {}, 10, {
+      requestedWorkers: 4,
+      maxWorkers: 2,
+    });
+    expect(reason).toMatch(/'node' .* with 4 workers to this project's 2/);
+    expect(reason).toMatch(
+      /the memory plan admits 2 of the 4 workers requested on this machine; give every project in the group the same test.maxWorkers, one the smallest machine you run on admits/,
+    );
+    // A plan that ran what was asked lowered nothing.
+    expect(
+      sharedGroupConflict(lowered, [project("node", { maxWorkers: 4 })], {}, 10, {
+        requestedWorkers: 2,
+        maxWorkers: 2,
+      }),
+    ).not.toMatch(/memory plan/);
+  });
 });

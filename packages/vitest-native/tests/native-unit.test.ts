@@ -1492,7 +1492,7 @@ describe("plugin engine routing", () => {
         });
         expect(err).toHaveBeenCalledWith(
           expect.stringMatching(
-            /hot runtime off: the project 'plain'.*8 workers to this project's 4/,
+            /hot runtime off: the project 'plain'.*8 workers to this project's 4.*the memory plan admits 4 of the 8 workers requested/,
           ),
         );
         expect(config.isolate).toBe(true);
