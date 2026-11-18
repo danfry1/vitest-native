@@ -184,6 +184,17 @@ function createState() {
     entries: new WatchedMap(changed),
     /** Specifiers no resolver could place (Jest's virtual mocks) -> entry. */
     unresolved: new WatchedMap(changed),
+    /**
+     * Root mocks (`__mocks__` manual mocks of a package), by the spec they mock: Jest
+     * matches one by request name, in every installed copy (copyEntryOf).
+     */
+    byName: new WatchedMap(changed),
+    /**
+     * Files a `jest.unmock` took a root mock off: those of the copy the test file resolves
+     * the spec to. Other copies keep the root mock, as under Jest, which records the unmock
+     * for that module id only (`_explicitShouldMock`).
+     */
+    unmocked: new Set(),
     /** `parentFile\0request` -> resolved file or null. Valid for the worker's life. */
     resolutions: new Map(),
     /** What `requireActual` is loading: its next load skips the mock. */
@@ -315,39 +326,35 @@ function createState() {
    * A root mock (a `__mocks__` manual mock) of a package, for the files any installed
    * copy of the package gives its subpath (#898). Jest matches a root mock by name
    * (jest-runtime's `requireModule` takes `getMockModule(from, name)` for any `from`), so
-   * every copy is mocked, through `import` and `require` alike. The entry is keyed by one
-   * file, the root copy's; another copy, as a nested `multiformats` often is, resolves the
-   * subpath to its own, and a dual subpath gives `import` and `require` different files.
-   * An explicit jest.mock factory is keyed by the file it resolves to, under Jest too, so
-   * it is not matched here. Undefined when no such mock applies to `file`.
+   * every copy is mocked, through `import` and `require` alike: one in node_modules, and
+   * one a workspace or `file:` dependency links to, at its real path outside it (#899).
+   * An explicit jest.mock factory is keyed by the files of the copy it resolves to, under
+   * Jest too, so it is not matched here. Undefined when no such mock applies to `file`.
    */
   const copyFiles = new Map();
   function copyEntryOf(file) {
     const index = reachIndex();
     if (index.copies.size === 0) return undefined;
-    const name = owningPackageOfFile(file);
-    const candidates = name === null ? undefined : index.copies.get(name);
+    const copy = copyOf(file);
+    const candidates = copy === null ? undefined : index.copies.get(copy.name);
     if (candidates === undefined) return undefined;
-    const pkgDir = installedPackageDirOf(file);
     for (const entry of candidates) {
-      const key = `${pkgDir}\0${entry.spec}`;
-      let files = copyFiles.get(key);
-      if (files === undefined) {
-        files = filesOfCopy(pkgDir, entry.spec);
-        copyFiles.set(key, files);
-      }
-      if (files.includes(file)) return entry;
+      if (filesOfCopy(copy.dir, entry.spec).includes(file)) return entry;
     }
     return undefined;
   }
 
   /**
    * The files the copy of a package at `pkgDir` gives the bare `spec`: Node's `import`
-   * target, from its `exports`, and Node's `require` answer from beside that copy, which
-   * is its own (a copy's `node_modules` directory holds it under its name).
+   * target, from its `exports`, and Node's `require` answer for that copy. Jest gives a
+   * module one id whichever of them a request reaches, so a mock or an unmock of the spec
+   * covers them all. Cached: installed files do not change within a worker.
    */
   function filesOfCopy(pkgDir, spec) {
-    const files = [];
+    const key = `${pkgDir}\0${spec}`;
+    let files = copyFiles.get(key);
+    if (files !== undefined) return files;
+    files = [];
     let manifest;
     try {
       manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
@@ -356,14 +363,60 @@ function createState() {
     }
     const imported = manifest === null ? null : exportFileIn(pkgDir, manifest, subpathOf(spec));
     if (imported !== null) files.push(imported);
-    const beside = pkgDir.slice(0, pkgDir.lastIndexOf("/node_modules/"));
-    const required = nodeResolution(spec, parentModuleFor(path.join(beside, "package.json")));
-    if (required !== null && installedPackageDirOf(required) === pkgDir) files.push(required);
+    const required = requiredFileOf(pkgDir, manifest, spec);
+    if (required !== null && required !== imported && copyOf(required)?.dir === pkgDir) {
+      files.push(required);
+    }
+    copyFiles.set(key, files);
     return files;
   }
 
+  /**
+   * Node's `require` answer for `spec` in the copy at `pkgDir`. An installed copy is its
+   * own from beside it (its `node_modules` directory holds it under its name, an npm
+   * alias's included). A linked copy is outside any: its own `exports` by
+   * self-reference, as Node resolves a package's name from inside it, or else the file
+   * its subpath names.
+   */
+  function requiredFileOf(pkgDir, manifest, spec) {
+    const at = pkgDir.lastIndexOf("/node_modules/");
+    if (at !== -1 && installedPackageDirOf(path.join(pkgDir, "package.json")) === pkgDir) {
+      return nodeResolution(spec, parentModuleFor(path.join(pkgDir.slice(0, at), "package.json")));
+    }
+    if (manifest?.exports !== undefined) {
+      return nodeResolution(spec, parentModuleFor(path.join(pkgDir, "package.json")));
+    }
+    return nodeResolution(path.join(pkgDir, spec.slice(packageNameOf(spec).length)), rootParent);
+  }
+
+  /**
+   * The files a `jest.mock` or `jest.unmock` of `spec` covers, given the file it resolves
+   * to: for a package, every file its copy gives the spec (filesOfCopy); else that file.
+   */
+  function filesOfSpec(spec, filename) {
+    const copy = isBare(spec) ? copyOf(filename) : null;
+    if (copy === null || copy.name !== packageNameOf(spec)) return [filename];
+    const files = filesOfCopy(copy.dir, spec);
+    return files.includes(filename) ? files : [filename, ...files];
+  }
+
   /** The jest.mock registered for `file` (a real path), or for it in another copy. */
-  state.entryOf = (file) => state.entries.get(file) ?? copyEntryOf(file);
+  state.entryOf = (file) =>
+    state.entries.get(file) ?? (state.unmocked.has(file) ? undefined : copyEntryOf(file));
+
+  /**
+   * The entry a request for `file` (a real path) gets, `request` as written: BYPASSED for
+   * a relative request of a file a root mock covers. Jest matches a root mock by name,
+   * and its module id for a request includes the root mock it names (jest-resolve
+   * `getModuleID`), so a package's own relative import of the file is the real module,
+   * past an explicit jest.mock of the spec too (#899). A request by name, or by the
+   * absolute path the engine's own loads use (its ESM mock facade, React Native's
+   * precompiled registry), is matched by file.
+   */
+  state.entryFor = (file, request) =>
+    typeof request === "string" && request.startsWith(".") && copyEntryOf(file) !== undefined
+      ? BYPASSED
+      : state.entryOf(file);
 
   // The memoized mock: `requireMock` caches the factory's result in `_mockRegistry`.
   //
@@ -452,7 +505,7 @@ function createState() {
       state.bypass = null;
       return BYPASSED;
     }
-    return filename !== null ? state.entryOf(filename) : state.unresolved.get(request);
+    return filename !== null ? state.entryFor(filename, request) : state.unresolved.get(request);
   };
 
   // `asyncFactory` is jestMockTransform's async variant of `factory`, when it made one.
@@ -462,6 +515,7 @@ function createState() {
   state.register = (from, spec, factory, asyncFactory, { library = false, owner = null } = {}) => {
     const required = state.resolveFrom(spec, from);
     const filename = required ?? importOnlyFile(spec, from);
+    const files = filename === null ? [] : filesOfSpec(spec, filename);
     // A manual mock (a __mocks__ file, jest-compat/root-mocks.ts): while it executes, a
     // request for the module it mocks is the real module, as jest-runtime's
     // `_isCurrentlyExecutingManualMock` has it, not a cycle.
@@ -473,7 +527,10 @@ function createState() {
       manual,
       // A root mock of a package reaches its subpath in every copy of the package.
       everyCopy:
-        manual && isBare(spec) && filename !== null && installedPackageDirOf(filename) !== null,
+        manual &&
+        filename !== null &&
+        isBare(spec) &&
+        copyOf(filename)?.name === packageNameOf(spec),
       has: false,
       value: undefined,
       pending: null,
@@ -481,10 +538,16 @@ function createState() {
       library,
       owner,
     };
-    if (filename !== null) {
-      state.entries.set(filename, entry);
-      state.decided.add(canonical(filename));
+    // Every file of the copy the test file resolves: an `import` of a dual subpath reaches
+    // another file than a `require` (#899).
+    for (const file of files) {
+      state.entries.set(file, entry);
+      state.decided.add(canonical(file));
+      state.unmocked.delete(file);
     }
+    // A root mock stays matched by name in other copies when an explicit jest.mock
+    // replaces it for the test file's own, as under Jest (#899).
+    if (entry.everyCopy) state.byName.set(spec, entry);
     // A spec only `import` resolves is also kept by name: a `require` of it, which
     // Node cannot resolve, looks it up so (jest.requireMock, a factory's require).
     if (required === null) state.unresolved.set(spec, entry);
@@ -503,9 +566,11 @@ function createState() {
 
   state.unregister = (from, spec) => {
     const filename = state.resolveFrom(spec, from) ?? importOnlyFile(spec, from);
-    if (filename !== null) {
-      state.entries.delete(filename);
-      state.decided.add(canonical(filename));
+    for (const file of filename === null ? [] : filesOfSpec(spec, filename)) {
+      state.entries.delete(file);
+      state.decided.add(canonical(file));
+      // Off this copy only: another copy keeps a root mock of the spec (#899).
+      state.unmocked.add(file);
     }
     state.unresolved.delete(spec);
   };
@@ -575,7 +640,9 @@ function createState() {
     return dropped;
   };
 
-  const allEntries = () => [...state.entries.values(), ...state.unresolved.values()];
+  const allEntries = () => [
+    ...new Set([...state.entries.values(), ...state.unresolved.values(), ...state.byName.values()]),
+  ];
   const forget = (entry) => {
     entry.has = false;
     entry.value = undefined;
@@ -652,14 +719,17 @@ function createState() {
     };
     keep(state.entries);
     keep(state.unresolved);
+    keep(state.byName);
     keep(state.byCall);
+    state.unmocked.clear();
     // Decisions are derived from the registrations: recomputed after any clear.
     state.decided.clear();
     state.bypass = null;
     state.isolation = null;
   };
 
-  state.isEmpty = () => state.entries.size === 0 && state.unresolved.size === 0;
+  state.isEmpty = () =>
+    state.entries.size === 0 && state.unresolved.size === 0 && state.byName.size === 0;
 
   /**
    * What the registered mocks can be reached by, rebuilt after a registration changes:
@@ -673,11 +743,11 @@ function createState() {
     const names = new Set();
     const dirs = new Set();
     const copies = new Map();
-    for (const entry of state.entries.values()) {
-      if (!entry.everyCopy) continue;
+    for (const entry of state.byName.values()) {
       const name = packageNameOf(entry.spec);
       if (!copies.has(name)) copies.set(name, []);
       copies.get(name).push(entry);
+      names.add(name);
     }
     let wide = false;
     for (const [file, entry] of state.entries) {
@@ -731,7 +801,7 @@ function createState() {
     const target = from === null ? request : path.resolve(path.dirname(from), request);
     if (index.dirs.has(installedPackageDirOf(target))) return true;
     // A root mock reaches every copy of its package (copyEntryOf), wherever installed.
-    return index.copies.size > 0 && index.copies.has(owningPackageOfFile(target));
+    return index.copies.size > 0 && index.copies.has(copyOf(target)?.name);
   };
 
   return state;
@@ -1013,6 +1083,16 @@ function nearestNamedPackage(file) {
   }
 }
 const packageDirs = new Map();
+
+/**
+ * The copy of a package `file` is in, as `{ dir, name }`: the installed package after its
+ * last `node_modules/`, or else the nearest manifest that names one, as a workspace or
+ * `file:` dependency is at its real path. Null when neither applies.
+ */
+function copyOf(file) {
+  const name = owningPackageOfFile(file);
+  return name === null ? nearestNamedPackage(file) : { dir: installedPackageDirOf(file), name };
+}
 /** Test seam: the package directory a mock's file and a request's file are compared by. */
 export const _packageDirOf = packageDirOf;
 
@@ -1408,7 +1488,10 @@ function installLoadHook(state) {
    * and the file it is in, for isPackageOwnRelativeLoad, as through Node's loader.
    */
   function nodeMockForRegistry(filename, request, parentFile) {
-    const entry = state.lookup(canonical(filename), filename);
+    const entry = state.lookup(
+      canonical(filename),
+      typeof request === "string" ? request : filename,
+    );
     if (entry === BYPASSED || isExecutingManualMock(entry)) return NONE;
     if (entry !== undefined) {
       // The package's own relative load of its entry is the real module (as above).
@@ -1527,7 +1610,9 @@ function installLoadHook(state) {
   nodeMockForRegistry.markFor = (file, request, parentFile) => {
     if (!nodeMocks) return null;
     const parent = { filename: parentFile };
-    const jestEntry = state.entryOf(canonical(file));
+    const jestEntry = state.entryFor(canonical(file), request);
+    // A package's own relative import of a file a root mock covers is real (entryFor).
+    if (jestEntry === BYPASSED) return null;
     if (jestEntry !== undefined) return markOf(jestEntry);
     if (pendingCount() > 0 && assertNoPendingMockOf(state, file, request, parent)) return null;
     const index = vitestMocks();

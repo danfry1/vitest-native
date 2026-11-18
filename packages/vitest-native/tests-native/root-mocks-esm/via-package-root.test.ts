@@ -1,11 +1,8 @@
-// The mocked file reached first by the package's own relative import (its root module
-// re-exports ./cid.js), with nothing importing vn-esm-only-lib/cid by name: a mock
-// applies by file, whatever request reaches it (#896). Jest itself matches a root mock
-// with no jest.mock call by name, so its relative import would be real; jestMockTransform
-// registers each root mock with jest.mock, which this engine keys by file, as Jest keys
-// an explicit jest.mock.
+// The mocked file reached only by the package's own relative import (its root module
+// re-exports ./cid.js), with nothing importing vn-esm-only-lib/cid by name. Jest matches
+// a root mock by request name, so that relative import is the real module (#899).
 import { CID } from "vn-esm-only-consumer/via-root";
 
-it("serves the root mock to a relative import of the mocked file", () => {
-  expect(CID.parse("bafy").source).toBe("mock");
+it("loads the real module for a package's own relative import of a root-mocked file", () => {
+  expect(CID.parse("bafy").source).toBe("real");
 });
