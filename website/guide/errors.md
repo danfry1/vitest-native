@@ -161,7 +161,7 @@ A `jest.mock` factory requires the module it mocks, directly or through somethin
 
 ### `JEST_MOCK_MISSING_EXPORT` {#JEST_MOCK_MISSING_EXPORT}
 
-A module that Node loads called an export that a `jest.mock` it was given does not provide, so the module failed while it loaded. For example, `expo-constants` calls `requireOptionalNativeModule` from `expo-modules-core`, and a `jest.mock('expo-modules-core', () => ({ … }))` without it fails the load. The message names the module, the export, the mock and the file that registered it, and keeps the original `… is not a function` error as its cause. A factory's object is the whole module, as under Jest, so the export is not filled in. Add the export to the mock, or build the mock on the real module: `jest.mock('x', () => ({ ...jest.requireActual('x'), … }))`.
+A module that Node loads called an export that a `jest.mock` it was given does not provide, so the module failed while it loaded. For example, `expo-constants` calls `requireOptionalNativeModule` from `expo-modules-core`, and a `jest.mock('expo-modules-core', () => ({ … }))` without it fails the load. The message names the module, the export, the mock and the file that registered it (for a `__mocks__` mock, its file), and keeps the original `… is not a function` error as its cause. A factory's object is the whole module, as under Jest, so the export is not filled in. Add the export to the mock, or build the mock on the real module: `jest.mock('x', () => ({ ...jest.requireActual('x'), … }))`.
 
 ### `REQUIRE_ACTUAL_ALIAS_UNSUPPORTED` {#REQUIRE_ACTUAL_ALIAS_UNSUPPORTED}
 

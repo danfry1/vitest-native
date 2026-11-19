@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { nodeRegistry } from "../src/jest-compat/node-registry.mjs";
+import { MANUAL_MOCK_FACTORY, nodeRegistry } from "../src/jest-compat/node-registry.mjs";
 
 const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-partial-")));
 const write = (rel: string, text: string) => {
@@ -45,6 +45,11 @@ consumer(
   "own-bug",
   'require("core");\nvar _other = {};\nmodule.exports = (0, _other.requireOptional)();\n',
 );
+
+// `outer` is served the mock and then loads `inner`, whose own `_core` is not the mock.
+consumer("inner", "var _core = {};\nmodule.exports = (0, _core.requireOptional)();\n");
+consumer("outer", 'var _core = require("core");\nrequire("inner");\nmodule.exports = _core;\n');
+const manualMock = write("__mocks__/core.js", "exports.Emitter = function Emitter() {};");
 
 const registry = nodeRegistry();
 const load = createRequire(appFile);
@@ -125,6 +130,39 @@ describe("a module Node loads under a partial jest.mock", () => {
     const error = caught(() => loadFresh("calls-missing"));
     expect(error.code).toBeUndefined();
     expect(error.message).toMatch(/requireOptional\) is not a function/);
+  });
+
+  it("names the module whose code threw, not a module that loaded it", () => {
+    registry.register(setupFile, "core", () => ({}));
+    const error = caught(() => loadFresh("outer"));
+    expect(error.code).toBeUndefined();
+    expect(error.message).toMatch(/_core\.requireOptional\) is not a function/);
+  });
+
+  // jest.doMock with a new factory: the error names the factory that is now the mock.
+  it("names the current factory, not one it replaced", () => {
+    registry.register(setupFile, "core", () => ({}));
+    caught(() => loadFresh("calls-missing"));
+    registry.register(appFile, "core", () => ({}));
+    const error = caught(() => loadFresh("calls-missing"));
+    expect(error.message).toContain(`factory in ${appFile} `);
+  });
+
+  // jest.resetModules(): what each file was served before the reset is forgotten with it.
+  it("forgets what was served at jest.resetModules()", () => {
+    registry.register(setupFile, "core", () => ({ requireOptional: () => "mocked" }));
+    loadFresh("calls-missing");
+    expect(registry.served.size).toBeGreaterThan(0);
+    registry.resetModules();
+    expect(registry.served.size).toBe(0);
+  });
+
+  it("names a manual mock's file", () => {
+    const factory = { [MANUAL_MOCK_FACTORY]: () => load(manualMock) }[MANUAL_MOCK_FACTORY];
+    registry.register(appFile, "core", factory);
+    const error = caught(() => loadFresh("calls-missing"));
+    expect(error.code).toBe("JEST_MOCK_MISSING_EXPORT");
+    expect(error.message).toContain(`the manual mock of 'core' (${manualMock})`);
   });
 
   it("leaves the same error alone with no mock", () => {

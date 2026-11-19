@@ -650,9 +650,9 @@ function createState() {
     return dropped;
   };
 
-  const allEntries = () => [
+  const allEntries = (state.allEntries = () => [
     ...new Set([...state.entries.values(), ...state.unresolved.values(), ...state.byName.values()]),
-  ];
+  ]);
   const forget = (entry) => {
     entry.has = false;
     entry.value = undefined;
@@ -675,6 +675,7 @@ function createState() {
     state.isolation = null;
     state.dropProjectModules();
     allEntries().forEach(forget);
+    state.served.clear();
     return Boolean(modules);
   };
 
@@ -1383,6 +1384,17 @@ function displayPath(file) {
   return file.startsWith("file:") ? fileURLToPath(file) : file;
 }
 
+/** Errors a load step has looked at already (missingExportError). */
+const examinedErrors = new WeakSet();
+
+/** ` (<file>)` for the `__mocks__` file whose exports are `value`, or "". */
+function manualMockFileOf(value) {
+  for (const id of Object.keys(Module._cache)) {
+    if (Module._cache[id]?.exports === value) return ` (${id})`;
+  }
+  return "";
+}
+
 /**
  * The names compiled code may call a binding of `entry`'s module after: its spec, the
  * spec's last segment, and the mocked file's package and file name.
@@ -1405,9 +1417,12 @@ function namesOf(entry) {
  * The export is not filled in: a factory's object is the whole module, as under Jest.
  */
 function missingExportError(state, error, request, parent) {
-  if (state.served.size === 0 || !(error instanceof TypeError) || isVitestNativeError(error)) {
-    return null;
-  }
+  if (!(error instanceof TypeError) || isVitestNativeError(error)) return null;
+  // Only the innermost load an error passes through is the module whose code threw it:
+  // an outer load that was served the same mock is not the one that called it.
+  if (examinedErrors.has(error)) return null;
+  examinedErrors.add(error);
+  if (state.served.size === 0) return null;
   const match = IMPORTED_NOT_CALLABLE.exec(error.message);
   if (match === null) return null;
   const file = state.resolve(request, parent);
@@ -1415,7 +1430,11 @@ function missingExportError(state, error, request, parent) {
   if (served === undefined) return null;
   const [, binding, name] = match;
   const word = bindingWord(binding);
+  // A mock jest.doMock replaced, or one served before jest.resetModules(), is no longer
+  // the module's mock.
+  const current = new Set(state.allEntries());
   for (const entry of served) {
+    if (!current.has(entry)) continue;
     const value = entry.value;
     if (
       !entry.has ||
@@ -1428,7 +1447,7 @@ function missingExportError(state, error, request, parent) {
     const spec = entry.spec;
     if (!namesOf(entry).some((named) => bindingWord(named) === word)) continue;
     const mock = entry.manual
-      ? `the manual mock of '${spec}'`
+      ? `the manual mock of '${spec}'${manualMockFileOf(value)}`
       : `the jest.mock('${spec}') factory${typeof entry.from === "string" ? ` in ${displayPath(entry.from)}` : ""}`;
     return new VitestNativeTypeError(
       "JEST_MOCK_MISSING_EXPORT",
