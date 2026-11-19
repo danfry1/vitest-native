@@ -456,6 +456,23 @@ describe("ecosystem detection: whose closure gets walked", () => {
     expect(detected).not.toContain("toolchain-helpers");
   });
 
+  it("reports the dependencies of a package only a sibling declares, with that package (#883)", () => {
+    const found: [string, string, string][] = [];
+    detectEcosystemPackages(
+      path.join(workspaceWithSibling(), "packages", "lib"),
+      [],
+      [],
+      [],
+      undefined,
+      undefined,
+      { onScanFoundDependency: (dir, name, parent) => found.push([dir, name, parent]) },
+    );
+    expect(found.map(([, name, parent]) => [name, parent])).toContainEqual([
+      "toolchain-helpers",
+      "heavy-app",
+    ]);
+  });
+
   it("still walks the closure of a package the project declares", () => {
     // The discriminating half: this is what the closure walk exists for, and the
     // filter must not cost it.

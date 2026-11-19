@@ -66,7 +66,8 @@ function app() {
     root,
     "plain-dep",
     { name: "plain-dep", dependencies: { "nested-jsx": "*" } },
-    "exports.load = () => require('nested-jsx');\n",
+    // At the top level: a failure in nested-jsx passes through plain-dep's own load.
+    "const nested = require('nested-jsx');\nexports.load = () => nested;\n",
   );
   const nestedJsx = pkg(root, "plain-dep/node_modules/nested-jsx", { name: "nested-jsx" }, JSX);
   return { root, jsxDep, nestedJsx };
@@ -151,6 +152,22 @@ describe("a dependency of an installed React Native package nothing declares (#8
       expect(loaded[which].message).toContain(`reactNative({ transform: ['${dep}'] })`);
       expect(loaded[which].message).toContain("declare 'rn-undeclared'");
     }
+  });
+
+  it("does not blame a dependency that ran for a failure in a file it requires", () => {
+    // plain-dep is recorded and runs as published; nested-jsx, which it requires, is not
+    // recorded here. Its failure (already explained, for nested-jsx) must reach the test
+    // as it is, not be wrapped again as plain-dep's.
+    const { root } = app();
+    const { detected, found } = detect(root);
+    const loaded = loadUnderHooks(
+      root,
+      found.filter(([, name]) => name !== "nested-jsx"),
+      detected,
+    );
+    expect(loaded.nested.code).toBeUndefined();
+    expect(loaded.nested.message).toContain("'nested-jsx' shipped source Node can't run");
+    expect(loaded.nested.message).not.toContain("'plain-dep'");
   });
 
   it("names a remedy that compiles the dependency", () => {

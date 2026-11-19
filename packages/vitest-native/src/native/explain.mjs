@@ -74,6 +74,9 @@ export function explainUntransformedSyntaxError(err, file) {
 function untranspiledFailure(err) {
   return (
     !!err &&
+    // Already explained, for the file that failed: a file that requires it ran, and is not
+    // to blame.
+    !String(err.message).startsWith("[vitest-native]") &&
     ((err.name === "SyntaxError" && UNTRANSPILED_SYNTAX.test(String(err.message))) ||
       (err.name === "ReferenceError" && ESM_SCOPE_REFERENCE.test(String(err.message))))
   );

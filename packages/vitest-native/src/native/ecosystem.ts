@@ -627,9 +627,11 @@ export interface ReachedPackages {
     listed: "devDependency" | "undeclared",
   ) => void;
   /**
-   * Called once per installed directory a package found only by the installed scan
-   * (undeclared, #688) depends on, directly or not, whose package is not compiled: `dir`,
-   * the package's `name`, and `parent`, the scan-found package that pulled it in. Their
+   * Called once per installed directory that a detected package whose dependencies are not
+   * walked depends on, directly or not, whose package is not compiled: `dir`, the
+   * package's `name`, and `parent`, the detected package that pulled it in. That is a
+   * package found only by the installed scan (undeclared, #688), or declared only by a
+   * sibling. Their
    * dependencies are not walked (#883); Node fails a file of one by name if it cannot
    * run as published (UNDECLARED_DEPENDENCY_UNCOMPILED in native/hooks.mjs).
    */
@@ -1004,7 +1006,6 @@ export function detectEcosystemPackages(
       installedOf(name),
     ]),
   );
-  const scanFound: [string, Installed][] = [];
   for (const name of installedReactNativeCandidates(declaringDirs)) {
     if (candidates.has(name) || held.has(name) || skip.has(name)) continue;
     // Detecting `expo` installs Expo's runtime for the whole run (installExpoRuntime), so it
@@ -1014,10 +1015,7 @@ export function detectEcosystemPackages(
     if (name.startsWith("@react-native/") || rnOwned.has(name) || toolchain.has(name)) continue;
     const installed = installedOf(name);
     if (!installed || !NODE_MODULES_DIR.test(installed.dir) || ownsTheRun(name)) continue;
-    if (dependsOnReactNative(installed.manifest)) {
-      detected.push(name);
-      scanFound.push([name, installed]);
-    }
+    if (dependsOnReactNative(installed.manifest)) detected.push(name);
   }
   const detectedSet = new Set(detected);
   const inClosure = new Set(detected);
@@ -1107,8 +1105,7 @@ export function detectEcosystemPackages(
         // files its runtime entries reach (runtimeImports). That last test is what makes it
         // reached: expo-constants lists `expo` as a required peer and names it only in its
         // config plugin, scripts and types, and a library that only dev-depends on
-        // expo-constants must not compile expo (and get Expo's runtime). An optional peer is not followed: those grew one Expo app from
-        // 157 to 206 compiled packages (expo's web peers), and the app never loads them.
+        // expo-constants must not compile expo (and get Expo's runtime).
         const loadedReactNativePeer =
           !detectedSet.has(peer) &&
           dependsOnReactNative(installed.manifest) &&
@@ -1265,16 +1262,18 @@ export function detectEcosystemPackages(
     }
   }
 
-  // The dependencies of packages found only by the installed scan, which are not walked
-  // (#883). Walking them grew a project that declares little and shares node_modules with
+  // The dependencies of detected packages that are not walked (#883): one found only by
+  // the installed scan, or declared only by a sibling. Walking them grew a project that declares little and shares node_modules with
   // an app (17 to 137 packages, each scan-found package's whole closure), which is the
   // cost the scan avoided. They are reported instead, so that Node fails a file of one by
   // name, naming the package that pulled it in, when it cannot run as published.
   if (onScanFoundDependency) {
     const reported = new Set<string>();
-    const pending: [Installed, string][] = scanFound
-      .filter(([, installed]) => !walked.has(installed.dir))
-      .map(([name, installed]) => [installed, name]);
+    const pending: [Installed, string][] = [];
+    for (const name of detected) {
+      const installed = installedOf(name);
+      if (installed && !walked.has(installed.dir)) pending.push([installed, name]);
+    }
     while (pending.length > 0) {
       const [pkg, parent] = pending.pop() as [Installed, string];
       const deps = pkg.manifest.dependencies;
