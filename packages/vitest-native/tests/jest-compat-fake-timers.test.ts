@@ -70,6 +70,10 @@ describe("toVitestFakeTimersConfig", () => {
     expect(
       translate({ doNotFake: ["setInterval"], toNotFake: ["hrtime"] }, project).toNotFake,
     ).toEqual(["setInterval", "nextTick", "hrtime"]);
+    // Under legacy timers too, the call's toNotFake stays real.
+    expect(
+      translate({ legacyFakeTimers: true, toNotFake: ["setTimeout"] }, project).toNotFake,
+    ).toContain("setTimeout");
     // A toFake the call passes itself is left as given, as vi.useFakeTimers leaves it.
     expect(translate({ toFake: ["setTimeout"] }, project).toFake).toEqual(["setTimeout"]);
   });
@@ -149,6 +153,10 @@ describe("toVitestFakeTimersConfig", () => {
         "cancelAnimationFrame",
       ],
     });
+    // A call's own toNotFake stays real, as one list: sinon refuses toFake beside it.
+    const withReal = translate({ legacyFakeTimers: true, toNotFake: ["setTimeout"] });
+    expect(withReal).not.toHaveProperty("toNotFake");
+    expect(withReal.toFake).toEqual((out.toFake as string[]).filter((api) => api !== "setTimeout"));
     expect(translate({ legacyFakeTimers: false, advanceTimers: true })).toEqual(
       translate({ advanceTimers: true }),
     );

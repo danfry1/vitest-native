@@ -272,7 +272,11 @@ export function toVitestFakeTimersConfig(config, realNow = Date.now, projectFake
   const out = { ...rest, loopLimit: loopLimitOf(timerLimit) };
   if (legacyFakeTimers) {
     // Legacy timers take no options of their own: no auto-advance, no clock to set.
-    const legacy = { ...out, shouldAdvanceTime: false, toFake: [...LEGACY_FAKED] };
+    // A call's own Vitest `toNotFake` stays real, as beside doNotFake below.
+    const real = new Set(rest.toNotFake ?? []);
+    const { toNotFake: _, ...legacy } = out;
+    legacy.shouldAdvanceTime = false;
+    legacy.toFake = LEGACY_FAKED.filter((api) => !real.has(api));
     return besideProject(legacy, rest, projectFakeTimers);
   }
   if (advanceTimers !== undefined) {
