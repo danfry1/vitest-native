@@ -557,6 +557,31 @@ describe("background registry build", () => {
       }
     });
 
+    it("records a shared build whose compiler throws, so no waiter compiles again", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const options = coldOptions("thrown-waits");
+        let fail = (_error: Error) => {};
+        const throwing = vi.fn(
+          () =>
+            new Promise<never>((_resolve, reject) => {
+              fail = reject;
+            }),
+        );
+        const waits = [
+          buildRegistryFor(options, throwing),
+          buildRegistryFor({ ...options }, throwing),
+        ];
+        await Promise.resolve();
+        fail(new Error("compiler threw (#920)"));
+        expect(await Promise.all(waits)).toEqual([null, null]);
+        expect(await buildRegistryFor(options, throwing)).toBeNull();
+        expect(throwing).toHaveBeenCalledTimes(1);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
     /** A project whose library entry resolves, so the library registry can be missing. */
     function withLibrary(name: string) {
       const options = coldOptions(name);
