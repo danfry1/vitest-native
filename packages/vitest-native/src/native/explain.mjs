@@ -102,10 +102,11 @@ export function explainUncompiledDependency(err, file, entries) {
   const dir = norm.slice(0, at + name.length);
   const entry = entries.find(([d]) => d.replace(/\\/g, "/") === dir);
   if (!entry) return null;
-  const [, dep, parent] = entry;
+  // The directory as recorded, in the platform's own spelling.
+  const [recorded, dep, parent] = entry;
   return new VitestNativeError(
     "UNDECLARED_DEPENDENCY_UNCOMPILED",
-    `'${dep}' (${dir}) ships source Node can't run directly (${err.message} in ${file}). ` +
+    `'${dep}' (${recorded}) ships source Node can't run directly (${err.message} in ${file}). ` +
       `It is a dependency of '${parent}', an installed React Native package this project ` +
       `does not declare, and vitest-native compiles the dependencies of the packages a ` +
       `project declares. Compile it:\n\n` +
