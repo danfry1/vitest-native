@@ -412,21 +412,53 @@ export async function buildRegistryFor(options, compiler = compileRegistryInChil
     // A miss: the run waits from here, for a build or a failed entry's quick return.
     stopNotice = noticeIfSlow();
 
-    // A background build of the same entry is already running in this process (another
-    // project in the run, or a config reload): wait for it instead of compiling twice.
-    // It was started for its own project's library entries, so read the cache for these
-    // options afterwards, and compile what is still missing.
-    const joined = inFlight.get(location.registryFile);
-    if (joined) {
-      await joined.done;
+    // Another wait for the same entry (projects initialise concurrently), or a background
+    // build of it (another project in the run, or a config reload), is already running in
+    // this process: wait for it instead of compiling twice (#920). A wait for the same
+    // library entries takes its result as is. Otherwise it was built for another project's
+    // library entries, so read the cache for these options afterwards, and compile what is
+    // still missing.
+    const file = location.registryFile;
+    const libraries = libraryEntriesKey(options);
+    for (;;) {
+      const sharedWait = waiting.get(file);
+      const joined = sharedWait?.done ?? inFlight.get(file)?.done;
+      if (!joined) break;
+      const shared = await joined;
+      if (sharedWait?.libraries === libraries) return shared;
       const after = cachedRegistries(options, location);
       if (after.complete) {
         if (after.libraryError) _warnRegistryUnavailable(after.libraryError);
         return { registry: after.registry, libraryRegistry: after.libraryRegistry };
       }
+      if (failed.has(file)) return null;
     }
 
-    if (failed.has(location.registryFile)) return null;
+    if (failed.has(file)) return null;
+    const done = compileForWait(options, location, compiler).finally(() => waiting.delete(file));
+    waiting.set(file, { done, libraries });
+    return await done;
+  } catch (error) {
+    _warnRegistryUnavailable(error?.message ?? error);
+    return null;
+  } finally {
+    stopNotice();
+  }
+}
+
+/** Waits compiling now, by registry file: `{ done, libraries }` (buildRegistryFor). */
+const waiting = new Map();
+
+function libraryEntriesKey(options) {
+  return JSON.stringify(options.libraryEntries ?? []);
+}
+
+/**
+ * Compile a cache miss for a wait and validate it, recording a failure (failed) so that
+ * every wait sharing this build, and every later one, falls back at once.
+ */
+async function compileForWait(options, location, compiler) {
+  try {
     const result = await compiler(COMPILER_FILE(), compilerInput(options));
 
     // Validate through the same cache contract every reader uses instead of
@@ -478,9 +510,8 @@ export async function buildRegistryFor(options, compiler = compileRegistryInChil
     );
     return null;
   } catch (error) {
+    failed.add(location.registryFile);
     _warnRegistryUnavailable(error?.message ?? error);
     return null;
-  } finally {
-    stopNotice();
   }
 }
