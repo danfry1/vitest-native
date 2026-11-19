@@ -203,22 +203,17 @@ export function libraryJestFor(vi, file) {
     });
     return jest;
   };
-  jest = createJestObject(
-    vi,
-    {
-      fn,
-      mock,
-      doMock: mock,
-      unmock: (spec) => {
-        registry().unregister(file, spec);
-        return jest;
-      },
-      requireActual: (spec) => registry().require(spec, file, true),
-      requireMock: (spec) => registry().require(spec, file, false),
+  jest = createJestObject(vi, {
+    fn,
+    mock,
+    doMock: mock,
+    unmock: (spec) => {
+      registry().unregister(file, spec);
+      return jest;
     },
-    // jest.useFakeTimers() as the suite's own: the project's test.fakeTimers choice holds.
-    { projectFakesTimerApis: projectContext()?.fakeTimersApis === true },
-  );
+    requireActual: (spec) => registry().require(spec, file, true),
+    requireMock: (spec) => registry().require(spec, file, false),
+  });
   jestByFile.set(file, jest);
   return jest;
 }
