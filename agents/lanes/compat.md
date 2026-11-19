@@ -38,7 +38,7 @@ The Jest compatibility layer, library presets, the mock engine and matchers: eve
 
 ## Not ours (recognise these and send them back)
 - **App tests coupled to Jest's fakes:** `'View'` host names, a 1024-px window. The app should query by testID or role. Don't emulate the fake outside jest-compat. jest-compat models the preset, so it mirrors the preset's View class (`instanceof View`, `View.prototype`) because suites depend on it.
-- **Partial `jest.mock`s hidden by `lazyImports`.** A plain `require` throws the same error.
+- **Partial `jest.mock`s hidden by `lazyImports`.** A plain `require` throws the same error. A module Node loads that calls an export the mock leaves out fails as `JEST_MOCK_MISSING_EXPORT`, naming the mock and the export (#886). Never fill the export in.
 - **A `requireActual` spread that needs the worklets Babel plugin**, just as it does under Jest.
 - **Snapshots re-recorded under an old bug.** Score against the upstream Jest snapshots.
 
