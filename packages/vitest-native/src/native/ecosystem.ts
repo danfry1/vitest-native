@@ -626,6 +626,14 @@ export interface ReachedPackages {
     dir: string,
     listed: "devDependency" | "undeclared",
   ) => void;
+  /**
+   * Called once per installed directory a package found only by the installed scan
+   * (undeclared, #688) depends on, directly or not, whose package is not compiled: `dir`,
+   * the package's `name`, and `parent`, the scan-found package that pulled it in. Their
+   * dependencies are not walked (#883); Node fails a file of one by name if it cannot
+   * run as published (UNDECLARED_DEPENDENCY_UNCOMPILED in native/hooks.mjs).
+   */
+  onScanFoundDependency?: (dir: string, name: string, parent: string) => void;
   /** Called when the scan of a package's imports stopped at the file limit. */
   onImportScanTruncated?: (pkg: string, limit: number) => void;
   /**
@@ -676,6 +684,7 @@ export function detectEcosystemPackages(
     onReachedUndeclared,
     onImportedUndeclared,
     onImportScanTruncated,
+    onScanFoundDependency,
     importScanLimit = MAX_RUNTIME_FILES,
     compileReactNativeFieldSource,
   }: ReachedPackages = {},
@@ -984,7 +993,8 @@ export function detectEcosystemPackages(
   // left undetected Vite evaluated it again for the test's imports: two copies of every
   // file, with separate state. Detected, it is Node's, as a declared one is (ADR-0004
   // rule 5). Its own dependencies are not walked (closure seeds come from declarations,
-  // below), so an unrelated sibling's package costs nothing until something loads it.
+  // below), so an unrelated sibling's package costs nothing until something loads it; they
+  // are reported instead (onScanFoundDependency, at the end).
   // Not a package reachable only through one an active preset shadows or transform.exclude
   // names: its real source never loads, or the project took it out on purpose. Installed
   // packages only (a real path inside node_modules): a workspace member keeps its rules.
@@ -994,6 +1004,7 @@ export function detectEcosystemPackages(
       installedOf(name),
     ]),
   );
+  const scanFound: [string, Installed][] = [];
   for (const name of installedReactNativeCandidates(declaringDirs)) {
     if (candidates.has(name) || held.has(name) || skip.has(name)) continue;
     // Detecting `expo` installs Expo's runtime for the whole run (installExpoRuntime), so it
@@ -1003,16 +1014,22 @@ export function detectEcosystemPackages(
     if (name.startsWith("@react-native/") || rnOwned.has(name) || toolchain.has(name)) continue;
     const installed = installedOf(name);
     if (!installed || !NODE_MODULES_DIR.test(installed.dir) || ownsTheRun(name)) continue;
-    if (dependsOnReactNative(installed.manifest)) detected.push(name);
+    if (dependsOnReactNative(installed.manifest)) {
+      detected.push(name);
+      scanFound.push([name, installed]);
+    }
   }
   const detectedSet = new Set(detected);
   const inClosure = new Set(detected);
+  // By installed directory, not by name: a package installed twice (hoisted, and nested
+  // where another version is needed) loads each copy's own dependencies, so each copy is
+  // walked. Keyed by name, only the copy the walk reached first was (#883).
   const walked = new Set<string>();
   const queue: Installed[] = [];
   const reach = (name: string, installed: Installed) => {
     inClosure.add(name);
-    if (walked.has(name)) return;
-    walked.add(name);
+    if (walked.has(installed.dir)) return;
+    walked.add(installed.dir);
     queue.push(installed);
   };
   for (const name of detected) {
@@ -1035,8 +1052,8 @@ export function detectEcosystemPackages(
   for (const name of explicit) {
     if (neverSeeded.has(name)) continue;
     const installed = installedOf(name);
-    if (!installed || walked.has(name)) continue;
-    walked.add(name);
+    if (!installed || walked.has(installed.dir)) continue;
+    walked.add(installed.dir);
     queue.push(installed);
   }
   /** A dependency or peer the walk may not take, whatever its manifest says. */
@@ -1063,9 +1080,10 @@ export function detectEcosystemPackages(
       const pkg = queue.pop() as Installed;
       const deps = pkg.manifest.dependencies;
       for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
-        if (walked.has(dep) || excluded(dep)) continue;
+        if (excluded(dep)) continue;
         const installed = dependencyOf(pkg, dep);
         if (!installed) continue; // declared but not installed
+        if (walked.has(installed.dir)) continue;
         // A detected package stays in the set whatever it publishes; this test is for
         // members the closure alone brings in.
         if (!inClosure.has(dep) && publishesOnlyEsm(installed.manifest)) continue;
@@ -1076,9 +1094,13 @@ export function detectEcosystemPackages(
         | Record<string, { optional?: unknown } | undefined>
         | undefined;
       for (const peer of peers && typeof peers === "object" ? Object.keys(peers as object) : []) {
-        if (walked.has(peer) || excluded(peer)) continue;
+        // One rule for every peer, however the peer was detected (#883): an optional peer
+        // is never an edge. Those grew one Expo app from 157 to 206 compiled packages
+        // (expo's web peers), and the app never loads them. A package the project
+        // declares is walked as a seed in its own right, optional peer or not.
+        if (peersMeta?.[peer]?.optional === true || excluded(peer)) continue;
         const installed = dependencyOf(pkg, peer);
-        if (!installed || !admits(installed)) continue;
+        if (!installed || !admits(installed) || walked.has(installed.dir)) continue;
         // Into a detected package, as always; and into a React Native peer that nothing
         // declares but that the package loads: required, installed beside it (pnpm, npm 7+
         // and bun install a required peer themselves), and required or imported by the
@@ -1089,7 +1111,6 @@ export function detectEcosystemPackages(
         // 157 to 206 compiled packages (expo's web peers), and the app never loads them.
         const loadedReactNativePeer =
           !detectedSet.has(peer) &&
-          peersMeta?.[peer]?.optional !== true &&
           dependsOnReactNative(installed.manifest) &&
           runtimeImports(pkg.dir, pkg.manifest).has(peer);
         if (detectedSet.has(peer) || loadedReactNativePeer) reach(peer, installed);
@@ -1125,9 +1146,10 @@ export function detectEcosystemPackages(
         if (scanned.truncated)
           onImportScanTruncated?.(pkg.manifest.name as string, importScanLimit);
         for (const name of scanned.names) {
-          if (declared.has(name) || walked.has(name) || excluded(name)) continue;
+          if (declared.has(name) || excluded(name)) continue;
           const installed = dependencyOf(pkg, name);
           if (!installed || NODE_MODULES_DIR.test(installed.dir) || !admits(installed)) continue;
+          if (walked.has(installed.dir)) continue;
           // The gate the declared edge applies: a member that publishes only ES modules
           // runs as published (see publishesOnlyEsm), declared or not.
           if (!inClosure.has(name) && publishesOnlyEsm(installed.manifest)) continue;
@@ -1200,9 +1222,9 @@ export function detectEcosystemPackages(
   for (const member of reachedMembers.values()) {
     const deps = member.manifest.dependencies;
     for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
-      if (walked.has(dep) || excluded(dep) || !detectedSet.has(dep)) continue;
+      if (excluded(dep) || !detectedSet.has(dep)) continue;
       const installed = installedFrom(member.dir, dep);
-      if (installed) reach(dep, installed);
+      if (installed && !walked.has(installed.dir)) reach(dep, installed);
     }
   }
 
@@ -1239,6 +1261,30 @@ export function detectEcosystemPackages(
         !isPlainJavaScript(parse, file)
       ) {
         inClosure.add(name);
+      }
+    }
+  }
+
+  // The dependencies of packages found only by the installed scan, which are not walked
+  // (#883). Walking them grew a project that declares little and shares node_modules with
+  // an app (17 to 137 packages, each scan-found package's whole closure), which is the
+  // cost the scan avoided. They are reported instead, so that Node fails a file of one by
+  // name, naming the package that pulled it in, when it cannot run as published.
+  if (onScanFoundDependency) {
+    const reported = new Set<string>();
+    const pending: [Installed, string][] = scanFound
+      .filter(([, installed]) => !walked.has(installed.dir))
+      .map(([name, installed]) => [installed, name]);
+    while (pending.length > 0) {
+      const [pkg, parent] = pending.pop() as [Installed, string];
+      const deps = pkg.manifest.dependencies;
+      for (const dep of deps && typeof deps === "object" ? Object.keys(deps as object) : []) {
+        if (excluded(dep)) continue;
+        const installed = dependencyOf(pkg, dep);
+        if (!installed || walked.has(installed.dir) || reported.has(installed.dir)) continue;
+        reported.add(installed.dir);
+        if (!inClosure.has(dep)) onScanFoundDependency(installed.dir, dep, parent);
+        pending.push([installed, parent]);
       }
     }
   }

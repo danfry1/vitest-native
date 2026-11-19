@@ -271,6 +271,89 @@ describe("ecosystem detection: an installed React Native package nothing declare
   });
 });
 
+/**
+ * Two installed copies of one package (#883): hoisted, and nested under the package that
+ * needs another version. Each copy's own dependencies load with it, so both are walked.
+ * The walk was keyed by name, so whichever copy it reached first was the only one walked.
+ */
+describe("ecosystem detection: a nested copy of a dependency", () => {
+  /** Write `node_modules/<parent>/node_modules/<name>` with its own dependencies. */
+  function nested(root: string, parent: string, name: string, deps: string[]) {
+    const dir = path.join(root, "node_modules", parent, "node_modules", name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({
+        name,
+        version: "2.0.0",
+        main: "index.js",
+        dependencies: Object.fromEntries(deps.map((d) => [d, "*"])),
+      }),
+    );
+    fs.writeFileSync(path.join(dir, "index.js"), "module.exports = {};");
+  }
+
+  it.each([
+    ["hoisted user first", ["rn-hoisted-user", "rn-nested-user"]],
+    ["nested user first", ["rn-nested-user", "rn-hoisted-user"]],
+  ])("walks the dependencies of each copy (%s)", (_order, declares) => {
+    const root = project(declares, {
+      "react-native": {},
+      "rn-hoisted-user": { peerDeps: ["react-native"], deps: ["shared-lib"] },
+      "rn-nested-user": { peerDeps: ["react-native"], deps: ["shared-lib"] },
+      "shared-lib": { deps: ["only-hoisted-needs"] },
+      "only-hoisted-needs": {},
+      "only-nested-needs": {},
+    });
+    nested(root, "rn-nested-user", "shared-lib", ["only-nested-needs"]);
+    const detected = detectEcosystemPackages(root);
+    expect(detected).toContain("shared-lib");
+    expect(detected).toContain("only-hoisted-needs");
+    expect(detected).toContain("only-nested-needs");
+  });
+});
+
+/**
+ * One rule for peers (#883): a peer edge never follows an optional peer, however the peer
+ * was detected. The installed scan detects an installed React Native optional peer on its
+ * own, and the edge into a detected package then walked its whole closure.
+ */
+describe("ecosystem detection: an optional peer", () => {
+  function withPeer(optional: boolean) {
+    const root = project(["rn-lib"], {
+      "react-native": {},
+      "rn-lib": { peerDeps: ["react-native", "rn-peer"] },
+      "rn-peer": { peerDeps: ["react-native"], deps: ["peer-only-dep"] },
+      "peer-only-dep": {},
+    });
+    const manifest = path.join(root, "node_modules", "rn-lib", "package.json");
+    const lib = JSON.parse(fs.readFileSync(manifest, "utf8"));
+    if (optional) lib.peerDependenciesMeta = { "rn-peer": { optional: true } };
+    fs.writeFileSync(manifest, JSON.stringify(lib));
+    return root;
+  }
+
+  it("is detected when installed, and its dependencies are not walked", () => {
+    const detected = detectEcosystemPackages(withPeer(true));
+    expect(detected).toContain("rn-peer");
+    expect(detected).not.toContain("peer-only-dep");
+  });
+
+  it("is walked when the project declares it", () => {
+    const root = withPeer(true);
+    const manifest = path.join(root, "package.json");
+    fs.writeFileSync(
+      manifest,
+      JSON.stringify({ name: "app", dependencies: { "rn-lib": "*", "rn-peer": "*" } }),
+    );
+    expect(detectEcosystemPackages(root)).toContain("peer-only-dep");
+  });
+
+  it("is walked through a required peer edge into a detected package", () => {
+    expect(detectEcosystemPackages(withPeer(false))).toContain("peer-only-dep");
+  });
+});
+
 describe("ecosystem detection: an ESM-only closure member", () => {
   /** `project()` cannot express `type`/`exports`, so this writes the manifests. */
   function withEsmDependency(extra: Record<string, unknown>): string {

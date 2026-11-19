@@ -4,6 +4,7 @@
 // Pure functions; used by transform.mjs and hooks.mjs, unit-tested directly.
 
 import { docsUrl } from "../docs-url.mjs";
+import { VitestNativeError } from "../errors.mjs";
 
 /** The npm package name owning `file`, from its deepest node_modules segment, or null. */
 export function packageNameFromPath(file) {
@@ -65,11 +66,53 @@ const ESM_SCOPE_REFERENCE =
  * Returns a decorated error, or null when the failure doesn't match the pattern.
  */
 export function explainUntransformedSyntaxError(err, file) {
-  if (!err) return null;
-  const matches =
-    (err.name === "SyntaxError" && UNTRANSPILED_SYNTAX.test(String(err.message))) ||
-    (err.name === "ReferenceError" && ESM_SCOPE_REFERENCE.test(String(err.message)));
-  if (!matches) return null;
+  if (!untranspiledFailure(err)) return null;
+  return untransformedError(err, file);
+}
+
+/** Node's failure on source it can't run as published: the two shapes above. */
+function untranspiledFailure(err) {
+  return (
+    !!err &&
+    ((err.name === "SyntaxError" && UNTRANSPILED_SYNTAX.test(String(err.message))) ||
+      (err.name === "ReferenceError" && ESM_SCOPE_REFERENCE.test(String(err.message))))
+  );
+}
+
+/**
+ * When Node's compile of `file` fails as untranspiled source (a SyntaxError: nothing in the
+ * file ran) and the file belongs to a dependency of a package found only by the installed
+ * scan (#883), the error names that dependency and the package that pulled it in, with
+ * the option that compiles it. `entries` is the context's scanFoundDependencies:
+ * `[dir, name, parent]`. Null otherwise.
+ *
+ * Not compiled on demand instead: compiling only when Node fails is excluded (ADR-0006),
+ * and it would make the dependency Node-compiled for this load while Vite, for a test's
+ * own import of it, still owns and compiles it on its side: two instances.
+ */
+export function explainUncompiledDependency(err, file, entries) {
+  if (!entries?.length || err?.name !== "SyntaxError" || !untranspiledFailure(err)) return null;
+  const norm = String(file).replace(/\\/g, "/");
+  const name = packageNameFromPath(norm);
+  if (!name) return null;
+  const at = norm.lastIndexOf("/node_modules/") + "/node_modules/".length;
+  const dir = norm.slice(0, at + name.length);
+  const entry = entries.find(([d]) => d.replace(/\\/g, "/") === dir);
+  if (!entry) return null;
+  const [, dep, parent] = entry;
+  return new VitestNativeError(
+    "UNDECLARED_DEPENDENCY_UNCOMPILED",
+    `'${dep}' (${dir}) ships source Node can't run directly (${err.message} in ${file}). ` +
+      `It is a dependency of '${parent}', an installed React Native package this project ` +
+      `does not declare, and vitest-native compiles the dependencies of the packages a ` +
+      `project declares. Compile it:\n\n` +
+      `  reactNative({ transform: ['${dep}'] })\n\n` +
+      `in your vitest config, or declare '${parent}' in your package.json dependencies.`,
+    { cause: err, docs: docsUrl("/guide/errors#UNDECLARED_DEPENDENCY_UNCOMPILED") },
+  );
+}
+
+function untransformedError(err, file) {
   const pkg = packageNameFromPath(file);
   if (!pkg) return null;
   const cause =

@@ -2921,6 +2921,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // Workspace source the project imports through aliases (resolve.alias, and
         // tsconfig `paths` where Vite resolves them): a workspace member reached that way
         // has its dependencies walked like a declared one's.
+        // Dependencies of installed packages the run does not declare, which are not
+        // compiled: Node names them when a file of one cannot run (#883).
+        const scanFoundDependencies: [string, string, string][] = [];
         const ecosystem = detectEcosystemPackages(
           [resolvedRoot, ...includeRoots],
           transformPkgs,
@@ -2956,6 +2959,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
                     `imports share that copy; listing it in dependencies makes that explicit.`,
                 );
               }
+            },
+            onScanFoundDependency: (dir, name, parent) => {
+              scanFoundDependencies.push([dir, name, parent]);
             },
             onImportScanTruncated: (pkg, limit) => {
               if (diagnostics) {
@@ -2994,6 +3000,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         ].filter((dir) => !linkedDetectedDirs.some((detected) => containsPath(dir, detected)));
         if (projectDirs.length > 0) {
           fields.projectDirs = projectDirs;
+        }
+        if (scanFoundDependencies.length > 0) {
+          fields.scanFoundDependencies = scanFoundDependencies;
         }
         nativeOwnership = createNativeOwnershipPolicy({
           projectRoot: resolvedRoot,

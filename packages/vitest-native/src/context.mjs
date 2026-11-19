@@ -52,6 +52,11 @@ const SCHEMA = {
   },
   ownershipGuard: { valid: object },
   projectDirs: { valid: strings },
+  scanFoundDependencies: {
+    valid: (v) =>
+      Array.isArray(v) &&
+      v.every((e) => Array.isArray(e) && e.length === 3 && strings(e) && absolute(e[0])),
+  },
   requireAliases: {
     valid: (v) =>
       Array.isArray(v) && v.every((e) => Array.isArray(e) && e.length === 2 && strings(e)),

@@ -115,6 +115,41 @@ distinct request, and write each request answered differently as one JSON line t
 
 The ESM loader writes none. Without `diagnostics` the second resolution is not made.
 
+## Which installed packages Node compiles
+
+These rules apply with the flag on or off. Node owns, and compiles where needed, every
+installed package that depends on React Native, whether or not the project declares it
+(ADR-0004 rule 5). Two rules decide which other packages join that set:
+
+- **Dependencies are walked from what the run declares.** The packages the project
+  declares, packages named in `transform`, and the workspace members it reaches seed a walk
+  through runtime `dependencies`, and every package the walk reaches is compiled. Each
+  installed copy is walked: a package installed twice (hoisted, and nested where another
+  version is needed) loads each copy's own dependencies. The dependencies of a package
+  found only because it is installed are not walked. Walking them added each such
+  package's whole closure, which grew projects that declare little and share
+  `node_modules` with an app: a project that declares only React Native beside an Expo
+  app went from 17 packages to 137, and a library root with its example app from 24 to
+  140. Instead, when Node cannot compile a file of one of those dependencies, the run
+  fails with `UNDECLARED_DEPENDENCY_UNCOMPILED`, naming the dependency, the package that
+  pulled it in, and `transform: ['<dependency>']`.
+- **An optional peer is never followed,** however the peer was detected. A required
+  React Native peer is followed when the package loads it, and a peer that is detected in
+  its own right is followed. An optional peer joins the set only on its own merits: it is
+  detected, and its dependencies are walked only when the project declares it.
+
+Measured with these rules (packages Node compiles, before and after):
+
+| Project                                                 | Before | After |
+| ------------------------------------------------------- | ------ | ----- |
+| An installed Expo SDK 54 app with expo-router           | 332    | 333   |
+| A second Expo app                                       | 142    | 142   |
+| A project that declares only React Native, beside an app | 17     | 17    |
+| A library root with its example app                     | 24     | 24    |
+
+The one package added on the Expo app is the dependency of a second installed copy of a
+package, which the walk, keyed by name, used to skip.
+
 ## Precedence
 
 Unchanged from the flag off, in order: a test's `vi.mock`, a preset's shadow (virtual

@@ -1,0 +1,185 @@
+/**
+ * The dependencies of an installed React Native package the run does not declare (#883).
+ *
+ * The installed scan (#718) makes such a package Node's, and compiles it, but does not walk
+ * its dependencies: walking every scan-found package's closure grew a project that
+ * declares little and shares node_modules with an app from 17 to 137 packages. A dependency
+ * that ships source Node cannot run (JSX here, as react-native-animatable does) is then
+ * loaded raw. Node fails it by name, naming the package that pulled it in and the option
+ * that compiles it, before any of the file runs.
+ */
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { afterAll, describe, expect, it } from "vitest";
+import { detectEcosystemPackages } from "../src/native/ecosystem.js";
+// @ts-expect-error — internal runtime .mjs, intentionally not public API
+import { createNativeOwnershipPolicy } from "../src/native/ownership.mjs";
+
+const nativeDir = path.resolve(import.meta.dirname, "../src/native");
+const roots: string[] = [];
+afterAll(() => {
+  for (const root of roots) fs.rmSync(root, { recursive: true, force: true });
+});
+
+const JSX = "module.exports = () => <View />;\n";
+
+/** Write a package at `node_modules/<at>` (a path, so nested copies can be written). */
+function pkg(root: string, at: string, manifest: Record<string, unknown>, index: string) {
+  const dir = path.join(root, "node_modules", ...at.split("/"));
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "package.json"),
+    JSON.stringify({ version: "1.0.0", main: "index.js", ...manifest }),
+  );
+  fs.writeFileSync(path.join(dir, "index.js"), index);
+  return dir;
+}
+
+/**
+ * An app that declares only react-native. rn-undeclared is installed (hoisted) and
+ * undeclared; it depends on jsx-dep, which ships JSX and declares no react-native, and on
+ * plain-dep, which runs as published and has its own nested copy of nested-jsx.
+ */
+function app() {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-scan-found-")));
+  roots.push(root);
+  fs.writeFileSync(
+    path.join(root, "package.json"),
+    JSON.stringify({ name: "app", dependencies: { "react-native": "*" } }),
+  );
+  pkg(root, "react-native", { name: "react-native" }, "module.exports = {};\n");
+  pkg(
+    root,
+    "rn-undeclared",
+    {
+      name: "rn-undeclared",
+      peerDependencies: { "react-native": "*" },
+      dependencies: { "jsx-dep": "*", "plain-dep": "*" },
+    },
+    "exports.jsx = () => require('jsx-dep');\nexports.nested = () => require('plain-dep').load();\n",
+  );
+  const jsxDep = pkg(root, "jsx-dep", { name: "jsx-dep" }, JSX);
+  pkg(
+    root,
+    "plain-dep",
+    { name: "plain-dep", dependencies: { "nested-jsx": "*" } },
+    "exports.load = () => require('nested-jsx');\n",
+  );
+  const nestedJsx = pkg(root, "plain-dep/node_modules/nested-jsx", { name: "nested-jsx" }, JSX);
+  return { root, jsxDep, nestedJsx };
+}
+
+function detect(root: string) {
+  const found: [string, string, string][] = [];
+  const detected = detectEcosystemPackages(root, [], [], [], [], undefined, {
+    onScanFoundDependency: (dir, name, parent) => found.push([dir, name, parent]),
+  });
+  return { detected, found };
+}
+
+/** Require each of rn-undeclared's loaders under the real require hooks, in a fresh process. */
+function loadUnderHooks(root: string, scanFound: [string, string, string][], ecosystem: string[]) {
+  const source = `
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { installRequireHooks } from ${JSON.stringify(pathToFileURL(path.join(nativeDir, "hooks.mjs")).href)};
+import { createNativeOwnershipPolicy } from ${JSON.stringify(pathToFileURL(path.join(nativeDir, "ownership.mjs")).href)};
+import { writeProjectContext } from ${JSON.stringify(pathToFileURL(path.join(nativeDir, "..", "context.mjs")).href)};
+const root = ${JSON.stringify(root)};
+const policy = createNativeOwnershipPolicy({ projectRoot: root, ecosystemPackages: ${JSON.stringify(ecosystem)} });
+process.env.VITEST_NATIVE_CONTEXT = writeProjectContext({
+  platform: 'ios', diagnostics: false, projectRoot: root, ownership: policy.manifest(),
+  ${scanFound.length > 0 ? `scanFoundDependencies: ${JSON.stringify(scanFound)},` : ""}
+}, path.join(root, '.contexts'));
+installRequireHooks(root);
+const lib = createRequire(path.join(root, 'driver.cjs'))('rn-undeclared');
+const out = {};
+for (const which of ['jsx', 'nested']) {
+  try { lib[which](); out[which] = { loaded: true }; }
+  catch (e) { out[which] = { name: e.name, code: e.code, message: e.message }; }
+}
+process.stdout.write(JSON.stringify(out));
+`;
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("VITEST_NATIVE_") || ["NODE_OPTIONS", "NODE_PATH"].includes(key)) {
+      delete env[key];
+    }
+  }
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", source], {
+    env,
+    encoding: "utf8",
+    timeout: 20_000,
+  });
+  expect(child.stderr).toBe("");
+  return JSON.parse(child.stdout) as Record<
+    "jsx" | "nested",
+    { loaded?: true; name?: string; code?: string; message?: string }
+  >;
+}
+
+describe("a dependency of an installed React Native package nothing declares (#883)", () => {
+  it("is reported with the package that pulled it in, and not added to the set", () => {
+    const { root, jsxDep, nestedJsx } = app();
+    const { detected, found } = detect(root);
+    expect(detected).toContain("rn-undeclared");
+    expect(detected).not.toContain("jsx-dep");
+    expect(detected).not.toContain("plain-dep");
+    expect(detected).not.toContain("nested-jsx");
+    expect(found).toEqual(
+      expect.arrayContaining([
+        [jsxDep, "jsx-dep", "rn-undeclared"],
+        [nestedJsx, "nested-jsx", "rn-undeclared"],
+      ]),
+    );
+  });
+
+  it("fails by name when Node loads a JSX-shipping dependency or a nested copy", () => {
+    const { root, jsxDep, nestedJsx } = app();
+    const { detected, found } = detect(root);
+    const loaded = loadUnderHooks(root, found, detected);
+    for (const [which, dep, dir] of [
+      ["jsx", "jsx-dep", jsxDep],
+      ["nested", "nested-jsx", nestedJsx],
+    ] as const) {
+      expect(loaded[which].code).toBe("UNDECLARED_DEPENDENCY_UNCOMPILED");
+      expect(loaded[which].message).toContain(`'${dep}' (${dir}) ships source Node can't run`);
+      expect(loaded[which].message).toContain("a dependency of 'rn-undeclared'");
+      expect(loaded[which].message).toContain(`reactNative({ transform: ['${dep}'] })`);
+      expect(loaded[which].message).toContain("declare 'rn-undeclared'");
+    }
+  });
+
+  it("names a remedy that compiles the dependency", () => {
+    const { root, jsxDep, nestedJsx } = app();
+    for (const [dep, dir] of [
+      ["jsx-dep", jsxDep],
+      ["nested-jsx", nestedJsx],
+    ]) {
+      const file = path.join(dir, "index.js");
+      const before = createNativeOwnershipPolicy({ projectRoot: root, ecosystemPackages: [] });
+      const after = createNativeOwnershipPolicy({
+        projectRoot: root,
+        explicitTransforms: [dep],
+        ecosystemPackages: [],
+      });
+      expect(before.matchesNodeTransformedFile(file)).toBe(false);
+      expect(after.matchesNodeTransformedFile(file)).toBe(true);
+    }
+    // Declaring the parent makes it a seed: its dependencies, and the nested copy, join.
+    const pkgJson = path.join(root, "package.json");
+    fs.writeFileSync(
+      pkgJson,
+      JSON.stringify({
+        name: "app",
+        dependencies: { "react-native": "*", "rn-undeclared": "*" },
+      }),
+    );
+    const { detected, found } = detect(root);
+    expect(detected).toEqual(expect.arrayContaining(["jsx-dep", "plain-dep", "nested-jsx"]));
+    expect(found).toEqual([]);
+  });
+});
