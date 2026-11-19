@@ -14,6 +14,42 @@ const INITIAL_HEAP_MB = 96;
 const RETRY_HEAP_MB = 256;
 const DEFAULT_TIMEOUT_MS = 120_000;
 
+/**
+ * How long a run may wait for the registry before it says why it has not started (#913).
+ * A cold build takes about 3 s before the first test file on large apps (Bluesky 2.82 s,
+ * Rocket.Chat 2.94 s, medians in #912), so a usual build stays silent; a compiler that
+ * hangs is explained after 5 s instead of after the timeout.
+ */
+export const COLD_WAIT_NOTICE_MS = 5_000;
+
+/** Whether this process has printed the cold-wait notice: one line per run, however many
+ * projects wait (Vitest initialises projects concurrently). */
+let coldWaitNoticePrinted = false;
+/** Test seam: let the next slow wait print the notice again. */
+export function _resetColdWaitNotice() {
+  coldWaitNoticePrinted = false;
+}
+
+/**
+ * Prints one line if the run is still waiting COLD_WAIT_NOTICE_MS from now, saying what
+ * it waits for, unless this process already has. The returned function cancels it: a
+ * wait that ends sooner prints nothing and is not delayed.
+ */
+function noticeIfSlow() {
+  const timer = setTimeout(() => {
+    if (coldWaitNoticePrinted) return;
+    coldWaitNoticePrinted = true;
+    console.warn(
+      "[vitest-native] (native) building the precompiled module registry before the " +
+        "first test file; tests start when the build ends. If it hangs, the run falls " +
+        `back to per-file module loading after ${DEFAULT_TIMEOUT_MS / 1000} s.`,
+    );
+  }, COLD_WAIT_NOTICE_MS);
+  // Never what keeps this process alive.
+  timer.unref?.();
+  return () => clearTimeout(timer);
+}
+
 /** Compile once at 96 MiB, retrying at 256 MiB only for a genuine V8 heap OOM. */
 export async function compileRegistryInChild(
   compilerFile,
@@ -356,6 +392,7 @@ function cachedRegistries(options, location) {
  * compileRegistryInChild.
  */
 export async function buildRegistryFor(options, compiler = compileRegistryInChild) {
+  let stopNotice = () => {};
   try {
     // Preserve the explicit escape hatch's existing diagnostic and silence
     // contracts, and avoid launching a process for work the user disabled.
@@ -372,6 +409,8 @@ export async function buildRegistryFor(options, compiler = compileRegistryInChil
       if (warm.libraryError) _warnRegistryUnavailable(warm.libraryError);
       return { registry: warm.registry, libraryRegistry: warm.libraryRegistry };
     }
+    // A miss: the run waits from here, for a build or a failed entry's quick return.
+    stopNotice = noticeIfSlow();
 
     // A background build of the same entry is already running in this process (another
     // project in the run, or a config reload): wait for it instead of compiling twice.
@@ -441,5 +480,7 @@ export async function buildRegistryFor(options, compiler = compileRegistryInChil
   } catch (error) {
     _warnRegistryUnavailable(error?.message ?? error);
     return null;
+  } finally {
+    stopNotice();
   }
 }

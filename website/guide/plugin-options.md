@@ -236,7 +236,7 @@ reactNative({ nativeModules: 'permissive' })
 
 What a run does when React Native's precompiled registry is not in the cache yet: on the first run after an install, an upgrade of React Native or vitest-native, a Babel toolchain change, or a cleared `node_modules/.cache/vitest-native`.
 
-- `'wait'` *(default)* — compile the registry before the first test file starts, so every file uses it.
+- `'wait'` *(default)* — compile the registry before the first test file starts, so every file uses it. A build that takes longer than 5 s prints one line saying so, so a slow or stuck compile is not a silent pause.
 - `'background'` — the run starts at once while the registry compiles in a low-priority background process. Test files that start before it is ready load React Native file by file, and compile its modules inside their tests: every worker compiles the same modules at once, so on a cold cache those tests are slower and can reach `testTimeout`. Files that start after it lands use it. When Vitest closes, a build still running gets up to half of `teardownTimeout` to finish, so the next run starts warm; a run that ends cancelled (`--bail`, or Ctrl-C in a terminal) stops it at close instead, while a watch-mode cancel keeps it building for the reruns. The first run can differ from later ones in one visible way: the column numbers in React Native's own stack frames.
 
 The hot runtime, CI runs and `experimental.ownershipModel` always wait. A run counts as CI when `CI` is set to anything but `false`, or, unless `CI=false`, when one of `CONTINUOUS_INTEGRATION`, `GITHUB_ACTIONS`, `GITLAB_CI`, `BUILDKITE`, `CIRCLECI`, `TF_BUILD`, `JENKINS_URL`, `TEAMCITY_VERSION`, `TRAVIS`, `APPVEYOR`, `CODEBUILD_BUILD_ID` or `BITBUCKET_BUILD_NUMBER` is set.
