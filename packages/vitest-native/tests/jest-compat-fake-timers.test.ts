@@ -66,6 +66,10 @@ describe("toVitestFakeTimersConfig", () => {
         (api) => !translate({ legacyFakeTimers: true }).toFake.includes(api),
       ),
     });
+    // A toNotFake the call passes beside doNotFake stays real too.
+    expect(
+      translate({ doNotFake: ["setInterval"], toNotFake: ["hrtime"] }, project).toNotFake,
+    ).toEqual(["setInterval", "nextTick", "hrtime"]);
     // A toFake the call passes itself is left as given, as vi.useFakeTimers leaves it.
     expect(translate({ toFake: ["setTimeout"] }, project).toFake).toEqual(["setTimeout"]);
   });

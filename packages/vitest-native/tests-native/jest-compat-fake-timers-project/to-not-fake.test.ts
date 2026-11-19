@@ -11,6 +11,7 @@ const RealDate = globalThis.Date;
 const realPerformance = globalThis.performance;
 const realSetTimeout = globalThis.setTimeout;
 const realSetInterval = globalThis.setInterval;
+const realQueueMicrotask = globalThis.queueMicrotask;
 
 afterEach(() => {
   vi.useRealTimers();
@@ -29,6 +30,8 @@ test("a call's doNotFake names the real APIs in place of the project's", () => {
   expect(globalThis.performance).toBe(realPerformance);
   expect(globalThis.Date).not.toBe(RealDate);
   expect(globalThis.setTimeout).not.toBe(realSetTimeout);
+  // Vitest adds queueMicrotask to any toNotFake, so it stays real here, where Jest fakes it.
+  expect(globalThis.queueMicrotask).toBe(realQueueMicrotask);
 });
 
 test("legacyFakeTimers fakes the timer functions and leaves Date real", () => {
