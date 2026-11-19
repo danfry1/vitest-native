@@ -37,14 +37,79 @@ const JEST_SOURCES = new Set(["@jest/globals", "vitest-native/jest-compat/jest-g
 // a function". The error is VitestNativeError by shape (name and code), which is how
 // errors.mjs identifies one: generated code cannot import that module.
 const SETUP = "__vn_jest_compat__";
-/** Prepended to a file whose mock factories use the setup. Exported for tests. */
-export const SETUP_ACCESSOR =
-  `const ${SETUP} = vi.hoisted(() => (name) => {\n` +
-  `  if (typeof globalThis[name] === "function") return globalThis[name];\n` +
-  `  throw Object.assign(new Error("[vitest-native] jest.mock() factories need the jest-compat setup, which this test run does not load. " +\n` +
-  `    "Add jestCompatSetup from 'vitest-native/jest-compat' to test.setupFiles, ahead of any setup file that calls jest.mock()."),\n` +
-  `    { name: "VitestNativeError", code: "JEST_COMPAT_SETUP_MISSING" });\n` +
-  `});\n`;
+/** Prepended to a file whose mock factories use the setup, through `vi` named `vi`. */
+function setupAccessor(vi: VitestName): string {
+  return (
+    `const ${SETUP} = ${vi}.hoisted(() => (name) => {\n` +
+    `  if (typeof globalThis[name] === "function") return globalThis[name];\n` +
+    `  throw Object.assign(new Error("[vitest-native] jest.mock() factories need the jest-compat setup, which this test run does not load. " +\n` +
+    `    "Add jestCompatSetup from 'vitest-native/jest-compat' to test.setupFiles, ahead of any setup file that calls jest.mock()."),\n` +
+    `    { name: "VitestNativeError", code: "JEST_COMPAT_SETUP_MISSING" });\n` +
+    `});\n`
+  );
+}
+/** The accessor of a file that reaches Vitest as `vi`. Exported for tests. */
+export const SETUP_ACCESSOR = setupAccessor("vi");
+
+// The names Vitest's hoister recognises for its `vi` object (@vitest/mocker hoistMocks
+// `utilsObjectNames`); `vitest` is the same object, exported under a second name.
+type VitestName = "vi" | "vitest";
+
+const VITEST_NAMES = new Set<string>(["vi", "vitest"]);
+
+/**
+ * The name the rewritten calls reach Vitest's `vi` by, and whether the file must import it.
+ *
+ * Vitest's hoister adds `import { vi } from "vitest"` itself only to a file that imports
+ * nothing from 'vitest'. A file that imports `test` and `expect` from there, under the
+ * default `globals: false`, otherwise reaches no `vi` at all (#818). So the transform
+ * binds the name itself, unless the file already imports it from 'vitest'.
+ *
+ * A name is taken where the transform writes it (`sites`, and the top level, where the
+ * hoisted calls go) when the file declares it there as anything but that import. Even
+ * Vitest's own object, destructured from a namespace (`const { vi } = vitestNs`), is not
+ * yet initialised when Vitest moves `vi.mock` above it. When `vi` is taken, the calls use
+ * `vitest`, the same object under its other name; when both are, the file fails by name.
+ */
+function vitestName(ast: any, id: string, sites: Set<any>): { name: VitestName; add: boolean } {
+  // Per name, at the top level: whether every declaration is the import from 'vitest'.
+  const top = new Map<string, boolean>();
+  const note = (name: string, imported: boolean) => {
+    if (VITEST_NAMES.has(name)) top.set(name, (top.get(name) ?? true) && imported);
+  };
+  for (const statement of ast.body) {
+    if (statement.type !== "ImportDeclaration") continue;
+    for (const spec of statement.specifiers) {
+      const imported = spec.type === "ImportSpecifier" ? propertyName(spec.imported) : null;
+      note(
+        spec.local.name,
+        statement.source.value === "vitest" && (imported === "vi" || imported === "vitest"),
+      );
+    }
+  }
+  for (const name of [...varNames(ast), ...blockNames(ast.body)]) note(name, false);
+  for (const statement of ast.body) {
+    if (statement.type === "ExportDefaultDeclaration" && statement.declaration.id) {
+      note(statement.declaration.id.name, false); // `export default function vi() {}`
+    }
+  }
+  const nested = new Set<string>();
+  visitScopes(ast, VITEST_NAMES, (node, shadows) => {
+    if (!sites.has(node)) return;
+    for (const name of VITEST_NAMES) if (shadows(name)) nested.add(name);
+  });
+  for (const name of ["vi", "vitest"] as const) {
+    if (nested.has(name) || top.get(name) === false) continue;
+    return { name, add: !top.has(name) };
+  }
+  throw new VitestNativeError(
+    "JEST_MOCK_VI_UNAVAILABLE",
+    `[vitest-native] jestMockTransform rewrites jest.mock() in ${id.split("?")[0]} to calls on ` +
+      "Vitest's `vi` object, which Vitest hoists only as `vi` or `vitest` imported from 'vitest'. " +
+      "Where those calls run, this file binds both names to something other than that import. " +
+      "Import `vi` from 'vitest' by name, or rename the file's own `vi` or `vitest`.",
+  );
+}
 
 /**
  * Visit every node in an ESTree AST (depth-first), calling `fn` on each. Returning
@@ -139,7 +204,25 @@ function blockNames(statements: any[]): string[] {
  */
 function shadowedIdentifiers(ast: any, watched: Set<string>): WeakSet<any> {
   const shadowed = new WeakSet<any>();
+  visitScopes(ast, watched, (node, shadows) => {
+    if (node.type === "Identifier" && watched.has(node.name) && shadows(node.name)) {
+      shadowed.add(node);
+    }
+  });
+  return shadowed;
+}
+
+/**
+ * Visit every node, with `shadows(name)` telling whether a scope inside the Program that
+ * encloses it (the node's own included) declares that name, for the names in `watched`.
+ */
+function visitScopes(
+  ast: any,
+  watched: Set<string>,
+  fn: (node: any, shadows: (name: string) => boolean) => void,
+): void {
   const scopes: Set<string>[] = [];
+  const shadows = (name: string) => scopes.some((names) => names.has(name));
   const visit = (node: any): void => {
     if (!node || typeof node.type !== "string") return;
     let scope: string[] | null = null;
@@ -152,6 +235,12 @@ function shadowedIdentifiers(ast: any, watched: Set<string>): WeakSet<any> {
       scope = declared;
     } else if (node.type === "BlockStatement" || node.type === "StaticBlock") {
       scope = blockNames(node.body);
+    } else if (node.type === "SwitchStatement") {
+      // One scope for every case's statements.
+      scope = blockNames(node.cases.flatMap((c: any) => c.consequent));
+    } else if (node.type === "ClassExpression" && node.id) {
+      // A named class expression's name is bound inside its own body.
+      scope = [node.id.name];
     } else if (node.type === "CatchClause") {
       scope = patternNames(node.param);
     } else if (
@@ -165,9 +254,7 @@ function shadowedIdentifiers(ast: any, watched: Set<string>): WeakSet<any> {
     }
     const pushed = scope !== null && scope.some((name) => watched.has(name));
     if (pushed) scopes.push(new Set(scope));
-    if (node.type === "Identifier" && watched.has(node.name)) {
-      if (scopes.some((names) => names.has(node.name))) shadowed.add(node);
-    }
+    fn(node, shadows);
     for (const key in node) {
       if (key === "type" || key === "start" || key === "end" || key === "loc") continue;
       const child = node[key];
@@ -179,7 +266,6 @@ function shadowedIdentifiers(ast: any, watched: Set<string>): WeakSet<any> {
   // A function body's block is its function's scope, already pushed: visiting it again as
   // a block only repeats the same names, which is harmless.
   visit(ast);
-  return shadowed;
 }
 
 /**
@@ -540,7 +626,7 @@ function isViteOwnedSource(
  *    `jest.requireActual` loads, and `jest.requireMock` see the same mock the imports
  *    do, as under Jest's single per-file module registry (see node-registry.mjs).
  *
- * Opt-in: add after `reactNative()`; pair with `jestCompatSetup` + `globals: true`.
+ * Opt-in: add after `reactNative()`; pair with `jestCompatSetup`.
  */
 export function jestMockTransform(options: JestMockTransformOptions = {}): Plugin {
   let project: Project = {
@@ -669,7 +755,10 @@ export function jestMockTransform(options: JestMockTransformOptions = {}): Plugi
       };
       const finish = (adapted: Adapted | null) => {
         if (!adapted?.changed) return null;
-        if (adapted.usesSetup) adapted.s.prepend(SETUP_ACCESSOR);
+        if (adapted.usesSetup) adapted.s.prepend(setupAccessor(adapted.vi.name));
+        // An import binds before the module runs, wherever it is written. Stack traces keep
+        // the file's own lines through the source map, as for the accessor above.
+        if (adapted.vi.add) adapted.s.append(`\nimport { ${adapted.vi.name} } from "vitest";\n`);
         return { code: adapted.s.toString(), map: adapted.s.generateMap({ hires: true }) };
       };
       // Synchronous unless a factory's jest.requireActual has to be resolved.
@@ -860,6 +949,7 @@ interface Adapted {
   s: MagicString;
   changed: boolean;
   usesSetup: boolean;
+  vi: { name: VitestName; add: boolean };
 }
 
 function adapt(
@@ -889,7 +979,7 @@ function adapt(
     if (calls.length > 0) candidates.set(factory, calls);
   });
   if (candidates.size === 0) {
-    return rewrite(code, ast, jest, new Map(), manualMockFor, automockable);
+    return rewrite(code, ast, jest, id, new Map(), manualMockFor, automockable);
   }
 
   const specs = new Set([...candidates.values()].flat().map((call) => call.spec));
@@ -908,7 +998,7 @@ function adapt(
       const moved = calls.filter((call) => owned.has(call.spec));
       if (moved.length > 0) toAsync.set(factory, moved);
     }
-    return rewrite(code, ast, jest, toAsync, manualMockFor, automockable);
+    return rewrite(code, ast, jest, id, toAsync, manualMockFor, automockable);
   });
 }
 
@@ -935,12 +1025,28 @@ function rewrite(
   code: string,
   ast: any,
   jest: JestBindings,
+  id: string,
   toAsync: Map<any, { node: any; spec: string; kind: LoadKind }[]>,
   manualMockFor: (spec: string) => string | null = () => null,
   automockable: (spec: string) => boolean = () => false,
 ): Adapted {
   const s = new MagicString(code);
   let changed = false;
+  // Decided at the first call rewritten: a file with none keeps whatever names it has.
+  // The name is written at each call, and at each requireActual an async factory moves.
+  let chosen: Adapted["vi"] | undefined;
+  const vi = () => {
+    if (chosen) return chosen.name;
+    const sites = new Set<any>([...toAsync.values()].flat().map((call) => call.node));
+    walk(ast, (node) => {
+      if (node.type !== "CallExpression" || node.callee?.type !== "MemberExpression") return;
+      const { computed, object, property } = node.callee;
+      if (!computed && jest.isJest(object) && HOISTABLE.has(propertyName(property) ?? "")) {
+        sites.add(node);
+      }
+    });
+    return (chosen = vitestName(ast, id, sites)).name;
+  };
   // Statements at the top level, where a registration can be hoisted beside them.
   const topLevel = new Map<any, any>();
   for (const statement of ast.body) {
@@ -962,7 +1068,7 @@ function rewrite(
       text +=
         kind === "require"
           ? `(await ${SETUP}("__vnFactoryRequire")(import.meta.url, ${spec}, () => import(${spec})))`
-          : `(${SETUP}("__vnActualExports")(await vi.importActual(${spec})))`;
+          : `(${SETUP}("__vnActualExports")(await ${vi()}.importActual(${spec})))`;
       at = call.end;
     }
     text += code.slice(at, factory.end);
@@ -980,7 +1086,7 @@ function rewrite(
     if (!prop || prop.type !== "Identifier" || !HOISTABLE.has(prop.name)) return;
 
     // jest.<method> → vi.<method>, whatever the file calls the jest object.
-    s.overwrite(obj.start, obj.end, "vi");
+    s.overwrite(obj.start, obj.end, vi());
     changed = true;
     // A jest.mock / jest.unmock that is not a top-level statement (inside a helper the
     // test calls, say) applies when it runs, under Jest as for vi.doMock: Vitest
@@ -1020,9 +1126,9 @@ function rewrite(
       // The name as written is a string literal; the generated code carries its value.
       const name = jsString(literal);
       const original = manualMockFactory(manualMock);
-      const viaVite = `async () => (${SETUP}("__vnActualExports")(await vi.importActual(${jsString(viteId(manualMock))})))`;
+      const viaVite = `async () => (${SETUP}("__vnActualExports")(await ${vi()}.importActual(${jsString(viteId(manualMock))})))`;
       const register = `globalThis.__vnJestMock?.(import.meta.url, ${name}, ${original}, ${viaVite})`;
-      s.prependLeft(mockStatement.start, `vi.hoisted(() => ${register});\n`);
+      s.prependLeft(mockStatement.start, `${vi()}.hoisted(() => ${register});\n`);
       s.appendLeft(specNode.end, `, () => ${SETUP}("__vnJestMocked")(import.meta.url, ${name})`);
       return;
     }
@@ -1040,11 +1146,11 @@ function rewrite(
     ) {
       usesSetup = true;
       const name = jsString(literal);
-      const factory = `function __vnAutomock() { return vi.mockObject(jest.requireActual(${name})); }`;
+      const factory = `function __vnAutomock() { return ${vi()}.mockObject(jest.requireActual(${name})); }`;
       const register = `globalThis.__vnJestMock?.(import.meta.url, ${name}, ${factory})`;
       const lookup = `() => ${SETUP}("__vnJestMocked")(import.meta.url, ${name})`;
       if (prop.name === "mock" && mockStatement) {
-        s.prependLeft(mockStatement.start, `vi.hoisted(() => ${register});\n`);
+        s.prependLeft(mockStatement.start, `${vi()}.hoisted(() => ${register});\n`);
         s.appendLeft(specNode.end, `, ${lookup}`);
       } else {
         s.appendLeft(specNode.end, `, (${register}, ${lookup})`);
@@ -1070,7 +1176,7 @@ function rewrite(
             // when the second argument is an inline function (@vitest/mocker
             // hoistMocks: `hasFactory`), so the registration goes in a vi.hoisted
             // beside it, which Vitest hoists in source order.
-            s.prependLeft(statement.start, `vi.hoisted(() => ${register});\n`);
+            s.prependLeft(statement.start, `${vi()}.hoisted(() => ${register});\n`);
             s.overwrite(factory.start, factory.end, lookup);
           } else {
             s.overwrite(factory.start, factory.end, `(${register}, ${lookup})`);
@@ -1095,5 +1201,5 @@ function rewrite(
     }
   });
 
-  return { s, changed, usesSetup };
+  return { s, changed, usesSetup, vi: chosen ?? { name: "vi", add: false } };
 }
