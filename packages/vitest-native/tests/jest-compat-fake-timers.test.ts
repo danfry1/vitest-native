@@ -83,6 +83,10 @@ describe("toVitestFakeTimersConfig", () => {
     expect(
       translate({ toFake: ["setTimeout", "queueMicrotask"], doNotFake: ["queueMicrotask"] }).toFake,
     ).toEqual(["setTimeout"]);
+    // Beside doNotFake, the call's toNotFake joins the real APIs: sinon takes one list.
+    const both = translate({ doNotFake: ["Date"], toNotFake: ["hrtime"] });
+    expect(both).not.toHaveProperty("toNotFake");
+    expect(both.toFake).toEqual(FAKED.filter((api) => api !== "Date" && api !== "hrtime"));
     expect(translate({ toNotFake: ["Date"] })).toEqual({
       loopLimit: 100_000,
       now: REAL_NOW,

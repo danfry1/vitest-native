@@ -291,6 +291,9 @@ export function toVitestFakeTimersConfig(config, realNow = Date.now, projectFake
     // A call's own Vitest `toFake` is its list, less anything doNotFake names.
     if (doNotFake !== undefined) out.toFake = rest.toFake.filter((api) => !real.has(api));
   } else if (doNotFake !== undefined || (!chosen && !projectChose)) {
+    // A call's own Vitest `toNotFake` beside doNotFake stays real too: sinon takes one list.
+    for (const api of rest.toNotFake ?? []) real.add(api);
+    delete out.toNotFake;
     out.toFake = FAKEABLE_TIMER_APIS.filter((api) => !KEPT_REAL.has(api) && !real.has(api));
   }
   return besideProject(out, rest, projectFakeTimers);
@@ -299,15 +302,13 @@ export function toVitestFakeTimersConfig(config, realNow = Date.now, projectFake
 /**
  * `out` as Vitest can install it over the project's `test.fakeTimers`: under a project
  * `toNotFake`, a `toFake` the translation chose becomes the `toNotFake` it implies, which
- * replaces the project's. A `toNotFake` the call passed too is kept in that list. A
- * `toFake` the call passed itself is left as given.
+ * replaces the project's. A `toFake` the call passed itself is left as given.
  */
 function besideProject(out, rest, projectFakeTimers) {
   if (out.toFake === undefined || rest.toFake !== undefined) return out;
   if (projectFakeTimers?.toNotFake === undefined) return out;
   const { toFake, ...kept } = out;
-  const real = FAKEABLE_TIMER_APIS.filter((api) => !toFake.includes(api));
-  return { ...kept, toNotFake: [...new Set([...real, ...(rest.toNotFake ?? [])])] };
+  return { ...kept, toNotFake: FAKEABLE_TIMER_APIS.filter((api) => !toFake.includes(api)) };
 }
 
 /** The `test.fakeTimers` Vitest resolved for this worker's project: what `vi.useFakeTimers` merges in. */
