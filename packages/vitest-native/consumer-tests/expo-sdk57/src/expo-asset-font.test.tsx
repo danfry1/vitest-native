@@ -23,3 +23,10 @@ it("resolves a bundled image through expo-asset", async () => {
 it("loads a bundled font through expo-font", async () => {
   await expect(Font.loadAsync({ Placeholder: font })).resolves.toBeUndefined();
 });
+
+// expo-font's native-module mock is written with jest.fn and jest.requireActual;
+// this suite runs without jest-compat, so the mock has to load on its own.
+it("serves expo-font's own native-module mock without a jest global", () => {
+  expect(Font.getLoadedFonts()).toEqual([]);
+  expect(Font.isLoaded("NeverLoaded")).toBe(false);
+});
