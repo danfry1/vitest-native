@@ -125,20 +125,24 @@ installed package that depends on React Native, whether or not the project decla
   declares, packages named in `transform`, and the workspace members it reaches seed a walk
   through runtime `dependencies`, and every package the walk reaches is compiled. Each
   installed copy is walked: a package installed twice (hoisted, and nested where another
-  version is needed) loads each copy's own dependencies. The dependencies of a detected package
-  the run does not declare (one found only because it is installed, or one only a sibling
-  declares) are not walked. Walking them added each such
-  package's whole closure, which grew projects that declare little and share
-  `node_modules` with an app: a project that declares only React Native beside an Expo
-  app went from 17 packages to 137, and a library root with its example app from 24 to 140. Instead, when Node cannot compile a file of one of those dependencies, the run
-  fails with `UNDECLARED_DEPENDENCY_UNCOMPILED`, naming the dependency, the package that
-  pulled it in, and `transform: ['<dependency>']`.
+  version is needed) loads each copy's own dependencies.
+- **A detected package the run does not declare is not walked:** one found only because it
+  is installed, or one only a sibling declares. Walking them added each such package's
+  whole closure, which grew projects that declare little and share `node_modules` with an
+  app: a project that declares only React Native beside an Expo app went from 17 packages
+  to 137, and a library root with its example app from 24 to 140. Instead, when Node cannot
+  run a file of one of their dependencies as published (untranspiled JSX, Flow or
+  TypeScript, or an ES module whose imports only a bundler resolves), the run fails with
+  `UNDECLARED_DEPENDENCY_UNCOMPILED` before any of the file runs. The error names the
+  dependency, the package that pulled it in, and `transform: ['<dependency>']`.
 - **An optional peer is never followed,** however the peer was detected. A required
   React Native peer is followed when the package loads it, and a peer that is detected in
   its own right is followed. An optional peer joins the set only on its own merits: it is
   detected like any installed package, and its dependencies are walked only when some
   other edge reaches it (the project declares it, `transform` names it, or a walked
-  package lists it in `dependencies`).
+  package lists it in `dependencies`). This includes an optional peer only a sibling
+  declares, whose dependencies were walked before: they now fail by name, as above, when
+  Node cannot run them.
 
 Measured with these rules (packages Node compiles, before and after):
 

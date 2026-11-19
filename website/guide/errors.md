@@ -91,7 +91,7 @@ A file Node loads compiled to CommonJS uses `import.meta` beyond `url`, `filenam
 
 ### `UNDECLARED_DEPENDENCY_UNCOMPILED` {#UNDECLARED_DEPENDENCY_UNCOMPILED}
 
-Node could not compile a file of a package that ships untranspiled source (JSX, Flow or TypeScript), and that package is a dependency of an installed React Native package your project does not declare. vitest-native compiles an undeclared package it finds installed, but not that package's dependencies, so the dependency was loaded as published. Nothing in the file ran. The message names the dependency and the package that pulled it in. Add the dependency to `transform: [...]`, or declare the parent package in your `package.json` dependencies, which compiles its dependencies too.
+Node could not run a file of a package as published: it ships untranspiled source (JSX, Flow or TypeScript), or it is an ES module whose imports only a bundler resolves (an extensionless `./Asset`). That package is a dependency of an installed React Native package your project does not declare (or only a sibling declares). vitest-native compiles such a package, but not that package's dependencies, so the dependency was loaded as published. Nothing in the file ran. The message names the dependency and the package that pulled it in. Add the dependency to `transform: [...]`, or declare the parent package in your `package.json` dependencies, which compiles its dependencies too.
 
 ### `PRESET_UNAVAILABLE` {#PRESET_UNAVAILABLE}
 

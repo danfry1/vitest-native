@@ -57,10 +57,20 @@ function app() {
     {
       name: "rn-undeclared",
       peerDependencies: { "react-native": "*" },
-      dependencies: { "jsx-dep": "*", "plain-dep": "*" },
+      dependencies: { "jsx-dep": "*", "plain-dep": "*", "esm-dep": "*", "json-dep": "*" },
     },
-    "exports.jsx = () => require('jsx-dep');\nexports.nested = () => require('plain-dep').load();\n",
+    "exports.jsx = () => require('jsx-dep');\n" +
+      "exports.nested = () => require('plain-dep').load();\n" +
+      "exports.esm = () => require('esm-dep');\n" +
+      "exports.runtime = () => require('json-dep');\n",
   );
+  // expo-asset's shape: an ES module build with extensionless imports and no `type` field.
+  const esmDep = pkg(root, "esm-dep", { name: "esm-dep", main: "build/index.js" }, "unused");
+  fs.mkdirSync(path.join(esmDep, "build"));
+  fs.writeFileSync(path.join(esmDep, "build", "index.js"), "export * from './Asset';\n");
+  fs.writeFileSync(path.join(esmDep, "build", "Asset.js"), "export const asset = 1;\n");
+  // Compiles, then throws a SyntaxError as it runs: not a file Node could not compile.
+  pkg(root, "json-dep", { name: "json-dep" }, "module.exports = JSON.parse('<html>');\n");
   const jsxDep = pkg(root, "jsx-dep", { name: "jsx-dep" }, JSX);
   pkg(
     root,
@@ -70,7 +80,7 @@ function app() {
     "const nested = require('nested-jsx');\nexports.load = () => nested;\n",
   );
   const nestedJsx = pkg(root, "plain-dep/node_modules/nested-jsx", { name: "nested-jsx" }, JSX);
-  return { root, jsxDep, nestedJsx };
+  return { root, jsxDep, nestedJsx, esmDep };
 }
 
 function detect(root: string) {
@@ -98,7 +108,7 @@ process.env.VITEST_NATIVE_CONTEXT = writeProjectContext({
 installRequireHooks(root);
 const lib = createRequire(path.join(root, 'driver.cjs'))('rn-undeclared');
 const out = {};
-for (const which of ['jsx', 'nested']) {
+for (const which of ['jsx', 'nested', 'esm', 'runtime']) {
   try { lib[which](); out[which] = { loaded: true }; }
   catch (e) { out[which] = { name: e.name, code: e.code, message: e.message }; }
 }
@@ -117,7 +127,7 @@ process.stdout.write(JSON.stringify(out));
   });
   expect(child.stderr).toBe("");
   return JSON.parse(child.stdout) as Record<
-    "jsx" | "nested",
+    "jsx" | "nested" | "esm" | "runtime",
     { loaded?: true; name?: string; code?: string; message?: string }
   >;
 }
@@ -152,6 +162,25 @@ describe("a dependency of an installed React Native package nothing declares (#8
       expect(loaded[which].message).toContain(`reactNative({ transform: ['${dep}'] })`);
       expect(loaded[which].message).toContain("declare 'rn-undeclared'");
     }
+  });
+
+  it("fails by name when Node loads an ES module dependency it cannot link", () => {
+    const { root, esmDep } = app();
+    const { detected, found } = detect(root);
+    const loaded = loadUnderHooks(root, found, detected);
+    expect(loaded.esm.code).toBe("UNDECLARED_DEPENDENCY_UNCOMPILED");
+    expect(loaded.esm.message).toContain(`'esm-dep' (${esmDep}) ships source Node can't run`);
+    expect(loaded.esm.message).toContain("a dependency of 'rn-undeclared'");
+    expect(loaded.esm.message).toContain("reactNative({ transform: ['esm-dep'] })");
+  });
+
+  it("leaves a SyntaxError a dependency throws as it runs as it is", () => {
+    const { root } = app();
+    const { detected, found } = detect(root);
+    const loaded = loadUnderHooks(root, found, detected);
+    expect(loaded.runtime.code).toBeUndefined();
+    expect(loaded.runtime.message).not.toContain("UNDECLARED_DEPENDENCY_UNCOMPILED");
+    expect(loaded.runtime.message).not.toContain("a dependency of 'rn-undeclared'");
   });
 
   it("does not blame a dependency that ran for a failure in a file it requires", () => {

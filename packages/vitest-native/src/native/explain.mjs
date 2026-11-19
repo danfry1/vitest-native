@@ -3,6 +3,7 @@
 // externalized package — into errors that name the package and say what to do.
 // Pure functions; used by transform.mjs and hooks.mjs, unit-tested directly.
 
+import { pathToFileURL } from "node:url";
 import { docsUrl } from "../docs-url.mjs";
 import { VitestNativeError } from "../errors.mjs";
 
@@ -83,9 +84,10 @@ function untranspiledFailure(err) {
 }
 
 /**
- * When Node's compile of `file` fails as untranspiled source (a SyntaxError: nothing in the
- * file ran) and the file belongs to a dependency of a package found only by the installed
- * scan (#883), the error names that dependency and the package that pulled it in, with
+ * When Node cannot run `file` as published, and nothing in it ran (it could not compile
+ * it, or could not link it as an ES module), and the file belongs to a dependency of a
+ * detected package that is not walked (#883: found only by the installed scan, or
+ * declared only by a sibling), the error names that dependency and the package that pulled it in, with
  * the option that compiles it. `entries` is the context's scanFoundDependencies:
  * `[dir, name, parent]`. Null otherwise.
  *
@@ -94,7 +96,7 @@ function untranspiledFailure(err) {
  * own import of it, still owns and compiles it on its side: two instances.
  */
 export function explainUncompiledDependency(err, file, entries) {
-  if (!entries?.length || err?.name !== "SyntaxError" || !untranspiledFailure(err)) return null;
+  if (!entries?.length || !(compileFailure(err, file) || unlinkedModule(err, file))) return null;
   const norm = String(file).replace(/\\/g, "/");
   const name = packageNameFromPath(norm);
   if (!name) return null;
@@ -106,13 +108,40 @@ export function explainUncompiledDependency(err, file, entries) {
   const [recorded, dep, parent] = entry;
   return new VitestNativeError(
     "UNDECLARED_DEPENDENCY_UNCOMPILED",
-    `'${dep}' (${recorded}) ships source Node can't run directly (${err.message} in ${file}). ` +
+    `'${dep}' (${recorded}) ships source Node can't run directly (${err.message.split("\n")[0]} in ${file}). ` +
       `It is a dependency of '${parent}', an installed React Native package this project ` +
       `does not declare, and vitest-native compiles the dependencies of the packages a ` +
       `project declares. Compile it:\n\n` +
       `  reactNative({ transform: ['${dep}'] })\n\n` +
       `in your vitest config, or declare '${parent}' in your package.json dependencies.`,
     { cause: err, docs: docsUrl("/guide/errors#UNDECLARED_DEPENDENCY_UNCOMPILED") },
+  );
+}
+
+/**
+ * Node could not compile `file`: an untranspiled-source SyntaxError (JSX, Flow, TypeScript)
+ * with no stack frame inside the file. A SyntaxError the file throws as it runs, such as
+ * `JSON.parse` of HTML, has one, and is the file's own error.
+ */
+function compileFailure(err, file) {
+  if (err?.name !== "SyntaxError" || !untranspiledFailure(err)) return false;
+  const frames = String(err.stack ?? "")
+    .split("\n")
+    .filter((line) => line.trimStart().startsWith("at "));
+  return !frames.some((line) => line.includes(`${file}:`));
+}
+
+/**
+ * Node loaded `file` as an ES module (require(esm)) and could not link one of its imports:
+ * an extensionless or directory import, which only a bundler resolves (expo-asset's
+ * `export * from './Asset'`). No module of it ran.
+ */
+function unlinkedModule(err, file) {
+  if (err?.code !== "ERR_MODULE_NOT_FOUND") return false;
+  const message = String(err.message);
+  return (
+    message.includes(`imported from ${file}`) ||
+    message.includes(`imported from ${pathToFileURL(file).href}`)
   );
 }
 
