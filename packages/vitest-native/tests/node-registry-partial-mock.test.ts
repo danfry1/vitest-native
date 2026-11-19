@@ -77,7 +77,7 @@ describe("a module Node loads under a partial jest.mock", () => {
     expect(error).toBeInstanceOf(TypeError);
     expect(error.message).toContain("requireOptional");
     expect(error.message).toContain("jest.mock('core')");
-    expect(error.message).toContain("src/setup.js");
+    expect(error.message).toContain(setupFile);
     expect(error.message).toContain(path.join("calls-missing", "index.js"));
     expect(error.message).toContain("jest.requireActual('core')");
     expect(String((error.cause as Error)?.message)).toMatch(/requireOptional\) is not a function/);
