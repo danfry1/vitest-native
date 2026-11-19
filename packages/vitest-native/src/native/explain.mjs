@@ -145,10 +145,15 @@ function compileFailure(err, file) {
  * entered; null for anything else.
  */
 function unlinkedImporter(err) {
-  if (err?.code !== "ERR_MODULE_NOT_FOUND") return null;
   // Not "Cannot find package": a bare specifier that is not installed, which compiling
   // the importer cannot fix.
-  const found = /^Cannot find module '([^']+)' imported from (.+)$/m.exec(String(err.message));
+  const pattern =
+    err?.code === "ERR_MODULE_NOT_FOUND"
+      ? /^Cannot find module '([^']+)' imported from (.+)$/m
+      : err?.code === "ERR_UNSUPPORTED_DIR_IMPORT"
+        ? /^Directory import '([^']+)' is not supported resolving ES modules imported from (.+)$/m
+        : null;
+  const found = pattern?.exec(String(err.message));
   if (!found) return null;
   const asPath = (value) => (value.startsWith("file:") ? fileURLToPath(value) : value);
   const missing = asPath(found[1]);
