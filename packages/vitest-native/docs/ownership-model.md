@@ -132,7 +132,7 @@ installed package that depends on React Native, whether or not the project decla
   app: a project that declares only React Native beside an Expo app went from 17 packages
   to 137, and a library root with its example app from 24 to 140. Instead, when Node cannot
   run a file of one of their dependencies as published (untranspiled JSX, Flow or
-  TypeScript, or an ES module whose imports only a bundler resolves), the run fails with
+  TypeScript, or an ES module with a relative import that leaves out `.js` or `/index.js`), the run fails with
   `UNDECLARED_DEPENDENCY_UNCOMPILED` before any of the file runs. The error names the
   dependency, the package that pulled it in, and `transform: ['<dependency>']`.
 - **An optional peer is never followed,** however the peer was detected. A required

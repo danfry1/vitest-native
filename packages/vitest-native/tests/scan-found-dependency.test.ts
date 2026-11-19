@@ -57,11 +57,22 @@ function app() {
     {
       name: "rn-undeclared",
       peerDependencies: { "react-native": "*" },
-      dependencies: { "jsx-dep": "*", "plain-dep": "*", "esm-dep": "*", "json-dep": "*" },
+      dependencies: {
+        "jsx-dep": "*",
+        "plain-dep": "*",
+        "esm-dep": "*",
+        "esm-deep": "*",
+        "esm-bare": "*",
+        "esm-typo": "*",
+        "json-dep": "*",
+      },
     },
     "exports.jsx = () => require('jsx-dep');\n" +
       "exports.nested = () => require('plain-dep').load();\n" +
       "exports.esm = () => require('esm-dep');\n" +
+      "exports.deep = () => require('esm-deep');\n" +
+      "exports.bare = () => require('esm-bare');\n" +
+      "exports.typo = () => require('esm-typo');\n" +
       "exports.runtime = () => require('json-dep');\n",
   );
   // expo-asset's shape: an ES module build with extensionless imports and no `type` field.
@@ -69,6 +80,15 @@ function app() {
   fs.mkdirSync(path.join(esmDep, "build"));
   fs.writeFileSync(path.join(esmDep, "build", "index.js"), "export * from './Asset';\n");
   fs.writeFileSync(path.join(esmDep, "build", "Asset.js"), "export const asset = 1;\n");
+  // The extensionless import is a file deeper than the one the CommonJS require entered.
+  const esmDeep = esm(root, "esm-deep", {
+    "index.js": "export * from './Asset.js';\n",
+    "Asset.js": "export * from './Other';\n",
+    "Other.js": "export const other = 1;\n",
+  });
+  // Not fixable by compiling: a bare package that is not installed, and a typo.
+  esm(root, "esm-bare", { "index.js": "export * from 'missing-peer';\n" });
+  esm(root, "esm-typo", { "index.js": "export * from './Nope';\n" });
   // Compiles, then throws a SyntaxError as it runs: not a file Node could not compile.
   pkg(root, "json-dep", { name: "json-dep" }, "module.exports = JSON.parse('<html>');\n");
   const jsxDep = pkg(root, "jsx-dep", { name: "jsx-dep" }, JSX);
@@ -80,7 +100,17 @@ function app() {
     "const nested = require('nested-jsx');\nexports.load = () => nested;\n",
   );
   const nestedJsx = pkg(root, "plain-dep/node_modules/nested-jsx", { name: "nested-jsx" }, JSX);
-  return { root, jsxDep, nestedJsx, esmDep };
+  return { root, jsxDep, nestedJsx, esmDep, esmDeep };
+}
+
+/** An ES module build at `build/`, with no `type` field, as expo-asset publishes. */
+function esm(root: string, name: string, files: Record<string, string>) {
+  const dir = pkg(root, name, { name, main: "build/index.js" }, "unused");
+  fs.mkdirSync(path.join(dir, "build"));
+  for (const [file, source] of Object.entries(files)) {
+    fs.writeFileSync(path.join(dir, "build", file), source);
+  }
+  return dir;
 }
 
 function detect(root: string) {
@@ -108,7 +138,7 @@ process.env.VITEST_NATIVE_CONTEXT = writeProjectContext({
 installRequireHooks(root);
 const lib = createRequire(path.join(root, 'driver.cjs'))('rn-undeclared');
 const out = {};
-for (const which of ['jsx', 'nested', 'esm', 'runtime']) {
+for (const which of ['jsx', 'nested', 'esm', 'deep', 'bare', 'typo', 'runtime']) {
   try { lib[which](); out[which] = { loaded: true }; }
   catch (e) { out[which] = { name: e.name, code: e.code, message: e.message }; }
 }
@@ -127,7 +157,7 @@ process.stdout.write(JSON.stringify(out));
   });
   expect(child.stderr).toBe("");
   return JSON.parse(child.stdout) as Record<
-    "jsx" | "nested" | "esm" | "runtime",
+    "jsx" | "nested" | "esm" | "deep" | "bare" | "typo" | "runtime",
     { loaded?: true; name?: string; code?: string; message?: string }
   >;
 }
@@ -165,16 +195,32 @@ describe("a dependency of an installed React Native package nothing declares (#8
   });
 
   it("fails by name when Node loads an ES module dependency it cannot link", () => {
-    const { root, esmDep } = app();
+    const { root, esmDep, esmDeep } = app();
     const { detected, found } = detect(root);
     const loaded = loadUnderHooks(root, found, detected);
-    expect(loaded.esm.code).toBe("UNDECLARED_DEPENDENCY_UNCOMPILED");
-    expect(loaded.esm.message).toContain(`'esm-dep' (${esmDep}) ships source Node can't run`);
-    expect(loaded.esm.message).toContain("a dependency of 'rn-undeclared'");
-    expect(loaded.esm.message).toContain("reactNative({ transform: ['esm-dep'] })");
+    for (const [which, dep, dir] of [
+      ["esm", "esm-dep", esmDep],
+      ["deep", "esm-deep", esmDeep],
+    ] as const) {
+      expect(loaded[which].code).toBe("UNDECLARED_DEPENDENCY_UNCOMPILED");
+      expect(loaded[which].message).toContain(`'${dep}' (${dir}) ships source Node can't run`);
+      expect(loaded[which].message).toContain("a dependency of 'rn-undeclared'");
+      expect(loaded[which].message).toContain(`reactNative({ transform: ['${dep}'] })`);
+    }
   });
 
-  it("leaves a SyntaxError a dependency throws as it runs as it is", () => {
+  it("does not name an import that compiling cannot fix: a missing package, or a typo", () => {
+    const { root } = app();
+    const { detected, found } = detect(root);
+    const loaded = loadUnderHooks(root, found, detected);
+    for (const which of ["bare", "typo"] as const) {
+      expect(loaded[which].code, which).toBe("ERR_MODULE_NOT_FOUND");
+      expect(loaded[which].message).not.toContain("transform:");
+    }
+    expect(loaded.bare.message).toContain("Cannot find package 'missing-peer'");
+  });
+
+  it("does not name a SyntaxError a dependency throws as it runs", () => {
     const { root } = app();
     const { detected, found } = detect(root);
     const loaded = loadUnderHooks(root, found, detected);

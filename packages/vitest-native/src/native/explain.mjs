@@ -3,7 +3,9 @@
 // externalized package — into errors that name the package and say what to do.
 // Pure functions; used by transform.mjs and hooks.mjs, unit-tested directly.
 
-import { pathToFileURL } from "node:url";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { docsUrl } from "../docs-url.mjs";
 import { VitestNativeError } from "../errors.mjs";
 
@@ -96,8 +98,12 @@ function untranspiledFailure(err) {
  * own import of it, still owns and compiles it on its side: two instances.
  */
 export function explainUncompiledDependency(err, file, entries) {
-  if (!entries?.length || !(compileFailure(err, file) || unlinkedModule(err, file))) return null;
-  const norm = String(file).replace(/\\/g, "/");
+  if (!entries?.length) return null;
+  // The file Node could not compile, or the dependency's file whose import it could not
+  // link: any of its files, however deep in the ES module graph the CommonJS load entered.
+  const failed = compileFailure(err, file) ? file : unlinkedImporter(err);
+  if (!failed) return null;
+  const norm = String(failed).replace(/\\/g, "/");
   const name = packageNameFromPath(norm);
   if (!name) return null;
   const at = norm.lastIndexOf("/node_modules/") + "/node_modules/".length;
@@ -108,7 +114,7 @@ export function explainUncompiledDependency(err, file, entries) {
   const [recorded, dep, parent] = entry;
   return new VitestNativeError(
     "UNDECLARED_DEPENDENCY_UNCOMPILED",
-    `'${dep}' (${recorded}) ships source Node can't run directly (${err.message.split("\n")[0]} in ${file}). ` +
+    `'${dep}' (${recorded}) ships source Node can't run directly (${err.message.split("\n")[0]} in ${failed}). ` +
       `It is a dependency of '${parent}', an installed React Native package this project ` +
       `does not declare, and vitest-native compiles the dependencies of the packages a ` +
       `project declares. Compile it:\n\n` +
@@ -132,17 +138,26 @@ function compileFailure(err, file) {
 }
 
 /**
- * Node loaded `file` as an ES module (require(esm)) and could not link one of its imports:
- * an extensionless or directory import, which only a bundler resolves (expo-asset's
- * `export * from './Asset'`). No module of it ran.
+ * Node loaded a file as an ES module (require(esm)) and could not link one of its imports:
+ * a relative import that leaves out `.js` or `/index.js`, which only a bundler resolves
+ * (expo-asset's `export * from './Asset'`). No module of the graph ran. Returns the file
+ * whose import failed, which can be any file of the package, not only the one `require`
+ * entered; null for anything else.
  */
-function unlinkedModule(err, file) {
-  if (err?.code !== "ERR_MODULE_NOT_FOUND") return false;
-  const message = String(err.message);
-  return (
-    message.includes(`imported from ${file}`) ||
-    message.includes(`imported from ${pathToFileURL(file).href}`)
-  );
+function unlinkedImporter(err) {
+  if (err?.code !== "ERR_MODULE_NOT_FOUND") return null;
+  // Not "Cannot find package": a bare specifier that is not installed, which compiling
+  // the importer cannot fix.
+  const found = /^Cannot find module '([^']+)' imported from (.+)$/m.exec(String(err.message));
+  if (!found) return null;
+  const asPath = (value) => (value.startsWith("file:") ? fileURLToPath(value) : value);
+  const missing = asPath(found[1]);
+  // Only a request a bundler resolves and Node's ES module resolution does not: the file
+  // with `.js` added, or the directory's index. A typo resolves nowhere.
+  if (!fs.existsSync(`${missing}.js`) && !fs.existsSync(path.join(missing, "index.js"))) {
+    return null;
+  }
+  return asPath(found[2].trim());
 }
 
 function untransformedError(err, file) {
