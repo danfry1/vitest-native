@@ -27,6 +27,12 @@ export interface ProjectContextFields {
   packageDirs?: { root: string; dirs: Record<string, string | null> };
   ownershipGuard?: { mode: "warn" | "error"; allow: { path: string; reason: string }[] };
   projectDirs?: string[];
+  /**
+   * `[dir, name, parent]` for each installed dependency of a package found only by the
+   * installed scan that is not compiled: Node fails a file of one by name when it cannot
+   * run as published (#883).
+   */
+  scanFoundDependencies?: [string, string, string][];
   requireAliases?: [string, string][];
   /** The project sets test.restoreMocks: jest-compat restores jest.replaceProperty() before each test. */
   restoreMocks?: true;

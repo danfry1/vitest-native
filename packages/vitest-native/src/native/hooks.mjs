@@ -32,7 +32,7 @@ import {
   parseNativeOwnershipManifest,
   workerOwnershipPolicy,
 } from "./ownership.mjs";
-import { explainUntransformedSyntaxError } from "./explain.mjs";
+import { explainUncompiledDependency, explainUntransformedSyntaxError } from "./explain.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
 import { expandAlias } from "../jest-compat/aliases.mjs";
 import { noteIfRntlEntryLoaded } from "../rntl-support.mjs";
@@ -837,7 +837,11 @@ export function installRequireHooks(
       try {
         return loadSupport(mod, filename, origJs);
       } catch (err) {
-        throw explainUntransformedSyntaxError(err, filename) ?? err;
+        throw (
+          explainUncompiledDependency(err, filename, projectContext()?.scanFoundDependencies) ??
+          explainUntransformedSyntaxError(err, filename) ??
+          err
+        );
       }
     }
     return loadSupport(mod, filename, origJs);

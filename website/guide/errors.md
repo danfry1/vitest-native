@@ -89,6 +89,10 @@ A project file Node loads (through `require()` or `jest.requireActual`) is exclu
 
 A file Node loads compiled to CommonJS uses `import.meta` beyond `url`, `filename` and `dirname`, which CommonJS cannot provide. The message names the file and the property. If the file is in a package, let Vite load that package: add it to `transform: { exclude: [...] }`, and also to `test.server.deps.inline` when it is published as an ES module (`"type": "module"` or `.mjs`). If it is your own source, import it from the test instead of requiring it, or avoid the property in it.
 
+### `UNDECLARED_DEPENDENCY_UNCOMPILED` {#UNDECLARED_DEPENDENCY_UNCOMPILED}
+
+Node could not run a file of a package as published: it ships untranspiled source (JSX, Flow or TypeScript), or it is an ES module with a relative import that leaves out `.js` or `/index.js` (a re-export of `./Asset`, meaning `./Asset.js`), which only a bundler resolves. A missing package or a misspelled path is reported as Node reports it. That package is a dependency of an installed React Native package your project does not declare (or only a sibling declares). vitest-native compiles such a package, but not that package's dependencies, so the dependency was loaded as published. Nothing in the file ran. The message names the dependency and the package that pulled it in. Add the dependency to `transform: [...]`, or declare the parent package in your `package.json` dependencies, which compiles its dependencies too.
+
 ### `PRESET_UNAVAILABLE` {#PRESET_UNAVAILABLE}
 
 A preset cannot be applied:
