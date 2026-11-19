@@ -88,6 +88,11 @@ function vitestName(ast: any, id: string, sites: Set<any>): { name: VitestName; 
     }
   }
   for (const name of [...varNames(ast), ...blockNames(ast.body)]) note(name, false);
+  for (const statement of ast.body) {
+    if (statement.type === "ExportDefaultDeclaration" && statement.declaration.id) {
+      note(statement.declaration.id.name, false); // `export default function vi() {}`
+    }
+  }
   const nested = new Set<string>();
   visitScopes(ast, VITEST_NAMES, (node, shadows) => {
     if (!sites.has(node)) return;
@@ -230,6 +235,12 @@ function visitScopes(
       scope = declared;
     } else if (node.type === "BlockStatement" || node.type === "StaticBlock") {
       scope = blockNames(node.body);
+    } else if (node.type === "SwitchStatement") {
+      // One scope for every case's statements.
+      scope = blockNames(node.cases.flatMap((c: any) => c.consequent));
+    } else if (node.type === "ClassExpression" && node.id) {
+      // A named class expression's name is bound inside its own body.
+      scope = [node.id.name];
     } else if (node.type === "CatchClause") {
       scope = patternNames(node.param);
     } else if (

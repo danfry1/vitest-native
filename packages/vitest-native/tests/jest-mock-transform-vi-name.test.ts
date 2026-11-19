@@ -55,6 +55,8 @@ describe("jestMockTransform: binding Vitest's vi (#818)", () => {
       "class vi {}",
       "function vi() {}",
       "if (true) { var vi = 1; }",
+      "export default function vi() {}",
+      "export default class vi {}",
       // Vitest's own object, but initialised only after Vitest hoists vi.mock above it.
       "import * as ns from 'vitest';\nconst { vi } = ns;",
     ]) {
@@ -74,11 +76,29 @@ describe("jestMockTransform: binding Vitest's vi (#818)", () => {
       "function helper(vi) { jest.doMock('./b', () => ({})); }",
       "try {} catch (vi) { jest.doMock('./b', () => ({})); }",
       "{ const vi = 1; jest.doMock('./b', () => ({})); }",
+      "const C = class vi { m() { jest.doMock('./b', () => ({})); } };",
+      "switch (1) { case 1: const vi = 1; jest.doMock('./b', () => ({})); }",
     ]) {
       const out = run(`${MOCK}\n${helper}`)!.code;
       expect(out.endsWith(IMPORT_VITEST), helper).toBe(true);
       expect(out).toMatch(/vitest\.doMock\('\.\/b'/);
     }
+  });
+
+  it("calls vitest when a factory declares vi around a requireActual it loads through Vite", async () => {
+    const t = jestMockTransform().transform as (this: any, c: string, i: string) => any;
+    // './api' is project source, so its requireActual moves to `vi.importActual` inside the
+    // factory, where the factory's own `vi` is in scope.
+    const resolve = async () => ({ id: "/p/api.ts" });
+    const factory = "() => { const vi = 1; return { ...jest.requireActual('./api'), vi }; }";
+    const out = (await t.call(
+      { parse: (c: string) => parseAst(c), resolve },
+      `jest.mock('./api', ${factory});`,
+      "/p/a.test.ts",
+    )) as { code: string };
+    expect(out.code).toMatch(/await vitest\.importActual\('\.\/api'\)/);
+    expect(out.code).toMatch(/^vitest\.mock\('\.\/api'/m);
+    expect(out.code.endsWith(IMPORT_VITEST)).toBe(true);
   });
 
   it("keeps vi when only a scope no call is in declares it", () => {
