@@ -320,9 +320,9 @@ describe("background registry build", () => {
   }
 
   /** A compiler that runs until it is aborted, or until `finish` is called. */
-  function heldCompiler() {
+  function heldCompiler(error = "finished without a registry") {
     const calls: { signal?: AbortSignal; priority?: number }[] = [];
-    let finish = () => {};
+    const finishers: (() => void)[] = [];
     const run = (
       _file: string,
       _options: unknown,
@@ -331,11 +331,12 @@ describe("background registry build", () => {
     ) => {
       calls.push(control);
       return new Promise<{ ok: boolean; cancelled?: boolean; error?: string }>((resolve) => {
-        finish = () => resolve({ ok: false, error: "finished without a registry" });
+        finishers.push(() => resolve({ ok: false, error }));
         control.signal?.addEventListener("abort", () => resolve({ ok: false, cancelled: true }));
       });
     };
-    return { compiler: run, calls, finish: () => finish() };
+    // Ends every compile started so far.
+    return { compiler: run, calls, finish: () => finishers.splice(0).forEach((end) => end()) };
   }
 
   describe("notice while a cold run waits (#913)", () => {
@@ -473,6 +474,166 @@ describe("background registry build", () => {
         expect(vi.getTimerCount()).toBe(0);
       } finally {
         watch.restore();
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe("concurrent waits (#920)", () => {
+    /** Publish a registry for `options`, as a compiler that succeeded does. */
+    function publish(options: ReturnType<typeof coldOptions>) {
+      const key = registryKey(options) as string;
+      const registryDir = path.join(
+        options.projectRoot,
+        "node_modules",
+        ".cache",
+        "vitest-native",
+        "registry",
+      );
+      fs.mkdirSync(registryDir, { recursive: true });
+      const registryFile = path.join(registryDir, `rn-${options.platform}-${key}.cjs`);
+      fs.writeFileSync(registryFile, "module.exports = {};\n");
+      const manifestFile = path.join(options.projectRoot, "package.json");
+      const stat = fs.statSync(manifestFile);
+      fs.writeFileSync(
+        `${registryFile}.json`,
+        JSON.stringify({ key, count: 1, manifest: [[manifestFile, stat.mtimeMs, stat.size]] }),
+      );
+      return registryFile;
+    }
+
+    it("shares one build between waits for the same registry", async () => {
+      const options = coldOptions("joined-waits");
+      const held = heldCompiler();
+      const first = buildRegistryFor(options, held.compiler);
+      const second = buildRegistryFor({ ...options }, held.compiler);
+      await Promise.resolve();
+      expect(held.calls).toHaveLength(1);
+      const registryFile = publish(options);
+      held.finish();
+      const expected = { registry: registryFile, libraryRegistry: null };
+      expect(await first).toEqual(expected);
+      expect(await second).toEqual(expected);
+      expect(held.calls).toHaveLength(1);
+    });
+
+    it("still builds separately for each platform", async () => {
+      const ios = coldOptions("platform-waits");
+      const android = { ...ios, platform: "android" };
+      const held = heldCompiler();
+      const waits = [
+        buildRegistryFor(ios, held.compiler),
+        buildRegistryFor(android, held.compiler),
+      ];
+      await Promise.resolve();
+      expect(held.calls).toHaveLength(2);
+      const files = [publish(ios), publish(android)];
+      held.finish();
+      expect(await Promise.all(waits)).toEqual(
+        files.map((registry) => ({ registry, libraryRegistry: null })),
+      );
+    });
+
+    it("fails every waiter of a failed shared build the same way, without a retry", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const options = coldOptions("failed-waits");
+        // A reason of its own: each reason is reported once per process.
+        const held = heldCompiler("shared wait failed (#920)");
+        const waits = [
+          buildRegistryFor(options, held.compiler),
+          buildRegistryFor({ ...options }, held.compiler),
+        ];
+        await Promise.resolve();
+        held.finish();
+        expect(await Promise.all(waits)).toEqual([null, null]);
+        expect(held.calls).toHaveLength(1);
+        const reasons = warn.mock.calls.filter(([line]) =>
+          String(line).includes("shared wait failed (#920)"),
+        );
+        expect(reasons).toHaveLength(1);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    /** A project whose library entry resolves, so the library registry can be missing. */
+    function withLibrary(name: string) {
+      const options = coldOptions(name);
+      const library = path.join(options.projectRoot, "node_modules", `vn-${name}`);
+      fs.mkdirSync(library);
+      fs.writeFileSync(path.join(library, "package.json"), JSON.stringify({ name: `vn-${name}` }));
+      fs.writeFileSync(path.join(library, "index.js"), "module.exports = 1;\n");
+      return { options, libraryEntries: [`vn-${name}`] };
+    }
+
+    it("gives a wait for the same libraries the shared result, even without the library registry", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const { options, libraryEntries } = withLibrary("shared-library");
+        const held = heldCompiler();
+        const waits = [
+          buildRegistryFor({ ...options, libraryEntries }, held.compiler),
+          buildRegistryFor({ ...options, libraryEntries }, held.compiler),
+        ];
+        await Promise.resolve();
+        // React Native's registry only: the library registry did not build.
+        const registryFile = publish(options);
+        held.finish();
+        const expected = { registry: registryFile, libraryRegistry: null };
+        expect(await Promise.all(waits)).toEqual([expected, expected]);
+        expect(held.calls).toHaveLength(1);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("compiles the libraries a joined wait did not build for", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const { options, libraryEntries } = withLibrary("other-library");
+        const held = heldCompiler();
+        const without = buildRegistryFor(options, held.compiler);
+        const withLibraries = buildRegistryFor({ ...options, libraryEntries }, held.compiler);
+        await Promise.resolve();
+        expect(held.calls).toHaveLength(1);
+        publish(options);
+        held.finish();
+        await without;
+        // Joined, then compiled what the shared build left out.
+        await vi.waitFor(() => expect(held.calls).toHaveLength(2));
+        held.finish();
+        await withLibraries;
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("prints the cold-wait notice once when waits join", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      _resetColdWaitNotice();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const options = coldOptions("noticed-waits");
+        const held = heldCompiler();
+        const waits = [
+          buildRegistryFor(options, held.compiler),
+          buildRegistryFor({ ...options }, held.compiler),
+        ];
+        await vi.advanceTimersByTimeAsync(COLD_WAIT_NOTICE_MS * 2);
+        const notices = () =>
+          warn.mock.calls.filter(([line]) =>
+            String(line).includes("building the precompiled module registry"),
+          );
+        expect(notices()).toHaveLength(1);
+        publish(options);
+        held.finish();
+        await vi.runAllTimersAsync();
+        await Promise.all(waits);
+        expect(held.calls).toHaveLength(1);
+        expect(notices()).toHaveLength(1);
+      } finally {
+        warn.mockRestore();
         vi.useRealTimers();
       }
     });
