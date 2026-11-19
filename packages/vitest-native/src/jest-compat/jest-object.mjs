@@ -193,6 +193,14 @@ function originalOf(object, key, accessType) {
 // - A project whose `test.fakeTimers` names the APIs to fake (`toFake` or `toNotFake`)
 //   keeps that choice: with no `doNotFake` the translation passes no `toFake`, so
 //   Vitest merges the project's in. A `toFake` given to the call is kept as given.
+//   The project's config is the one Vitest resolved for the worker, so a workspace
+//   project's inherited `test.fakeTimers` counts too (#892).
+// - A call's `doNotFake` replaces the project's list, as Jest's call config replaces
+//   its project's `doNotFake` (jest-runtime 30.2 spreads `this._config.fakeTimers`
+//   under the call's). Vitest merges the same way, but @sinonjs/fake-timers refuses
+//   `toFake` beside the project's `toNotFake`, so under a project `toNotFake` the
+//   translation passes its list as `toNotFake`, the complement. Vitest then adds
+//   `queueMicrotask` to that list, so it stays real there.
 // - `legacyFakeTimers: true` has no Vitest counterpart (Jest's legacy timers are
 //   jest.fn mocks). It is approximated with modern timers over the functions legacy
 //   timers replace, leaving Date real as they do, and warns once that assertions on
@@ -259,12 +267,13 @@ const loopLimitOf = (timerLimit) => timerLimit || 100_000;
  * Translate a Jest fake-timers config into the one `vi.useFakeTimers` takes. Keys that
  * are not Jest's (a Vitest option passed through `jest.*`) are kept as given.
  */
-export function toVitestFakeTimersConfig(config, realNow = Date.now, projectFakesApis = false) {
+export function toVitestFakeTimersConfig(config, realNow = Date.now, projectFakeTimers) {
   const { advanceTimers, doNotFake, legacyFakeTimers, now, timerLimit, ...rest } = config ?? {};
   const out = { ...rest, loopLimit: loopLimitOf(timerLimit) };
   if (legacyFakeTimers) {
     // Legacy timers take no options of their own: no auto-advance, no clock to set.
-    return { ...out, shouldAdvanceTime: false, toFake: [...LEGACY_FAKED] };
+    const legacy = { ...out, shouldAdvanceTime: false, toFake: [...LEGACY_FAKED] };
+    return besideProject(legacy, rest, projectFakeTimers);
   }
   if (advanceTimers !== undefined) {
     out.shouldAdvanceTime = Boolean(advanceTimers);
@@ -275,15 +284,32 @@ export function toVitestFakeTimersConfig(config, realNow = Date.now, projectFake
   // test pinned with setSystemTime leaked into every later jest.useFakeTimers().
   out.now = now ?? realNow();
   const chosen = rest.toFake !== undefined || rest.toNotFake !== undefined;
+  const projectChose =
+    projectFakeTimers?.toFake !== undefined || projectFakeTimers?.toNotFake !== undefined;
   const real = new Set(doNotFake ?? []);
   if (Array.isArray(rest.toFake)) {
     // A call's own Vitest `toFake` is its list, less anything doNotFake names.
     if (doNotFake !== undefined) out.toFake = rest.toFake.filter((api) => !real.has(api));
-  } else if (doNotFake !== undefined || (!chosen && !projectFakesApis)) {
+  } else if (doNotFake !== undefined || (!chosen && !projectChose)) {
     out.toFake = FAKEABLE_TIMER_APIS.filter((api) => !KEPT_REAL.has(api) && !real.has(api));
   }
-  return out;
+  return besideProject(out, rest, projectFakeTimers);
 }
+
+/**
+ * `out` as Vitest can install it over the project's `test.fakeTimers`: under a project
+ * `toNotFake`, a `toFake` the translation chose becomes the `toNotFake` it implies, which
+ * replaces the project's. A `toFake` the call passed itself is left as given.
+ */
+function besideProject(out, rest, projectFakeTimers) {
+  if (out.toFake === undefined || rest.toFake !== undefined) return out;
+  if (projectFakeTimers?.toNotFake === undefined) return out;
+  const { toFake, ...kept } = out;
+  return { ...kept, toNotFake: FAKEABLE_TIMER_APIS.filter((api) => !toFake.includes(api)) };
+}
+
+/** The `test.fakeTimers` Vitest resolved for this worker's project: what `vi.useFakeTimers` merges in. */
+const workerFakeTimers = () => globalThis.__vitest_worker__?.config?.fakeTimers;
 
 let warnedLegacy = false;
 function warnLegacyOnce() {
@@ -303,7 +329,7 @@ function warnLegacyOnce() {
  * on `vi` (requireActual, the timer guards), and anything a suite assigns to
  * `jest.*`, stay one shared object.
  */
-export function createJestObject(vi, members = {}, { projectFakesTimerApis = false } = {}) {
+export function createJestObject(vi, members = {}, { projectFakeTimers = workerFakeTimers } = {}) {
   function fn(impl) {
     // `vi.fn(existingMock)` returns that mock; it is someone else's, so leave it be.
     if (vi.isMockFunction(impl)) return vi.fn(impl);
@@ -323,7 +349,7 @@ export function createJestObject(vi, members = {}, { projectFakesTimerApis = fal
   function useFakeTimers(config) {
     if (config?.legacyFakeTimers) warnLegacyOnce();
     vi.useFakeTimers(
-      toVitestFakeTimersConfig(config, () => vi.getRealSystemTime(), projectFakesTimerApis),
+      toVitestFakeTimersConfig(config, () => vi.getRealSystemTime(), projectFakeTimers()),
     );
     return jest;
   }

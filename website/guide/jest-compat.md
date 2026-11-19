@@ -67,7 +67,7 @@ The `__mocks__` folders are read when the run starts. After adding, renaming or 
 
 `jest.useFakeTimers(options)` translates Jest's options into Vitest's the way Jest translates them for `@sinonjs/fake-timers`, which both runners use: `advanceTimers` (`true` or a step in ms), `doNotFake`, `now` and `timerLimit` (default 100,000 as in Jest, where Vitest's is 10,000). It returns the `jest` object, as Jest does, so `jest.useFakeTimers().setSystemTime(date)` chains. Calling `vi.useFakeTimers` directly still takes Vitest's options.
 
-`queueMicrotask` is faked, as in Jest, so a callback queued with it (react-native-worklets' Jest mock reports `runOnJS` and `scheduleOnRN` calls this way) runs when the timers run. `jest.useFakeTimers({ doNotFake: ['queueMicrotask'] })` keeps it real. A project whose `test.fakeTimers` sets `toFake` or `toNotFake` keeps its own list.
+`queueMicrotask` is faked, as in Jest, so a callback queued with it (react-native-worklets' Jest mock reports `runOnJS` and `scheduleOnRN` calls this way) runs when the timers run. `jest.useFakeTimers({ doNotFake: ['queueMicrotask'] })` keeps it real. A project whose `test.fakeTimers` sets `toFake` or `toNotFake` keeps its own list, including one a workspace project inherits. A call's `doNotFake` replaces that list, as a call's `doNotFake` replaces the project's in Jest. Under a project `toNotFake`, `queueMicrotask` stays real.
 
 Two differences remain:
 

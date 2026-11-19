@@ -14,8 +14,8 @@ import { FAKEABLE_TIMER_APIS, toVitestFakeTimersConfig } from "../src/jest-compa
 
 /** The real clock the translation reads when no `now` is given. */
 const REAL_NOW = 1_700_000_000_000;
-const translate = (config?: Record<string, unknown>, projectFakesApis = false) =>
-  toVitestFakeTimersConfig(config, () => REAL_NOW, projectFakesApis) as Record<string, unknown>;
+const translate = (config?: Record<string, unknown>, project?: Record<string, unknown>) =>
+  toVitestFakeTimersConfig(config, () => REAL_NOW, project) as Record<string, unknown>;
 /** What Jest fakes by default, less `nextTick`: queueMicrotask included (#835). */
 const FAKED = FAKEABLE_TIMER_APIS.filter((api) => api !== "nextTick");
 
@@ -38,11 +38,36 @@ describe("toVitestFakeTimersConfig", () => {
   });
 
   it("leaves the faked APIs to a project whose test.fakeTimers names them", () => {
-    expect(translate(undefined, true)).toEqual({ loopLimit: 100_000, now: REAL_NOW });
+    const toFake = { toFake: ["setTimeout"] };
+    expect(translate(undefined, toFake)).toEqual({ loopLimit: 100_000, now: REAL_NOW });
+    expect(translate(undefined, { toNotFake: ["Date"] })).toEqual({
+      loopLimit: 100_000,
+      now: REAL_NOW,
+    });
+    // A project config that names no APIs leaves the choice to the translation.
+    expect(translate(undefined, { loopLimit: 5 }).toFake).toEqual(FAKED);
     // A doNotFake on the call still names the list, as Jest's call config wins.
-    expect(translate({ doNotFake: ["Date"] }, true).toFake).toEqual(
+    expect(translate({ doNotFake: ["Date"] }, toFake).toFake).toEqual(
       FAKED.filter((api) => api !== "Date"),
     );
+  });
+
+  // Vitest spreads the project's test.fakeTimers under the call's, and sinon refuses
+  // toFake beside toNotFake (#892).
+  it("names the list as toNotFake under a project toNotFake, replacing the project's", () => {
+    const project = { toNotFake: ["Date", "performance"] };
+    const out = translate({ doNotFake: ["setInterval"] }, project);
+    expect(out).not.toHaveProperty("toFake");
+    expect(out.toNotFake).toEqual(["setInterval", "nextTick"]);
+    expect(translate({ legacyFakeTimers: true }, project)).toEqual({
+      loopLimit: 100_000,
+      shouldAdvanceTime: false,
+      toNotFake: FAKEABLE_TIMER_APIS.filter(
+        (api) => !translate({ legacyFakeTimers: true }).toFake.includes(api),
+      ),
+    });
+    // A toFake the call passes itself is left as given, as vi.useFakeTimers leaves it.
+    expect(translate({ toFake: ["setTimeout"] }, project).toFake).toEqual(["setTimeout"]);
   });
 
   it("keeps a call's own Vitest toFake or toNotFake", () => {
