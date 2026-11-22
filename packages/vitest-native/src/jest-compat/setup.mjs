@@ -512,7 +512,10 @@ function exposeNativeMethods() {
     }
   }
 }
-exposeNativeMethods();
+// Only under an engine: reactNative() writes the project context under either one. With
+// no engine configured there is no View to expose, and nothing compiles React Native's
+// Flow source for these requires, so Node would parse it and fail every test file.
+if (projectContext()) exposeNativeMethods();
 
 // `ref instanceof View`, as React Native's Jest preset answers it: its View is a class, so
 // a View ref is an instance of it, and suites rely on that (react-native-paper's Menu tests
