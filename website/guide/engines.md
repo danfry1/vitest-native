@@ -52,6 +52,17 @@ Both engines share the same test API. You can mix them across suites in the same
 
 The native engine compiles React Native once, on the first run, in a separate short-lived process, and caches the result on disk; later runs reuse it ([where it lives and when it is rebuilt](/guide/troubleshooting#when-react-native-s-precompiled-modules-are-reused-or-rebuilt)). If that compilation fails, the engine loads React Native module by module instead, more slowly, with the same results.
 
+## Testing a library {#testing-a-library}
+
+Which engine a library's own tests use depends on what the library does:
+
+| Your library | Engine | Why |
+|---|---|---|
+| **Renders components**: a UI kit, or anything that renders React Native views | `engine: 'native'` | Its components render through React Native's real `View`, `Text` and the rest, as they will in an app. |
+| **Logic only**: hooks, utilities, state | `engine: 'mock'` | Nothing it does needs React Native's components, and the mock engine needs no Babel. |
+
+The native engine needs `react-native`, `@react-native/babel-preset` and `@babel/core` to resolve from the library, so a component library lists them as dev dependencies; without them the run stops with [`ENGINE_REQUIRES_BABEL`](/guide/errors#ENGINE_REQUIRES_BABEL). The engine can be set per [Vitest project](https://vitest.dev/guide/projects), so a library with both kinds of code can use both.
+
 ## Keeping the mock honest
 
 Because the mock is a reimplementation, it could drift from real RN behavior. A **CI-gated behavioral cross-check** runs the same assertions against both the mock and real RN across React Native 0.86–0.88, so divergences are caught before release. See [Comparison with Jest](/guide/comparison#the-cross-check) for how that trust mechanism works.

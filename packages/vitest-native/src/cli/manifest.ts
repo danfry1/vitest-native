@@ -8,29 +8,13 @@
  * runtime) answers `require.resolve` for preset packages that are not installed.
  * The manifest file itself is what a package manager writes, so look for it.
  */
-import fs from "node:fs";
-import path from "node:path";
+import { installedManifest } from "../installed-manifest.js";
 import {
   AUTO_DETECT_PRESETS,
   autoDetectedPresetApplies,
   testsItself,
   type PresetName,
 } from "../preset-map.js";
-
-/** A package's manifest, found by walking node_modules upward from root, or null. */
-export function installedManifest(root: string, pkg: string): Record<string, unknown> | null {
-  for (let dir = path.resolve(root); ; dir = path.dirname(dir)) {
-    const file = path.join(dir, "node_modules", pkg, "package.json");
-    if (fs.existsSync(file)) {
-      try {
-        return JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
-      } catch {
-        return null;
-      }
-    }
-    if (path.dirname(dir) === dir) return null;
-  }
-}
 
 /** The installed major version of `pkg`, or null when absent or unversioned. */
 export function installedMajor(root: string, pkg: string): number | null {
@@ -65,3 +49,5 @@ export function activePresets(
   }
   return [...active];
 }
+
+export { installedManifest };

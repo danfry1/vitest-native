@@ -8,6 +8,7 @@
  */
 import path from "node:path";
 import { projectContext } from "../context.mjs";
+import { rootSpellings } from "./root-spelling.mjs";
 import {
   NODE_MODULES_PATH,
   REACT_NATIVE_PATH,
@@ -15,6 +16,7 @@ import {
   containsPath,
   installedPackageDirOf,
   memoizePackageDirOf,
+  packageDirOf as resolvePackageDir,
   packagePatterns,
 } from "./match.mjs";
 
@@ -69,8 +71,29 @@ const cleanFileId = (file) => normalizeFile(cleanRawFileId(file));
 const unique = (values) => [...new Set((values || []).filter(Boolean))];
 const escapeRe = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+let freshRuntime;
+
+/**
+ * hotRuntime.freshRuntime: React, the renderer, scheduler and RNTL re-run per hot file
+ * instead of staying resident. Read from the project context, because this module is
+ * evaluated once per realm and every instance must agree: a flag set on one instance left
+ * another keeping React Native's components bound to the first file's React. It needs ESM
+ * generations, so React's ES entry points re-run with its CommonJS graph.
+ */
+export function isFreshRuntime() {
+  if (freshRuntime === undefined) {
+    const context = projectContext();
+    freshRuntime =
+      context !== null &&
+      context.hotEsmGeneration !== false &&
+      process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0" &&
+      context.hotFreshRuntime === true;
+  }
+  return freshRuntime;
+}
+
 export function isRuntimeResidentFile(file) {
-  return RUNTIME_RESIDENT_PATH.test(normalizeFile(file));
+  return !isFreshRuntime() && RUNTIME_RESIDENT_PATH.test(normalizeFile(file));
 }
 
 export function isTestRuntimeResidentFile(file) {
@@ -86,7 +109,7 @@ export function isResidentPackageName(name) {
   const file = `/node_modules/${name}/`;
   return (
     REACT_NATIVE_PATH.test(file) ||
-    RUNTIME_RESIDENT_PATH.test(file) ||
+    (!isFreshRuntime() && RUNTIME_RESIDENT_PATH.test(file)) ||
     TEST_RUNTIME_RESIDENT_PATH.test(file)
   );
 }
@@ -168,22 +191,33 @@ export function createNativeOwnershipPolicy({
   );
   // Either separator at every boundary: these patterns are handed to Vitest's resolver
   // and also meet paths in the form Node reports them, backslashed on Windows.
-  const reactNativeRootPatterns = normalizedReactNativeRoots.map(
-    (dir) =>
-      new RegExp(
-        `^${normalizeFile(dir).replace(/\/$/, "").split("/").map(escapeRe).join("[\\\\/]")}[\\\\/]`,
-      ),
-  );
+  // Each directory in every spelling a file can arrive in (root-spelling.mjs): as given,
+  // Node's (fs.realpathSync) and the OS's (realpathSync.native, Vite's ids). Computed once
+  // here, so deciding a file stays a string comparison.
+  const spelled = (dirs) => dirs.map((dir) => ({ dir, spellings: rootSpellings(dir) }));
+  const dirHolding = (entries, file) =>
+    entries.find(({ spellings }) => spellings.some((spelling) => containsPath(spelling, file)));
+  const reactNativeRootSpellings = spelled(normalizedReactNativeRoots);
+  const reactNativeRootPatterns = reactNativeRootSpellings
+    .flatMap(({ spellings }) => spellings)
+    .map(
+      (dir) =>
+        new RegExp(
+          `^${normalizeFile(dir).replace(/\/$/, "").split("/").map(escapeRe).join("[\\\\/]")}[\\\\/]`,
+        ),
+    );
   const isReactNativeCore = (file, rawFile) =>
     REACT_NATIVE_PATH.test(file) ||
-    normalizedReactNativeRoots.some((dir) => containsPath(dir, cleanRawFileId(rawFile)));
+    dirHolding(reactNativeRootSpellings, cleanRawFileId(rawFile)) !== undefined;
   const reactNativePathFor = (rawFile) => {
     const clean = cleanRawFileId(rawFile);
     const file = normalizeFile(clean);
     if (REACT_NATIVE_PATH.test(file)) return file;
-    const packageRoot = normalizedReactNativeRoots.find((dir) => containsPath(dir, clean));
-    if (!packageRoot) return null;
-    const relative = normalizeFile(path.relative(packageRoot, clean));
+    // Relative to the spelling the file is under, so the path inside the package is right.
+    const held = dirHolding(reactNativeRootSpellings, clean);
+    if (!held) return null;
+    const spelling = held.spellings.find((candidate) => containsPath(candidate, clean));
+    const relative = normalizeFile(path.relative(spelling, clean));
     return `/react-native/${relative}`;
   };
   // Framework boundary: Vitest sorts resolver pattern arrays in place while it
@@ -202,6 +236,7 @@ export function createNativeOwnershipPolicy({
   const ecosystemMatcher = buildPkgMatcher(ecosystem, root, dirOf);
   const runtimeMatcher = buildPkgMatcher(runtime, root, dirOf);
   const normalizedProjectDirs = Object.freeze(unique(projectDirs).map((dir) => path.resolve(dir)));
+  const projectDirSpellings = spelled(normalizedProjectDirs);
   const normalizedEntryFiles = Object.freeze(unique(entryFiles).map((file) => path.resolve(file)));
   const entryKey = (file) => {
     const resolved = path.resolve(file);
@@ -264,16 +299,14 @@ export function createNativeOwnershipPolicy({
         "worker-resident",
         ["react-native-core"],
         [
-          normalizedReactNativeRoots.find((dir) => containsPath(dir, cleanRawFileId(rawFile))) ??
+          dirHolding(reactNativeRootSpellings, cleanRawFileId(rawFile))?.dir ??
             "react-native/@react-native path",
           "preloaded before the hot reset baseline",
         ],
       );
     }
     if (!NODE_MODULES_PATH.test(file)) {
-      const projectDir = normalizedProjectDirs.find((dir) =>
-        containsPath(dir, cleanRawFileId(rawFile)),
-      );
+      const projectDir = dirHolding(projectDirSpellings, cleanRawFileId(rawFile))?.dir;
       if (projectDir) {
         return decision("vite", "source", "vite", "per-file", ["project-source"], [projectDir]);
       }
@@ -454,6 +487,89 @@ export function createNativeOwnershipPolicy({
     manifest,
     packageDirOf: (name) => dirOf(name, root),
   });
+}
+
+/**
+ * The package directories the plugin resolved at config time, as a lookup with the same
+ * signature as `packageDirOf`. A recorded answer is used only for the root it was resolved
+ * from; any other question is resolved here once and kept for the life of the lookup.
+ *
+ * Workers rebuild the ownership policy from the same package list the plugin resolved.
+ * Without the recorded answers each worker resolved every package's directory again: a
+ * few resolutions and real-path calls per package, for hundreds of packages, in every new
+ * worker (one per test file under per-file isolation).
+ */
+export function recordedPackageDirOf(recorded, resolve = resolvePackageDir) {
+  const lookup = memoizePackageDirOf(resolve);
+  const root = typeof recorded?.root === "string" ? path.resolve(recorded.root) : null;
+  const dirs =
+    recorded && typeof recorded.dirs === "object" && recorded.dirs !== null ? recorded.dirs : null;
+  return (name, fromDir) => {
+    if (
+      root !== null &&
+      dirs !== null &&
+      Object.hasOwn(dirs, name) &&
+      path.resolve(fromDir) === root
+    ) {
+      const dir = dirs[name];
+      return typeof dir === "string" ? dir : null;
+    }
+    return lookup(name, fromDir);
+  };
+}
+
+const WORKER_POLICIES = Symbol.for("vitest-native.ownership.worker-policies");
+
+/**
+ * This worker thread's ownership policy for `inputs`, built once and shared by everything
+ * in the thread that asks with the same inputs: the ESM loader and the require hooks
+ * (each used to build its own), and every later test file a reused worker runs. The
+ * state lives on globalThis because the two callers can hold different instances of this
+ * module. Package directories come from the project context (recordedPackageDirOf).
+ */
+export function workerOwnershipPolicy(
+  {
+    projectRoot,
+    projectDirs = [],
+    reactNativeRoots = [],
+    serverDepsInlineAll = false,
+    runtimeTransforms = [],
+  },
+  context = projectContext(),
+) {
+  const state = (globalThis[WORKER_POLICIES] ??= {
+    builds: 0,
+    requests: 0,
+    policies: new Map(),
+    dirOf: null,
+  });
+  state.requests++;
+  const key = JSON.stringify([
+    path.resolve(projectRoot),
+    projectDirs,
+    reactNativeRoots,
+    serverDepsInlineAll === true,
+    runtimeTransforms,
+  ]);
+  const cached = state.policies.get(key);
+  if (cached) return cached;
+  state.dirOf ??= recordedPackageDirOf(context?.packageDirs);
+  const policy = createNativeOwnershipPolicy({
+    projectRoot,
+    projectDirs,
+    reactNativeRoots,
+    serverDepsInlineAll: serverDepsInlineAll === true,
+    runtimeTransforms,
+    packageDirOf: state.dirOf,
+  });
+  state.builds++;
+  state.policies.set(key, policy);
+  return policy;
+}
+
+/** How many policies workerOwnershipPolicy has built in this thread. */
+export function workerOwnershipPolicyBuilds() {
+  return globalThis[WORKER_POLICIES]?.builds ?? 0;
 }
 
 /**

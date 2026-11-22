@@ -1,6 +1,7 @@
+import fs from "node:fs";
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
-import React from "react";
+import { hosts } from "../mocks/host-classes.js";
 import { createRequire, Module } from "node:module";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
@@ -35,14 +36,14 @@ const REANIMATED_MOCK: LibraryMock = {
   // Reanimated's mock (4.7.1, and its main branch in October 2026) answers `interpolate`,
   // `interpolateColor` and `clamp` with a no-op, so every interpolated style is
   // `undefined`; its `useAnimatedScrollHandler` and `useComposedEventHandler` never run
-  // their handlers; its `useScrollOffset` and `useScrollViewOffset` return
-  // `{ value: 0 }`, which is not a shared value; and its shared values have no
-  // listeners, which Gesture Handler 3 adds to one given as gesture config. Those
-  // names, and only while the mock's value still behaves so (mockCorrections), are
+  // their handlers; and what its value hooks give lacks Reanimated 4's shared value shape
+  // (no modify() or listeners, which Gesture Handler 3 adds to one given as gesture
+  // config; `{ value: 0 }` from the offsets and the timestamp; numbers for the keyboard).
+  // Those names, and only while the mock's value still behaves so (mockCorrections), are
   // replaced: the helpers by reanimated's own (ownHelpers), the rest by ones that work
-  // (scrollHandlers, withListeners). A reanimated whose mock does better keeps its own.
+  // (scrollHandlers, sharedValue). A reanimated whose mock does better keeps its own.
   // Under the native engine, beside the mock its library registry serves.
-  extend: (mock, dir) => mockCorrections(mock, dir, true),
+  extend: (mock, dir, { React }) => mockCorrections(React, mock, dir, true),
 };
 
 type Fn = (...args: any[]) => any;
@@ -105,73 +106,209 @@ function neverCalls(build: (handler: () => void) => unknown): boolean {
   });
 }
 
-/** Whether `useOffset` (called outside a render) returns something that is not a shared value. */
-function notASharedValue(useOffset: unknown): boolean {
-  if (typeof useOffset !== "function") return false;
-  return quietly(() => {
-    try {
-      const value = useOffset();
-      return !(value && typeof value.get === "function");
-    } catch {
-      return false;
-    }
-  });
+/** The methods a Reanimated 4 shared value has, besides `value`. */
+const SHARED_VALUE_METHODS = ["get", "set", "modify", "addListener", "removeListener"] as const;
+
+/**
+ * Whether `value` has Reanimated 4's shared value shape: the `_isReanimatedSharedValue`
+ * mark its `isSharedValue()` checks (Gesture Handler 3 checks it on gesture config), a
+ * `value`, and get/set/modify/addListener/removeListener.
+ */
+export function isSharedValueShaped(value: unknown): boolean {
+  if (value === null || typeof value !== "object") return false;
+  const shared = value as Record<string, unknown>;
+  return (
+    shared._isReanimatedSharedValue === true &&
+    "value" in shared &&
+    SHARED_VALUE_METHODS.every((name) => typeof shared[name] === "function")
+  );
 }
 
-/** Whether `useSharedValue` (called outside a render) gives a value without listeners. */
-function lacksListeners(useSharedValue: unknown): boolean {
-  if (typeof useSharedValue !== "function") return false;
+/** What a probe answers when the call throws: a hook that needs a render, taken as working. */
+const NEEDS_RENDER = Symbol("needs a render");
+
+/** What `call` returns outside a render, or NEEDS_RENDER when it throws. */
+function probeHook(call: () => unknown): unknown {
   return quietly(() => {
     try {
-      const value = useSharedValue(0);
-      return (
-        value !== null &&
-        typeof value === "object" &&
-        (typeof value.addListener !== "function" || typeof value.removeListener !== "function")
-      );
+      return call();
     } catch {
-      return false;
+      return NEEDS_RENDER;
     }
   });
 }
 
 /**
- * `shared`, with a shared value's listeners: `addListener(id, listener)` and
- * `removeListener(id)`, each listener called with the new value when `.value` is
- * assigned or `.set()` called, as on reanimated's shared values. Gesture Handler 3
- * listens to a shared value given as gesture config (`usePanGesture({ enabled })`).
+ * A shared value with Reanimated 4's API: `.value` and `get()`, `set(value | updater)`,
+ * `modify(modifier?, forceUpdate = true)` (the value becomes the modifier's result),
+ * `addListener(id, listener)` / `removeListener(id)`, each listener called with the new
+ * value on every write, and the `_isReanimatedSharedValue` mark. A read (`.value` or
+ * `get()`) is recorded while a derived value's updater runs (derivedValue).
  */
-function withListeners<T extends object>(shared: T): T {
-  const listeners = new Map<unknown, (value: unknown) => void>();
+export function sharedValue<T>(init: T) {
+  let current = init;
+  const listeners = new Map<unknown, (value: T) => void>();
   const notify = () => {
-    for (const listener of listeners.values()) listener((shared as { value?: unknown }).value);
+    // A snapshot: a listener that re-subscribes (derivedValue) is not called again.
+    for (const listener of Array.from(listeners.values())) listener(current);
   };
-  return new Proxy(shared, {
-    get(target, prop) {
-      if (prop === "addListener") {
-        return (id: unknown, listener: (value: unknown) => void) => {
-          listeners.set(id, listener);
-        };
+  const shared = {
+    _isReanimatedSharedValue: true as const,
+    get value(): T {
+      derivedReads?.add(shared);
+      return current;
+    },
+    set value(next: T) {
+      current = next;
+      notify();
+    },
+    get: (): T => {
+      derivedReads?.add(shared);
+      return current;
+    },
+    set(next: T | ((value: T) => T)) {
+      current = typeof next === "function" ? (next as (value: T) => T)(current) : next;
+      notify();
+    },
+    modify(modifier?: (value: T) => T, forceUpdate = true) {
+      if (modifier) current = modifier(current);
+      if (forceUpdate !== false) notify();
+    },
+    addListener(id: unknown, listener: (value: T) => void) {
+      listeners.set(id, listener);
+    },
+    removeListener(id: unknown) {
+      listeners.delete(id);
+    },
+  };
+  return shared;
+}
+
+type SharedValue = ReturnType<typeof sharedValue<unknown>>;
+
+/** The shared values read while a derived value's updater runs, or null outside one. */
+let derivedReads: Set<SharedValue> | null = null;
+
+/**
+ * Reanimated's useDerivedValue: a shared value holding what `updater` returns, recomputed
+ * whenever a shared value the updater read changes, without a render. Reanimated starts a
+ * mapper over the updater's inputs and runs it on every change of one (at once under
+ * Jest, src/mappers.ts maybeRequestUpdates); here the inputs are the shared values the
+ * last run read, so it needs no Babel plugin. It also recomputes on every render, as the
+ * mock's does, so a value the updater takes from props is current, and once more on
+ * mount, as Reanimated's mapper runs when it starts. Listeners hear a changed result, and
+ * the subscriptions end when the component unmounts.
+ */
+export function derivedValue(React: typeof import("react"), updater: () => unknown): SharedValue {
+  // Outside a render, which the mock allows, a new one each call, with no component to
+  // unmount; in one, kept per component (perComponent).
+  const rendering = useRefOrNull<DerivedState>(React);
+  const state = rendering?.current ?? derivedState(updater);
+  if (rendering && rendering.current === null) rendering.current = state;
+  state.updater = updater;
+  // A render follows nothing: React may discard it (a Suspense throw, an error boundary,
+  // an abandoned concurrent render), and no effect would then stop what it started. Its
+  // reads are followed once it commits, as Reanimated starts its mapper in an effect.
+  state.run(rendering === null);
+  if (rendering) {
+    React.useEffect(() => {
+      state.followRendered();
+    });
+    // Run again on mount, as Reanimated's mapper runs when it starts (a StrictMode
+    // remount stops it first).
+    React.useEffect(() => {
+      state.started = true;
+      state.run();
+      return () => state.stop();
+    }, [state]);
+  }
+  return state.derived;
+}
+
+type DerivedState = ReturnType<typeof derivedState>;
+
+function derivedState(updater: () => unknown) {
+  const held = {
+    derived: sharedValue<unknown>(undefined),
+    updater,
+    inputs: new Set<SharedValue>(),
+    /** What the last render read, followed when it commits (followRendered). */
+    rendered: null as Set<SharedValue> | null,
+    /** Between the mount effect and unmount. */
+    started: false,
+    /** Whether the updater is running: a write it makes to its own input waits. */
+    running: false,
+    ran: false,
+    last: undefined as unknown,
+    run(follow = true) {
+      // An updater that writes a value it reads does not run again inside itself. This
+      // guard is per derived value, unlike Reanimated's: its mapperRun returns while any
+      // mapper is processing and runs one topological pass, so here the final values
+      // are the same but a chain runs nested rather than in that order. And Reanimated
+      // keeps a self-written mapper dirty, to rerun on the next pass that ANY mapper
+      // input's write starts; here it reruns only on the next write to its own inputs.
+      if (held.running) return;
+      held.running = true;
+      const outer = derivedReads;
+      const read = new Set<SharedValue>();
+      derivedReads = read;
+      let next: unknown;
+      try {
+        next = held.updater();
+      } finally {
+        derivedReads = outer;
+        held.running = false;
       }
-      if (prop === "removeListener") return (id: unknown) => listeners.delete(id);
-      const value = (target as Record<PropertyKey, unknown>)[prop];
-      if (prop === "set" && typeof value === "function") {
-        return (next: unknown) => {
-          value(next);
-          notify();
-        };
+      read.delete(held.derived);
+      if (follow) held.follow(read);
+      else held.rendered = read;
+      if (!held.ran || !Object.is(held.last, next)) {
+        held.ran = true;
+        held.last = next;
+        held.derived.value = next;
       }
-      return value;
     },
-    has(target, prop) {
-      return prop === "addListener" || prop === "removeListener" || Reflect.has(target, prop);
+    /** Listen to `read`, and to nothing else. */
+    follow(read: Set<SharedValue>) {
+      for (const input of held.inputs) if (!read.has(input)) input.removeListener(held);
+      for (const input of read)
+        if (!held.inputs.has(input)) input.addListener(held, () => held.run());
+      held.inputs = read;
     },
-    set(target, prop, next) {
-      const done = Reflect.set(target, prop, next);
-      if (done && prop === "value") notify();
-      return done;
+    /**
+     * After a commit: follow what its render read. On an update that reads an input not
+     * followed before, run again, as Reanimated restarts a mapper whose closure changed:
+     * a child's effects run before this one, and a write they made to that input in this
+     * commit was not heard. The first commit's run is the mount effect's.
+     */
+    followRendered() {
+      const rendered = held.rendered;
+      held.rendered = null;
+      if (!rendered) return;
+      const added = [...rendered].some((input) => !held.inputs.has(input));
+      held.follow(rendered);
+      if (held.started && added) held.run();
     },
-  });
+    stop() {
+      held.started = false;
+      for (const input of held.inputs) input.removeListener(held);
+      held.inputs.clear();
+    },
+  };
+  return held;
+}
+
+/**
+ * `create()` once per component, as Reanimated's hooks keep their shared values: a
+ * listener added on one render (Gesture Handler's, on a gesture's `enabled`) hears a
+ * write made through a later render's value. Outside a render, which the mock allows, a
+ * new one each call.
+ */
+function perComponent<T>(React: typeof import("react"), create: () => T): T {
+  const held = useRefOrNull<T>(React);
+  if (held === null) return create();
+  if (held.current === null) held.current = create();
+  return held.current;
 }
 
 /**
@@ -179,10 +316,12 @@ function withListeners<T extends object>(shared: T): T {
  * REANIMATED_MOCK). Exported for its tests.
  */
 export function mockCorrections(
+  React: typeof import("react"),
   mock: Record<string, any>,
   dir: string,
   fromRegistry = false,
   helpers: Helpers = ownHelpers(dir, fromRegistry),
+  real: Record<string, any> | null = ownIndex(dir, fromRegistry),
 ): Record<string, any> {
   const probes: Record<keyof Helpers, (f: Fn) => unknown> = {
     interpolate: (f) => f(5, [0, 10], [0, 100]),
@@ -200,7 +339,7 @@ export function mockCorrections(
     }
     return fixed;
   };
-  const handlers = scrollHandlers(mock.useSharedValue);
+  const handlers = scrollHandlers(React, mock.useSharedValue);
   const fixed: Record<string, any> = { ...fixHelpers(mock) };
   const scrollFixed = neverCalls((h) => mock.useAnimatedScrollHandler?.({ onScroll: h }));
   if (scrollFixed) fixed.useAnimatedScrollHandler = handlers.useAnimatedScrollHandler;
@@ -210,24 +349,119 @@ export function mockCorrections(
   if (neverCalls((h) => mock.useComposedEventHandler?.([h]))) {
     fixed.useComposedEventHandler = handlers.useComposedEventHandler;
   }
-  // Shared values without listeners get them; the offsets below are built on the result.
-  let useSharedValue = mock.useSharedValue;
-  if (lacksListeners(mock.useSharedValue)) {
-    const own = mock.useSharedValue;
-    // One value per component, as reanimated's own hook keeps it: a listener added on
-    // one render (Gesture Handler's, on a gesture's `enabled`) hears a write made
-    // through a later render's value. Outside a render, which the mock allows, a new one.
-    useSharedValue = (init: unknown) => {
-      const held = useRefOrNull<object>();
-      if (held === null) return withListeners(own(init));
-      if (held.current === null) held.current = withListeners(own(init));
-      return held.current;
-    };
-    fixed.useSharedValue = useSharedValue;
+  // Every hook that gives a shared value, and makeMutable: probed outside a render (the
+  // mock's hooks need none) and replaced only while what it gives lacks Reanimated 4's
+  // shape (isSharedValueShaped). 4.7.1's mock gives shared values without modify() or
+  // listeners, a derived value without the mark, `{ value: 0 }` for the offsets and the
+  // timestamp, plain numbers for the keyboard, a sensor without get(), and makeMutable's
+  // argument itself (#351: "first.get is not a function").
+  const gives = (name: string, call: (hook: Fn) => unknown) => {
+    const hook = mock[name];
+    return typeof hook === "function" ? probeHook(() => call(hook)) : undefined;
+  };
+  const wrong = (name: string, call: (hook: Fn) => unknown) => {
+    if (typeof mock[name] !== "function") return false;
+    const given = gives(name, call);
+    return given !== NEEDS_RENDER && !isSharedValueShaped(given);
+  };
+  if (wrong("useSharedValue", (hook) => hook(0))) {
+    fixed.useSharedValue = (init: unknown) => perComponent(React, () => sharedValue(init));
   }
-  const offsets = scrollHandlers(useSharedValue).useScrollOffset;
-  for (const name of ["useScrollOffset", "useScrollViewOffset"]) {
-    if (notASharedValue(mock[name])) fixed[name] = offsets;
+  if (wrong("makeMutable", (hook) => hook(0))) {
+    fixed.makeMutable = (init: unknown) => sharedValue(init);
+  }
+  if (wrong("useDerivedValue", (hook) => hook(() => 0))) {
+    fixed.useDerivedValue = (updater: () => unknown) => derivedValue(React, updater);
+  }
+  for (const name of ["useScrollOffset", "useScrollViewOffset", "useTimestamp"]) {
+    if (wrong(name, (hook) => hook())) {
+      fixed[name] = () => perComponent(React, () => sharedValue(0));
+    }
+  }
+  const keyboard = gives("useAnimatedKeyboard", (hook) => hook()) as Record<string, unknown>;
+  if (
+    typeof mock.useAnimatedKeyboard === "function" &&
+    (keyboard as unknown) !== NEEDS_RENDER &&
+    !(isSharedValueShaped(keyboard?.height) && isSharedValueShaped(keyboard?.state))
+  ) {
+    const own = mock.useAnimatedKeyboard as Fn;
+    // height 0 and state 0 (KeyboardState.UNKNOWN), as the mock's numbers are.
+    fixed.useAnimatedKeyboard = (...args: unknown[]) =>
+      perComponent(React, () => ({
+        ...own(...args),
+        height: sharedValue(0),
+        state: sharedValue(0),
+      }));
+  }
+  const sensor = gives("useAnimatedSensor", (hook) => hook(0)) as Record<string, unknown>;
+  if (
+    typeof mock.useAnimatedSensor === "function" &&
+    (sensor as unknown) !== NEEDS_RENDER &&
+    !isSharedValueShaped(sensor?.sensor)
+  ) {
+    const own = mock.useAnimatedSensor as Fn;
+    // The mock's own reading (x, y, z, interfaceOrientation …), as the value.
+    fixed.useAnimatedSensor = (...args: unknown[]) =>
+      perComponent(React, () => {
+        const given = own(...args) ?? {};
+        const reading = given.sensor?.value ?? given.sensor;
+        return { ...given, sensor: sharedValue(reading) };
+      });
+  }
+  // Layout animations and Keyframe: the mock gives one shared object per builder, with
+  // its methods returning itself, so `new FadeIn()`, `instanceof FadeIn` and a class that
+  // extends a builder fail. Reanimated's own classes, from the index the mock itself
+  // imports, wherever a real export is a builder class (BaseAnimationBuilder or a class
+  // that extends it; Keyframe by name) and the mock serves something else (#696).
+  if (real) {
+    const base = real.BaseAnimationBuilder;
+    for (const [name, own] of Object.entries(real)) {
+      const builder =
+        typeof own === "function" &&
+        (own === base ||
+          (typeof base === "function" && own.prototype instanceof base) ||
+          name === "Keyframe");
+      if (builder && name in mock && mock[name] !== own) fixed[name] = own;
+    }
+  }
+  // useAnimatedRef: the mock's is `{ current }`; Reanimated's is a function ref (React
+  // calls it with the node, and with null on unmount) with `current`, `observe` and
+  // `getTag`, kept per component (#696).
+  if (
+    typeof mock.useAnimatedRef === "function" &&
+    typeof gives("useAnimatedRef", (hook) => hook()) === "object"
+  ) {
+    fixed.useAnimatedRef = () =>
+      perComponent(React, () => {
+        const ref: any = (node?: unknown) => {
+          if (node !== undefined) ref.current = node;
+          return ref.current;
+        };
+        ref.current = null;
+        ref.observe = () => () => {};
+        ref.getTag = () => null;
+        return ref;
+      });
+  }
+  // Worklet runtimes, while the mock's are no-ops: createWorkletRuntime gives a runtime
+  // (its name and an id, as Reanimated's WorkletRuntime has), and runOnRuntime gives the
+  // function to call, which runs the worklet, as the mock's runOnUI does (#696).
+  const runtime = gives("createWorkletRuntime", (hook) => hook({ name: "probe" })) as any;
+  if (typeof mock.createWorkletRuntime === "function" && typeof runtime?.runtimeId !== "number") {
+    let next = 1;
+    fixed.createWorkletRuntime = (config?: string | { name?: string }) => ({
+      name: (typeof config === "string" ? config : config?.name) ?? "",
+      runtimeId: next++,
+    });
+  }
+  if (
+    typeof mock.runOnRuntime === "function" &&
+    typeof gives("runOnRuntime", (hook) => hook({}, () => {})) !== "function"
+  ) {
+    fixed.runOnRuntime =
+      (_runtime: unknown, worklet: Fn) =>
+      (...args: unknown[]) =>
+        worklet(...args);
   }
   // Reanimated's setUpTests() registers its own toHaveAnimatedStyle and
   // toHaveAnimatedProps on the global `expect` (or on Jest's `expect` package when there
@@ -254,7 +488,7 @@ export function mockCorrections(
   // The scroll views pass a handler's drag and momentum handlers on (withScrollEvents).
   if (scrollFixed) {
     for (const name of ["ScrollView", "FlatList"]) {
-      if (defaults[name]) defaults[name] = withScrollEvents(defaults[name]);
+      if (defaults[name]) defaults[name] = withScrollEvents(React, defaults[name]);
     }
   }
   return { ...mock, ...fixed, default: defaults };
@@ -280,6 +514,133 @@ function loadOwnFile(file: string, stubbed: RegExp, stub: object): Record<string
   return mod.exports;
 }
 
+/** `load()`, or null when it throws: a package the project may not have. */
+function optional<T>(load: () => T): T | null {
+  try {
+    return load();
+  } catch {
+    return null;
+  }
+}
+
+/** The Babel a project compiles with: its `@babel/core` and the CommonJS modules plugin. */
+type ProjectBabel = {
+  transformSync: (code: string, options: object) => { code?: string | null } | null;
+  version: string;
+  plugin: unknown;
+};
+
+/**
+ * The project's `@babel/core` and `@babel/plugin-transform-modules-commonjs`, or null when
+ * either is missing. A React Native app has both through `@react-native/babel-preset` (or
+ * `babel-preset-expo`); an isolated install (pnpm, bun) puts the plugin beside the preset
+ * rather than at the project root, so it is looked for there too.
+ */
+function projectBabel(root: string): ProjectBabel | null {
+  const fromRoot = createRequire(path.join(root, "package.json"));
+  const core = optional(() => fromRoot("@babel/core"));
+  if (!core) return null;
+  const places = [
+    fromRoot,
+    ...["@react-native/babel-preset", "babel-preset-expo"].flatMap((preset) => {
+      const manifest = optional(() => fromRoot.resolve(`${preset}/package.json`));
+      return manifest ? [createRequire(manifest)] : [];
+    }),
+  ];
+  for (const from of places) {
+    const plugin = optional(() => from("@babel/plugin-transform-modules-commonjs"));
+    if (plugin) return { transformSync: core.transformSync, version: core.version, plugin };
+  }
+  return null;
+}
+
+/** Compiled sources, by file, reanimated version and Babel version: the same in every file. */
+const compiledSources = new Map<string, string>();
+
+/**
+ * Loads one of reanimated's ES module files, and the files it imports, as CommonJS the
+ * project's Babel compiles (projectBabel). For the mock engine, which runs no transform:
+ * interpolateColor.js reaches React Native's `Platform` (common/constants/platform.js),
+ * and an ES module's `import` of React Native goes to its Flow source, which Node cannot
+ * run (#857). Compiled to CommonJS, it is a `require`, which the mock engine answers with
+ * its React Native as it does every other. Each load has its own module cache, outside
+ * Node's, so a file imported twice runs once. Throws when the project has no Babel.
+ */
+export function loadCompiledGraph(
+  dir: string,
+  entry: string,
+  babelRoot: string,
+): Record<string, any> {
+  const babel = projectBabel(babelRoot);
+  if (!babel) {
+    throw new VitestNativeError(
+      "PRESET_UNAVAILABLE",
+      `no @babel/core and @babel/plugin-transform-modules-commonjs resolve from ${babelRoot}`,
+    );
+  }
+  // Read, not required: under the native engine nothing of reanimated's loads through Node.
+  const { version } = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+  const loaded = new Map<string, Module>();
+  const compiled = (file: string) => {
+    const key = `${file}\0${version}\0${babel.version}`;
+    let code = compiledSources.get(key);
+    if (code === undefined) {
+      code =
+        babel.transformSync(fs.readFileSync(file, "utf8"), {
+          filename: file,
+          babelrc: false,
+          configFile: false,
+          sourceType: "module",
+          plugins: [babel.plugin],
+        })?.code ?? "";
+      compiledSources.set(key, code);
+    }
+    return code;
+  };
+  const load = (file: string): Record<string, any> => {
+    const known = loaded.get(file);
+    if (known) return known.exports;
+    const mod = new Module(file);
+    mod.filename = file;
+    mod.paths = (Module as any)._nodeModulePaths(path.dirname(file));
+    mod.require = function (this: Module, request: string) {
+      if (request.startsWith(".")) return load(path.resolve(path.dirname(file), request));
+      return Module.prototype.require.call(this, request);
+    } as Module["require"];
+    loaded.set(file, mod);
+    (mod as unknown as { _compile: (code: string, file: string) => void })._compile(
+      compiled(file),
+      file,
+    );
+    mod.loaded = true;
+    return mod.exports;
+  };
+  return load(path.join(dir, entry));
+}
+
+/**
+ * The stand-in for a helper of reanimated's (`interpolateColor`, `clamp`) that did not
+ * load from `installedDir`: it throws, saying why and what to do.
+ */
+function unavailableHelper(name: string, installedDir: string | null): () => never {
+  return () => {
+    throw new VitestNativeError(
+      "PRESET_UNAVAILABLE",
+      `reanimated's ${name} did not load from ${installedDir ?? "react-native-reanimated (not installed)"}. ` +
+        (underNativeEngine()
+          ? "Its file is missing or failed to load; please report this with your reanimated version."
+          : "The mock engine runs no transform, and its file needs one: it imports React " +
+            "Native, which the engine compiles it against with the project's @babel/core and " +
+            "@babel/plugin-transform-modules-commonjs. Install them, or use the native " +
+            "engine (engine: 'native'). Before reanimated 4.5 its imports have no file " +
+            "extension, and it does not load under the mock engine."),
+    );
+  };
+}
+
+/** The file of reanimated's interpolateColor, which reaches React Native. */
+const COLOR_FILE = "lib/module/interpolateColor.js";
+
 /** What interpolateColor.js's core imports become (see loadOwnFile). */
 const NOT_LOADED = new Proxy(
   {},
@@ -300,12 +661,13 @@ const NOT_LOADED = new Proxy(
  * Reanimated's own `interpolate`, `clamp` and `interpolateColor`, loaded from the
  * installed package's files (by name, the preset answers): plain functions, which
  * reanimated also runs on the JS thread. A file that does not load is left out, and
- * its names keep what the module had. Under the native engine both load from 3.17 on;
- * under the mock engine, which runs no transform, interpolateColor.js does not load
- * (it imports React Native's Flow source), nor, before 4.5, does interpolation.js
- * (its imports have no file extension, which Node's ES module loader rejects).
+ * its names keep what the module had. Under the native engine both load from 3.17 on.
+ * Under the mock engine, which runs no transform, Node cannot load interpolateColor.js
+ * (it imports React Native's Flow source) nor, before 4.5, interpolation.js (its imports
+ * have no file extension). From 4.5 on, interpolateColor.js is compiled with the
+ * project's Babel (loadCompiledGraph), and stays out where the project has none.
  */
-function ownHelpers(dir: string, fromRegistry = false): Helpers {
+export function ownHelpers(dir: string, fromRegistry = false, babelRoot = workerRoot()): Helpers {
   const helpers: Helpers = {};
   // Beside reanimated's own mock the files are already modules of its graph, which the
   // library registry holds: a require by path is served from there, at no Node load.
@@ -326,6 +688,21 @@ function ownHelpers(dir: string, fromRegistry = false): Helpers {
       loadOrNull(own);
     for (const name of names) {
       if (typeof loaded?.[name] === "function") helpers[name] = loaded[name];
+    }
+    // Under the mock engine interpolateColor.js reaches React Native, which Node cannot
+    // load (#857): it is compiled with the project's Babel when it is first called, so a
+    // project that never calls it pays nothing (about 140 ms for Babel and its 34 files).
+    if (!loaded && file === COLOR_FILE && !underNativeEngine()) {
+      let graph: Record<string, any> | null | undefined;
+      for (const name of names) {
+        helpers[name] = (...args: unknown[]) => {
+          // Loaded once: a failure (no Babel) is kept too, not looked for again each call.
+          if (graph === undefined)
+            graph = loadOrNull(() => loadCompiledGraph(dir, file, babelRoot));
+          const helper = graph?.[name];
+          return typeof helper === "function" ? helper(...args) : unavailableHelper(name, dir)();
+        };
+      }
     }
   }
   return helpers;
@@ -350,7 +727,7 @@ const EVENT_PROPS: Record<string, keyof ScrollHandlers> = {
 };
 
 /** React's `useRef` in a render, or null outside one (where hooks cannot run). */
-function useRefOrNull<T>(): { current: T | null } | null {
+function useRefOrNull<T>(React: typeof import("react")): { current: T | null } | null {
   try {
     return React.useRef<T | null>(null);
   } catch {
@@ -362,6 +739,23 @@ function useRefOrNull<T>(): { current: T | null } | null {
 function registryHolds(file: string): boolean {
   const dispatch = (globalThis as Record<symbol, any>)[Symbol.for("vitest-native.node-dispatch")];
   return dispatch?.channel("registry").libraryHolds?.(file) === true;
+}
+
+/**
+ * Reanimated's own index, which its mock imports (`from './index'`): the module the mock
+ * loaded, from the library registry that holds it beside the mock, or from Node's cache
+ * where the index loaded through Node (per-file module loading). Never a second copy:
+ * null where neither holds it (unit tests), and the corrections that need it stay off.
+ */
+function ownIndex(dir: string, fromRegistry: boolean): Record<string, any> | null {
+  if (!fromRegistry) return null;
+  const index = path.join(dir, "src/index.ts");
+  const required = createRequire(path.join(dir, "package.json"));
+  // Without the library registry (per-file module loading), Node loaded the index for
+  // the mock already: its cached module, under Node's real-path spelling, is the same one.
+  const real = loadOrNull(() => ({ path: fs.realpathSync(index) }))?.path ?? index;
+  if (!registryHolds(index) && !required.cache[real] && !required.cache[index]) return null;
+  return loadOrNull(() => required(index));
 }
 
 /** What `load` returns, or null when it throws: not this version's layout, or not loadable here. */
@@ -378,10 +772,11 @@ function loadOrNull(load: () => Record<string, any>): Record<string, any> | null
  * drag and momentum events, as reanimated's animated scroll views do (they subscribe
  * a handler to every event it handles). A prop the test gives itself still runs.
  */
-function withScrollEvents(Component: any): any {
+function withScrollEvents(React: typeof import("react"), Component: any): any {
+  const { asHost } = hosts(React);
   const Wrapped = React.forwardRef((props: any, ref: any) => {
     const events = props.onScroll?.[SCROLL_EVENTS] as Record<string, Fn> | undefined;
-    if (!events) return React.createElement(Component, { ...props, ref });
+    if (!events) return React.createElement(asHost(Component), { ...props, ref });
     const extra: Record<string, Fn> = {};
     for (const [prop, run] of Object.entries(events)) {
       const own = props[prop];
@@ -390,7 +785,7 @@ function withScrollEvents(Component: any): any {
         if (typeof own === "function") own(event);
       };
     }
-    return React.createElement(Component, { ...props, ...extra, ref });
+    return React.createElement(asHost(Component), { ...props, ...extra, ref });
   });
   Wrapped.displayName = Component.displayName ?? Component.name ?? "ScrollView";
   return Wrapped;
@@ -407,7 +802,7 @@ function withScrollEvents(Component: any): any {
  * and so the drag and momentum events of the scroll handlers among them. The offset
  * hooks return a shared value (`useSharedValue(0)`, kept across renders).
  */
-function scrollHandlers(useSharedValue?: Fn) {
+function scrollHandlers(React: typeof import("react"), useSharedValue?: Fn) {
   function useAnimatedScrollHandler(handlers: Handler | ScrollHandlers | undefined) {
     const latest = React.useRef<ScrollHandlers>({});
     latest.current = typeof handlers === "function" ? { onScroll: handlers } : (handlers ?? {});
@@ -449,19 +844,17 @@ function scrollHandlers(useSharedValue?: Fn) {
 /**
  * Resolve the *active* React Native module — the mock under `engine: 'mock'`
  * (intercepted by the CJS bridge) or real RN under `engine: 'native'` (served by
- * the Node loader hooks). Cached. Lets the reanimated mock's `Animated.View`
- * &co. wrap whichever RN component set is live, so the preset is engine-agnostic.
+ * the Node loader hooks). Lets the reanimated mock's `Animated.View` &co. wrap whichever
+ * RN component set is live, so the preset is engine-agnostic. Required on each call, a
+ * module-cache hit: a copy kept for the worker would be the first file's components,
+ * built with its React (freshRuntime, #719).
  */
-let _rnCache: Record<string, any> | null = null;
 function getRN(): Record<string, any> {
-  if (_rnCache) return _rnCache;
   try {
-    const base = path.join(workerRoot(), "package.json");
-    _rnCache = createRequire(base)("react-native");
+    return createRequire(path.join(workerRoot(), "package.json"))("react-native");
   } catch {
-    _rnCache = {};
+    return {};
   }
-  return _rnCache!;
 }
 
 export function reanimated(): Preset {
@@ -478,9 +871,11 @@ export function reanimated(): Preset {
           "useComposedEventHandler",
           "useScrollOffset",
           "useScrollViewOffset",
+          "useTimestamp",
           "useAnimatedGestureHandler",
           "useAnimatedReaction",
           "useAnimatedKeyboard",
+          "useAnimatedSensor",
           "useReducedMotion",
           "useFrameCallback",
           "useEvent",
@@ -570,33 +965,10 @@ export function reanimated(): Preset {
           "ReduceMotion",
           "KeyboardState",
         ],
-        factory: () => {
-          function createSharedValue(init: any) {
-            const listeners = new Map<number, Function>();
-            const sv = {
-              // What reanimated's own isSharedValue checks for.
-              _isReanimatedSharedValue: true,
-              value: init,
-              get() {
-                return sv.value;
-              },
-              set(value: any) {
-                sv.value = typeof value === "function" ? value(sv.value) : value;
-                listeners.forEach((fn) => fn(sv.value));
-              },
-              addListener(id: number, listener: Function) {
-                listeners.set(id, listener);
-              },
-              removeListener(id: number) {
-                listeners.delete(id);
-              },
-              modify(modifier?: Function, forceUpdate?: boolean) {
-                if (modifier) modifier(sv.value);
-                if (forceUpdate !== false) listeners.forEach((fn) => fn(sv.value));
-              },
-            };
-            return sv;
-          }
+        factory: ({ React }) => {
+          const { asHost } = hosts(React);
+          // Reanimated 4's shared value shape (sharedValue above), as the corrections give.
+          const createSharedValue = (init: any) => sharedValue(init);
 
           function useSharedValue(init: any) {
             const ref = React.useRef(createSharedValue(init));
@@ -611,28 +983,16 @@ export function reanimated(): Preset {
             return updater();
           }
 
-          function useDerivedValue(updater: () => any) {
-            return createSharedValue(updater());
-          }
+          const useDerivedValue = (updater: () => any) => derivedValue(React, updater);
 
           const { useAnimatedScrollHandler, useComposedEventHandler, useScrollOffset } =
-            scrollHandlers(createSharedValue);
+            scrollHandlers(React, createSharedValue);
           // Reanimated's own, from the installed package (ownHelpers). Where its file
           // does not load, `interpolate` keeps the stand-in it always had (the first
           // output value), and `clamp` and `interpolateColor` say why they fail.
           const installedDir = reanimatedDir(workerRoot());
           const helpers = installedDir ? ownHelpers(installedDir) : {};
-          const unavailable = (name: string) => () => {
-            throw new VitestNativeError(
-              "PRESET_UNAVAILABLE",
-              `reanimated's ${name} did not load from ${installedDir ?? "react-native-reanimated (not installed)"}. ` +
-                (underNativeEngine()
-                  ? "Its file is missing or failed to load; please report this with your reanimated version."
-                  : "The mock engine runs no transform, and its file needs one (it imports React " +
-                    "Native, or, before reanimated 4.5, modules without a file extension). It works " +
-                    "under the native engine (engine: 'native')."),
-            );
-          };
+          const unavailable = (name: string) => unavailableHelper(name, installedDir);
           const interpolate = vi.fn(
             helpers.interpolate ??
               ((_value: number, _input: number[], output: number[]) => output[0]),
@@ -658,6 +1018,20 @@ export function reanimated(): Preset {
             return {
               state: createSharedValue(0),
               height: createSharedValue(0),
+            };
+          }
+
+          // A sensor that never moves: Reanimated's mock gives the same reading.
+          function useAnimatedSensor(sensorType: number, config?: unknown) {
+            const sensor = React.useRef(
+              createSharedValue({ x: 0, y: 0, z: 0, interfaceOrientation: 0 }),
+            ).current;
+            return {
+              sensor,
+              unregister: () => {},
+              isAvailable: false,
+              config: config ?? {},
+              sensorType,
             };
           }
 
@@ -728,7 +1102,7 @@ export function reanimated(): Preset {
 
           function createAnimatedComponent(component: any) {
             const Animated = React.forwardRef((props: any, ref: any) => {
-              return React.createElement(component, { ...props, ref });
+              return React.createElement(asHost(component), { ...props, ref });
             });
             Animated.displayName = `Animated(${component.displayName || component.name || "Component"})`;
             return Animated;
@@ -738,10 +1112,18 @@ export function reanimated(): Preset {
           // lazily wraps the *active* RN component at render time so it renders
           // through the real RN host under the native engine, or the mock under
           // the mock engine. Resolving lazily (not at factory time) avoids
-          // touching RN before the engine's hooks are installed.
+          // touching RN before the engine's hooks are installed. Kept for this file's
+          // mock once found, as this file's React Native.
+          let activeRN: Record<string, any> | undefined;
+          const rn = () => {
+            if (activeRN) return activeRN;
+            const found = getRN();
+            if (Object.keys(found).length > 0) activeRN = found;
+            return found;
+          };
           function makeAnimatedHost(name: string) {
             const Comp = React.forwardRef((props: any, ref: any) => {
-              const Base = getRN()[name];
+              const Base = rn()[name];
               if (!Base) {
                 throw new VitestNativeError(
                   "PRESET_UNAVAILABLE",
@@ -753,7 +1135,7 @@ export function reanimated(): Preset {
                     `replaces it wholesale.`,
                 );
               }
-              return React.createElement(Base, { ...props, ref });
+              return React.createElement(asHost(Base), { ...props, ref });
             });
             Comp.displayName = `Animated.${name}`;
             return Comp;
@@ -762,8 +1144,8 @@ export function reanimated(): Preset {
           const View = makeAnimatedHost("View");
           const Text = makeAnimatedHost("Text");
           const Image = makeAnimatedHost("Image");
-          const ScrollView = withScrollEvents(makeAnimatedHost("ScrollView"));
-          const FlatList = withScrollEvents(makeAnimatedHost("FlatList"));
+          const ScrollView = withScrollEvents(React, makeAnimatedHost("ScrollView"));
+          const FlatList = withScrollEvents(React, makeAnimatedHost("FlatList"));
 
           // Helper to create chainable layout animation presets. Each modifier is
           // `vi.fn(impl)`, not `.mockReturnValue()`: mockReset() (and `mockReset: true`)
@@ -819,9 +1201,12 @@ export function reanimated(): Preset {
             useComposedEventHandler,
             useScrollOffset,
             useScrollViewOffset: useScrollOffset,
+            // A shared value that stays 0: no frames advance in a test.
+            useTimestamp: useScrollOffset,
             useAnimatedGestureHandler,
             useAnimatedReaction,
             useAnimatedKeyboard,
+            useAnimatedSensor,
             useReducedMotion,
             useFrameCallback,
             useEvent,

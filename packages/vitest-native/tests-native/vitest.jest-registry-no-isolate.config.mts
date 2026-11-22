@@ -3,12 +3,14 @@
 // it). The hot runtime clears the registry through its state manifest; this run has
 // no hot runtime, so it proves the registry clears itself when the file changes. A
 // library's mocks, from a setup file that runs once (c1, c2), stay with its module.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 import { reactNative } from "../dist/index.mjs";
 import { jestMockTransform } from "../dist/jest-compat.mjs";
+import { OTHER_FIXTURES_MOCKS } from "./support/fixture-mocks.mts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -39,7 +41,7 @@ export default defineConfig({
         ],
       },
     }),
-    jestMockTransform(),
+    jestMockTransform(OTHER_FIXTURES_MOCKS),
   ],
   test: {
     environment: "node",

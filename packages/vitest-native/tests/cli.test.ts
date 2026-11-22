@@ -334,7 +334,7 @@ describe("migrate", () => {
     expect(extractAllowlistPackages("node_modules/(?!(jest-)?react-native|expo)")).toEqual({
       entries: [
         { name: "react-native", kind: "prefix" },
-        { name: "jest-react-native", kind: "prefix" },
+        { name: "jest-react-native", kind: "prefix", expanded: true },
         { name: "expo", kind: "prefix" },
       ],
       unparseable: [],
@@ -437,6 +437,195 @@ describe("migrate", () => {
     expect(text).toContain("'someCustomKey' — unrecognized Jest key");
   });
 
+  // The libraries a React Native app's Jest setup file usually mocks, installed.
+  const installedLibraries = (...names: string[]) =>
+    Object.fromEntries(
+      names.map((name) => [`node_modules/${name}/package.json`, { name, version: "4.0.0" }]),
+    );
+
+  it("does not report a name only an optional group in the allowlist produces (#795)", () => {
+    const root = fixture({
+      "package.json": { name: "x", dependencies: { "react-native": "0.88.0" } },
+      "jest.config.json": {
+        preset: "@react-native/jest-preset",
+        transformIgnorePatterns: [
+          "node_modules/(?!((jest-)?react-native|@react-native(-community)?|spelled-out-lib)/)",
+        ],
+      },
+    });
+    withBabelParser(root);
+    const text = renderMigrationReport(analyzeJestConfig(root)).join("\n");
+    // `(jest-)?react-native` gives jest-react-native, which the project never names.
+    expect(text).not.toContain("jest-react-native");
+    // A name the pattern spells out is still reported when it is not installed.
+    expect(text).toContain("allows spelled-out-lib — not installed; nothing to do.");
+  });
+
+  it("still reports a name a group produces when the project depends on it (#795)", () => {
+    const root = fixture({
+      "package.json": {
+        name: "x",
+        dependencies: { "react-native": "0.88.0", "jest-react-native": "18.0.0" },
+      },
+      "jest.config.json": {
+        transformIgnorePatterns: ["node_modules/(?!((jest-)?react-native)/)"],
+      },
+    });
+    withBabelParser(root);
+    const text = renderMigrationReport(analyzeJestConfig(root)).join("\n");
+    expect(text).toContain("allows jest-react-native — not installed; nothing to do.");
+  });
+
+  it("lists the library mocks in a project setup file the presets cover (#796)", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        preset: "@react-native/jest-preset",
+        setupFiles: ["./jest.setup.js"],
+      },
+      "jest.setup.js": [
+        "require('react-native-gesture-handler/jestSetup');",
+        "jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));",
+        "jest.mock('react-native-safe-area-context', () =>",
+        "  require('react-native-safe-area-context/jest/mock'),",
+        ");",
+        "jest.mock('./src/api', () => ({ get: jest.fn() }));",
+        "",
+      ].join("\n"),
+      ...installedLibraries(
+        "react-native-reanimated",
+        "react-native-gesture-handler",
+        "react-native-safe-area-context",
+      ),
+    });
+    withBabelParser(root);
+    const report = analyzeJestConfig(root);
+    const covered = report.presetCovered.filter((line) => line.startsWith("./jest.setup.js: "));
+    expect(covered, covered.join("\n")).toEqual([
+      "./jest.setup.js: require('react-native-gesture-handler/jestSetup') — react-native-gesture-handler's own test setup, which the native engine runs before the setup files; delete the line.",
+      "./jest.setup.js: jest.mock('react-native-reanimated') — the auto-detected reanimated preset shadows react-native-reanimated; delete the line.",
+      "./jest.setup.js: jest.mock('react-native-safe-area-context') — the auto-detected safeAreaContext preset shadows react-native-safe-area-context; delete the line.",
+    ]);
+    // The file itself still runs: the rest of it is the project's.
+    expect(report.suggestedConfig).toContain(`"./jest.setup.js"`);
+  });
+
+  it("lists only the setup-file statements a preset replaces, once per file (#796)", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        setupFiles: ["./jest.setup.js"],
+        setupFilesAfterEnv: ["<rootDir>/jest.setup.js"],
+      },
+      "jest.setup.js": [
+        "import 'react-native-gesture-handler/jestSetup';",
+        "require('react-native-reanimated/mock');",
+        "jest.mock('react-native-gesture-handler');",
+        // Not statements: a block comment, a template literal, a regex literal's quote.
+        "/*",
+        "jest.mock('react-native-reanimated');",
+        "*/",
+        "const doc = `",
+        "jest.mock('react-native-reanimated');",
+        "`;",
+        "const quote = /'/g;",
+        "const paren = /\\(/;",
+        "jest.mock('react-native-safe-area-context', () =>",
+        "  jest.requireActual('react-native-safe-area-context'),",
+        ");",
+        // Imports names: the project uses the library, it does not set it up.
+        "import { Swipeable } from 'react-native-gesture-handler';",
+        // A deep import is a module the preset does not provide.
+        "jest.mock('react-native-reanimated/lib/module/animation', () => ({}));",
+        // Keeps part of the library: for review, not deletion.
+        "jest.mock('react-native-reanimated', () => ({",
+        "  ...require('react-native-reanimated/mock'),",
+        "  useReducedMotion: () => true,",
+        "}));",
+        "",
+      ].join("\n"),
+      ...installedLibraries(
+        "react-native-reanimated",
+        "react-native-gesture-handler",
+        "react-native-safe-area-context",
+      ),
+    });
+    withBabelParser(root);
+    const report = analyzeJestConfig(root);
+    const fromSetup = (lines: string[]) =>
+      lines.filter((line) => /^(?:\.\/|<rootDir>\/)jest\.setup\.js: /.test(line));
+    expect(fromSetup(report.presetCovered)).toEqual([
+      "./jest.setup.js: import 'react-native-gesture-handler/jestSetup' — react-native-gesture-handler's own test setup, which the native engine runs before the setup files; delete the line.",
+      "./jest.setup.js: require('react-native-reanimated/mock') — the auto-detected reanimated preset shadows react-native-reanimated; delete the line.",
+      "./jest.setup.js: jest.mock('react-native-gesture-handler') — the native engine runs react-native-gesture-handler with its own Jest setup (react-native-gesture-handler/jestSetup.js), which replaces its native layer; delete the line.",
+    ]);
+    expect(fromSetup(report.attention)).toEqual([
+      "./jest.setup.js: jest.mock('react-native-safe-area-context') — the safeAreaContext preset provides react-native-safe-area-context, but this mock changes part of it (jest.requireActual or a spread); keep only the changes the tests rely on.",
+      "./jest.setup.js: jest.mock('react-native-reanimated') — the reanimated preset provides react-native-reanimated, but this mock changes part of it (jest.requireActual or a spread); keep only the changes the tests rely on.",
+    ]);
+  });
+
+  it("lists nothing from a setup file its parser cannot read (#796)", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { setupFiles: ["./jest.setup.js"] },
+      "jest.setup.js": "jest.mock('react-native-reanimated');\nconst = ;\n",
+      ...installedLibraries("react-native-reanimated"),
+    });
+    withBabelParser(root);
+    const report = analyzeJestConfig(root);
+    const all = [...report.presetCovered, ...report.attention].join("\n");
+    expect(all).not.toContain("./jest.setup.js: ");
+    expect(report.suggestedConfig).toContain(`"./jest.setup.js"`);
+  });
+
+  it("lists a preset-shadowed allowlist entry with the others that need nothing (#797)", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        transformIgnorePatterns: ["node_modules/(?!(react-native|react-native-reanimated)/)"],
+      },
+      ...installedLibraries("react-native-reanimated"),
+    });
+    withBabelParser(root);
+    const report = analyzeJestConfig(root);
+    const line =
+      "transformIgnorePatterns allows react-native-reanimated — shadowed by the auto-detected reanimated preset; nothing to do.";
+    expect(report.automatic).toContain(line);
+    expect(report.presetCovered.join("\n")).not.toContain("transformIgnorePatterns");
+  });
+
+  it("keeps Jest's mapper order in resolve.alias, where the first match wins", () => {
+    // Shape from cherry-studio-app: the specific `@/assets/` mapper precedes the
+    // catch-all `@/`. A string `find: "@"` also takes `@/assets/x`, so emitting the
+    // string aliases ahead of the RegExp ones sent `@/assets/x` to src/assets/x.
+    const config = analyzeJestConfig(
+      fixture({
+        "package.json": { name: "x" },
+        "jest.config.json": {
+          moduleNameMapper: {
+            "^@shared/(.*)$": "<rootDir>/packages/shared/$1",
+            "^@/assets/(.*)$": "<rootDir>/assets/$1",
+            "^@/(.*)$": "<rootDir>/src/$1",
+            "^@logger$": "<rootDir>/src/logger.ts",
+          },
+        },
+      }),
+    ).suggestedConfig;
+    const at = (needle: string) => {
+      const index = config.indexOf(needle);
+      expect(index, needle).toBeGreaterThan(-1);
+      return index;
+    };
+    const shared = at("find: /^@shared\\/(.*)$/");
+    const assets = at("find: /^@\\/assets\\/(.*)$/");
+    const catchAll = at(`find: "@", replacement`);
+    const logger = at("find: /^@logger$/");
+    expect([shared, assets, catchAll, logger]).toEqual(
+      [shared, assets, catchAll, logger].toSorted((a, b) => a - b),
+    );
+  });
+
   it("translates any literal prefix mapper and drops keys with no Vitest effect", () => {
     // Shapes from Rocket.Chat.ReactNative and react-native-paper.
     const report = analyzeJestConfig(
@@ -504,6 +693,92 @@ describe("migrate", () => {
     );
     expect(covered).not.toContain("expo-font");
     expect(covered).not.toContain("react-native-svg");
+  });
+
+  it("lists each root mock of a node_modules package that jestMockTransform() applies", () => {
+    // obytes' shape: __mocks__/moti.ts and expo-localization.ts, which Jest applies with
+    // no jest.mock() call. A builtin and an uninstalled package are not node_modules mocks.
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { preset: "react-native" },
+      "node_modules/moti/package.json": { name: "moti", version: "0.30.0" },
+      "node_modules/expo-localization/package.json": {
+        name: "expo-localization",
+        version: "17.0.0",
+      },
+      "node_modules/react-native-mmkv/package.json": {
+        name: "react-native-mmkv",
+        version: "3.2.0",
+      },
+      "__mocks__/moti.ts": "export {};",
+      "__mocks__/expo-localization.ts": "export {};",
+      "__mocks__/react-native-mmkv.ts": "export {};",
+      "__mocks__/fs.js": "module.exports = {};",
+      "__mocks__/not-installed.js": "module.exports = {};",
+    });
+    const report = analyzeJestConfig(root);
+    const automatic = report.automatic.join("\n");
+    for (const name of ["moti", "expo-localization"]) {
+      expect(automatic).toContain(
+        `__mocks__/${name} → applied to ${name} in every test by jestMockTransform(), with no ` +
+          `jest.mock() call, as Jest applies it.`,
+      );
+    }
+    expect(automatic).toContain(
+      "react-native-mmkv 3 also runs its own test mode under Vitest, which can stand in for this mock.",
+    );
+    expect(automatic).not.toContain("__mocks__/fs");
+    expect(automatic).not.toContain("not-installed");
+    expect(report.suggestedConfig).toContain("jestMockTransform()]");
+  });
+
+  it("finds manual mocks as Jest's haste map does: any depth, name/index, duplicates, ignores", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": {
+        preset: "react-native",
+        modulePathIgnorePatterns: ["<rootDir>/legacy/"],
+      },
+      "node_modules/axios/package.json": { name: "axios", version: "1.0.0" },
+      "node_modules/moti/package.json": { name: "moti", version: "0.30.0" },
+      "node_modules/zustand/package.json": { name: "zustand", version: "5.0.0" },
+      // At any depth, keyed by the path inside __mocks__.
+      "src/api/__mocks__/axios.ts": "export {};",
+      // name/index answers name.
+      "__mocks__/zustand/index.js": "module.exports = {};",
+      // Two files, one name.
+      "__mocks__/moti.ts": "export {};",
+      "src/__mocks__/moti.ts": "export {};",
+      // Ignored by modulePathIgnorePatterns, as Jest's haste map ignores it.
+      "legacy/__mocks__/axios.ts": "export {};",
+    });
+    const report = analyzeJestConfig(root);
+    const automatic = report.automatic.join("\n");
+    expect(automatic).toContain("src/api/__mocks__/axios → applied to axios");
+    expect(automatic).toContain(
+      "__mocks__/zustand/index → applied to zustand and zustand/index in",
+    );
+    expect(automatic).toContain("src/__mocks__/moti → applied to moti");
+    expect(automatic).not.toContain("legacy/__mocks__");
+    expect(report.attention.join("\n")).toContain(
+      "duplicate manual mock moti: __mocks__/moti.ts, src/__mocks__/moti.ts — Jest warns and uses one; " +
+        "jestMockTransform() uses the last listed. Delete the others.",
+    );
+    expect(report.suggestedConfig).toContain(
+      `jestMockTransform({ modulePathIgnorePatterns: ["<rootDir>/legacy/"] })`,
+    );
+  });
+
+  it("passes Jest's roots to jestMockTransform() for root mocks outside the project root", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { preset: "react-native", roots: ["<rootDir>/src", "<rootDir>/"] },
+      "node_modules/moti/package.json": { name: "moti", version: "0.30.0" },
+      "src/__mocks__/moti.ts": "export {};",
+    });
+    const report = analyzeJestConfig(root);
+    expect(report.automatic.join("\n")).toContain("src/__mocks__/moti → applied to moti");
+    expect(report.suggestedConfig).toContain(`jestMockTransform({ roots: ["src", "."] })`);
   });
 
   describe("Reanimated settings vitest-native covers", () => {
@@ -590,7 +865,7 @@ module.exports = {
       expect(more.presetCovered.join("\n")).not.toContain("snapshotSerializers");
       expect(more.presetCovered.join("\n")).not.toContain("setUpTests");
       expect(more.attention.join("\n")).toContain(
-        "snapshotSerializers '<rootDir>/jest/reanimatedSnapshotSerializer.js' — Vitest uses",
+        "snapshotSerializers '<rootDir>/jest/reanimatedSnapshotSerializer.js' — Vitest has no such key",
       );
       expect(more.suggestedConfig).toContain("jestSetupAfterEnv");
       // A `/*` inside a line comment must not hide code up to a later `*/`.
@@ -612,6 +887,103 @@ module.exports = {
       const without = paperLike({}, false);
       expect(without.presetCovered.join("\n")).not.toMatch(/resolver|setUpTests|strips/);
       expect(without.attention.join("\n")).toContain("'resolver' — unrecognized Jest key");
+    });
+
+    // Reanimated 4.7+ with its own Jest resolver, and Worklets with its own: the real
+    // library can run under the native engine.
+    const REAL_REANIMATED = {
+      "package.json": { name: "x", dependencies: { "react-native-reanimated": "4.7.1" } },
+      "node_modules/react-native-reanimated/jest/resolver.js": "module.exports = () => {};",
+      "node_modules/react-native-worklets/package.json": {
+        name: "react-native-worklets",
+        version: "0.9.0",
+      },
+      "node_modules/react-native-worklets/jest/resolver.js": "module.exports = () => {};",
+      "node_modules/react-native-worklets/lib/module/mock.js": "module.exports = {};",
+    };
+
+    it("turns the preset off for a suite that ran the real Reanimated, and keeps its setup (#834)", () => {
+      const report = paperLike(REAL_REANIMATED);
+      expect(report.suggestedConfig).toContain("presets: { reanimated: false }");
+      expect(report.suggestedConfig.match(/presets:/g)).toHaveLength(1);
+      expect(report.suggestedConfig).toContain("jestSetupAfterEnv");
+      expect(report.automatic.join("\n")).toContain(
+        "<rootDir>/jest/jestSetupAfterEnv.js runs Reanimated's setUpTests() and the suite mocks Reanimated nowhere",
+      );
+      // The real library's animated components set the jest* props: the serializer stays.
+      const covered = report.presetCovered.join("\n");
+      expect(covered).not.toContain("setUpTests");
+      expect(covered).not.toContain("snapshotSerializers");
+      // With a frame-time argument too.
+      const withArg = paperLike({
+        ...REAL_REANIMATED,
+        "jest/jestSetupAfterEnv.js": SETUP.replace("setUpTests();", "setUpTests({ fps: 30 });"),
+      });
+      expect(withArg.suggestedConfig).toContain("presets: { reanimated: false }");
+      for (const setup of [
+        `require('react-native-reanimated').setUpTests();`,
+        `const { setUpTests } = require("react-native-reanimated");\nsetUpTests();`,
+      ]) {
+        const other = paperLike({ ...REAL_REANIMATED, "jest/jestSetupAfterEnv.js": setup });
+        expect(other.suggestedConfig, setup).toContain("presets: { reanimated: false }");
+      }
+      // Naming setUpTests without calling it is not running the library.
+      const unused = paperLike({
+        ...REAL_REANIMATED,
+        "jest/jestSetupAfterEnv.js": `import { setUpTests } from 'react-native-reanimated';\n`,
+      });
+      expect(unused.suggestedConfig).not.toContain("reanimated: false");
+      // A mock left in a comment is not one.
+      const commented = paperLike({
+        ...REAL_REANIMATED,
+        "jest.setup.js":
+          "// jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));\n",
+      });
+      expect(commented.suggestedConfig).toContain("presets: { reanimated: false }");
+    });
+
+    it("keeps the setup and the preset, with a note, when Reanimated is not declared (#834)", () => {
+      const report = paperLike({ ...REAL_REANIMATED, "package.json": { name: "x" } });
+      expect(report.suggestedConfig).not.toContain("reanimated: false");
+      expect(report.suggestedConfig).toContain("jestSetupAfterEnv");
+      expect(report.presetCovered.join("\n")).not.toContain("setUpTests");
+      expect(report.attention.join("\n")).toContain(
+        "To run the real library, declare react-native-reanimated in package.json and add presets: { reanimated: false }.",
+      );
+    });
+
+    it("keeps the mock for a suite that also mocks Reanimated, however it does (#834)", () => {
+      for (const [how, files] of [
+        [
+          "jest.mock in a setup file",
+          {
+            "jest.setup.js":
+              "jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));\n",
+          },
+        ],
+        ["a root manual mock", { "__mocks__/react-native-reanimated.js": "module.exports = {};" }],
+        [
+          "a moduleNameMapper entry",
+          {
+            "jest.config.json": {
+              preset: "react-native",
+              setupFilesAfterEnv: ["<rootDir>/jest/jestSetupAfterEnv.js"],
+              moduleNameMapper: {
+                "^react-native-reanimated$": "<rootDir>/node_modules/react-native-reanimated/mock",
+              },
+            },
+          },
+        ],
+      ] as const) {
+        const report = paperLike({ ...REAL_REANIMATED, ...files });
+        expect(report.suggestedConfig, how).not.toContain("reanimated: false");
+        expect(report.presetCovered.join("\n"), how).toContain(
+          "setupFilesAfterEnv: '<rootDir>/jest/jestSetupAfterEnv.js' — only calls Reanimated's setUpTests()",
+        );
+      }
+      // Without its own Jest resolver (before 4.7) the real library cannot run here.
+      const old = paperLike();
+      expect(old.suggestedConfig).not.toContain("reanimated: false");
     });
 
     it("recognises the other written forms", () => {
@@ -638,6 +1010,27 @@ module.exports = {
         "react-native-worklets's own Jest resolver",
       );
     });
+  });
+
+  it("says how many Jest snapshot files need one re-record, and why", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { preset: "react-native" },
+      "src/__tests__/__snapshots__/a.test.tsx.snap": "// Jest Snapshot v1\n",
+      "src/components/__snapshots__/b.test.tsx.snap": "// Jest Snapshot v1\n",
+      "node_modules/lib/__snapshots__/c.test.js.snap": "// not the project's\n",
+    });
+    const attention = analyzeJestConfig(root).attention.join("\n");
+    expect(attention).toContain(
+      "2 Jest snapshot files (__snapshots__/*.snap) — most entries need one re-record. Vitest names a snapshot inside a describe 'group > test 1' where Jest wrote 'group test 1'",
+    );
+    expect(attention).toContain("re-record them once with `vitest -u` and review the diff");
+
+    const none = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { preset: "react-native" },
+    });
+    expect(analyzeJestConfig(none).attention.join("\n")).not.toContain("Jest snapshot file");
   });
 
   it("deletes a library's own test setup that a detected preset replaces", () => {
@@ -739,6 +1132,30 @@ module.exports = {
       `fileURLToPath(new URL("./config/polyfills.js", import.meta.url))`,
     );
     expect(report.suggestedConfig).toContain(`import { fileURLToPath } from 'node:url'`);
+  });
+
+  it("names a jest.mock factory that reads a module-level const while it runs", () => {
+    const root = fixture({
+      "package.json": { name: "x" },
+      "jest.config.json": { testEnvironment: "node" },
+      "src/checkSupportedVersions.test.ts": `const TODAY = '2023-04-01';
+jest.mock('~/supportedversions', () => ({ enforcementStartDate: TODAY }));
+test('x', () => {});
+`,
+      "src/fine.test.ts": `const LATER = 1;
+jest.mock('a', () => ({ get: () => LATER }));
+`,
+    });
+    withBabelParser(root);
+    // A broken link named like a test file is skipped, not fatal.
+    fs.symlinkSync(path.join(root, "missing.ts"), path.join(root, "src", "broken.test.ts"));
+    const attention = analyzeJestConfig(root).attention.join("\n");
+    expect(attention).toContain(
+      "1 jest.mock() factory reads a const, let or class from the test file's module body while it runs: " +
+        "src/checkSupportedVersions.test.ts:2 (jest.mock('~/supportedversions') reads TODAY)",
+    );
+    expect(attention).toContain("create it with vi.hoisted()");
+    expect(attention).not.toContain("fine.test.ts");
   });
 
   it("reads package.json#jest and reports a missing config honestly", () => {

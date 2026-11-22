@@ -1,7 +1,8 @@
-import React from "react";
+import { hosts } from "../host-classes.js";
 import { vi } from "vitest";
 
-export function createVirtualizedListMock() {
+export function createVirtualizedListMock(React: typeof import("react")) {
+  const { hostComponent } = hosts(React);
   const VirtualizedList = React.forwardRef((props: any, ref: any) => {
     const {
       data,
@@ -78,7 +79,7 @@ export function createVirtualizedListMock() {
       );
     }
 
-    return React.createElement("VirtualizedList", { ...rest, ref }, ...children);
+    return React.createElement(hostComponent("VirtualizedList"), { ...rest, ref }, ...children);
   });
   VirtualizedList.displayName = "VirtualizedList";
   return VirtualizedList;

@@ -1,26 +1,18 @@
 // Short-lived entrypoint for a cold React Native registry build.
 //
-// One JSON options object in on stdin, one JSON result out. No logging: the output is a
+// One JSON options object in (a file named by the first argument), one JSON result out. No logging: the output is a
 // protocol, and a failure is returned for the parent to report once.
 import fs from "node:fs";
 import { Worker } from "node:worker_threads";
+import { readInput } from "./bounded-process.mjs";
 import { buildLibraryRegistry, buildRegistry } from "./registry.mjs";
 
-// A compile runs synchronously on this thread, so this process cannot notice its parent
-// dying, and the parent's timeout dies with the parent. A watchdog thread ends the
-// process when it has been orphaned (POSIX reparents it, so its ppid changes) or has
-// run longer than the parent would ever wait (registry-process.mjs gives it 120 s), so
-// a stuck compile cannot outlive the run.
-const ORPHAN_POLL_MS = 5_000;
-const DEADLINE_MS = 130_000;
-new Worker(
-  `const start = process.ppid;
-   const deadline = Date.now() + ${DEADLINE_MS};
-   setInterval(() => {
-     if (process.ppid !== start || Date.now() > deadline) process.kill(process.pid, "SIGKILL");
-   }, ${ORPHAN_POLL_MS});`,
-  { eval: true },
-).unref();
+// A watchdog thread ends this process if its parent dies or it runs longer than the
+// parent would ever wait (registry-process.mjs gives it 120 s), not counting time the
+// machine spends asleep (compiler-watchdog.mjs).
+new Worker(new URL("./compiler-watchdog.mjs", import.meta.url), {
+  workerData: { deadlineMs: 130_000, pollMs: 5_000 },
+}).unref();
 import { compileOnThisThread } from "./transform.mjs";
 
 // No test code runs in this process, so Babel runs on its one thread (transform.mjs,
@@ -37,7 +29,7 @@ function respond(value) {
 }
 
 try {
-  const { testDelayMs, ...options } = JSON.parse(fs.readFileSync(0, "utf8"));
+  const { testDelayMs, ...options } = readInput();
   if (testDelayMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, testDelayMs);
   const started = performance.now();
   const registryFile = buildRegistry({

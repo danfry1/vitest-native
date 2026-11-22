@@ -29,6 +29,7 @@ lib/lines.mjs          a run's failure lines (file: message, no titles)
 lib/build-info.mjs     the SHA a build directory was built from, checked by content hash
 lib/hash.mjs           content hashes of a build (package.json + dist/) and of an exhibit
 lib/materialise.mjs    builds an exhibit's workspace from this repository's install
+lib/axes.mjs           why a verdict run with --ownership or --node-mocks is not a STATUS.md column
 ```
 
 ## Running
@@ -41,6 +42,7 @@ node validation/bug-museum/run.mjs --class ownership
 node validation/bug-museum/run.mjs --build ../other-checkout/packages/vitest-native
 node validation/bug-museum/run.mjs --control    # each exhibit with its bug's precondition removed
 node validation/bug-museum/run.mjs --ownership resolver   # with experimental.ownershipModel: 'resolver'
+node validation/bug-museum/run.mjs --ownership resolver --node-mocks on   # and experimental.nodeMocks: true
 MUSEUM_DEBUG=1 node validation/bug-museum/run.mjs --only <id>   # Vitest's own output too
 ```
 
@@ -61,6 +63,24 @@ whether it reads the flag: it must accept the value and reject an invalid one by
 build that does not (main before #370) records every exhibit N/A, "flag not supported by
 this build", and exits 0. Verdicts carry `ownershipModel`, and `status.mjs` refuses them:
 STATUS.md records the flag off. The default (`off`) leaves the option unset, as before.
+
+### The `nodeMocks` axis
+
+`--node-mocks on` runs every exhibit with `experimental.nodeMocks: true`, and `--node-mocks
+off` with `false` spelled out; without the flag the option stays unset. With `--ownership`,
+both entries go into one `experimental` object (`../config-axes/node-mocks.mjs`
+`experimentalEntries`), so `--ownership resolver --node-mocks on` is `'resolver'` with
+`nodeMocks` on, which `--ownership` alone cannot express. The wrapper and its check are the
+ownership axis's: an exhibit whose `reactNative()` never saw the entries fails.
+
+Before running anything, the build is asked whether it reads the flag: it must accept the
+requested value and reject a value that is not a boolean, naming `nodeMocks`. A build that
+warns about `experimental`, rejects `nodeMocks` as an unknown option, or accepts any value
+records every exhibit N/A, "flag not supported by this build", and exits 0. A build that
+reads both flags but rejects the combination records every exhibit N/A as "combination not
+runnable with this build", with the build's own message: today that is `--ownership
+resolution --node-mocks off`, since `'resolution'` turns `nodeMocks` on. Verdicts carry
+`nodeMocks`, and `status.mjs` refuses them.
 
 A run passes only when three witnesses agree (the config-axis matrix's
 `../config-axes/accounting.mjs` and its accounting reporter): Vitest exited 0, the JSON

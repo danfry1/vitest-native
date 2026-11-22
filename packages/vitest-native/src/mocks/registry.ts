@@ -70,6 +70,7 @@ import { createRequireNativeComponentMock } from "./native/requireNativeComponen
 // Inline lightweight mocks (not worth separate files)
 import { vi } from "vitest";
 import React from "react";
+import { hostComponent } from "./host.js";
 
 function createAppRegistryMock() {
   return {
@@ -265,7 +266,11 @@ function createVirtualizedSectionListMock() {
         }
       });
     }
-    return React.createElement("VirtualizedSectionList", { ...rest, ref }, ...children);
+    return React.createElement(
+      hostComponent("VirtualizedSectionList"),
+      { ...rest, ref },
+      ...children,
+    );
   });
   VirtualizedSectionList.displayName = "VirtualizedSectionList";
   return VirtualizedSectionList;
@@ -374,18 +379,18 @@ export {
 export function buildReactNativeMock(platform: "ios" | "android" = "ios") {
   const mock: Record<string, any> = {
     // Components
-    View: createViewMock(),
+    View: createViewMock(React),
     Text: createTextMock(),
     Image: createImageMock(() => mock),
-    TextInput: createTextInputMock(),
-    ScrollView: createScrollViewMock(),
-    FlatList: createFlatListMock(),
-    SectionList: createSectionListMock(),
+    TextInput: createTextInputMock(React),
+    ScrollView: createScrollViewMock(React),
+    FlatList: createFlatListMock(React),
+    SectionList: createSectionListMock(React),
     Modal: createModalMock(),
-    Pressable: createPressableMock(),
-    TouchableOpacity: createTouchableOpacityMock(),
-    TouchableHighlight: createTouchableHighlightMock(),
-    TouchableWithoutFeedback: createTouchableWithoutFeedbackMock(),
+    Pressable: createPressableMock(React),
+    TouchableOpacity: createTouchableOpacityMock(React),
+    TouchableHighlight: createTouchableHighlightMock(React),
+    TouchableWithoutFeedback: createTouchableWithoutFeedbackMock(React),
     TouchableNativeFeedback: createTouchableNativeFeedbackMock(),
     ActivityIndicator: createActivityIndicatorMock(),
     Button: createButtonMock(),
@@ -395,7 +400,7 @@ export function buildReactNativeMock(platform: "ios" | "android" = "ios") {
     SafeAreaView: createSafeAreaViewMock(),
     KeyboardAvoidingView: createKeyboardAvoidingViewMock(),
     ImageBackground: createImageBackgroundMock(),
-    VirtualizedList: createVirtualizedListMock(),
+    VirtualizedList: createVirtualizedListMock(React),
     InputAccessoryView: createInputAccessoryViewMock(),
     DrawerLayoutAndroid: createDrawerLayoutAndroidMock(),
 
@@ -481,7 +486,7 @@ export function buildReactNativeMock(platform: "ios" | "android" = "ios") {
     // Deprecated but still exported (community packages)
     ProgressBarAndroid: (() => {
       const C = React.forwardRef((props: any, ref: any) =>
-        React.createElement("ProgressBarAndroid", { ...props, ref }),
+        React.createElement(hostComponent("ProgressBarAndroid"), { ...props, ref }),
       );
       C.displayName = "ProgressBarAndroid";
       return C;

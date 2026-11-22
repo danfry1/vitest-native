@@ -1,0 +1,14 @@
+{
+  "name": "museum-pre-351-gh-preset-off-own-setup",
+  "private": true,
+  "dependencies": {
+    "react": "*",
+    "react-native": "*",
+    "react-native-gesture-handler": "*",
+    "react-native-reanimated": "*",
+    "react-native-worklets": "*"
+  },
+  "devDependencies": {
+    "@testing-library/react-native": "*"
+  }
+}

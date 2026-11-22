@@ -4,13 +4,46 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import "./release-age.mjs";
-import { writeSnippets } from "./doc-snippets.mjs";
+import { CANARY_INSTALL_FLAGS } from "./release-age.mjs";
+import { HERO_RUN, HERO_TEST, heroRunLines, writeSnippets } from "./doc-snippets.mjs";
+import { scratchInstall } from "./scratch-install.mjs";
+import { floorBannerProblem } from "./support/engine-banner.mjs";
+import { expoLatestEntries, runEachExpoEntry } from "./support/expo-latest.mjs";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixturesRoot = path.join(packageRoot, "consumer-tests");
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "vitest-native-consumers-"));
 const packRoot = path.join(tempRoot, "package");
 fs.mkdirSync(packRoot);
+
+/**
+ * A package's installed bin in `root`'s node_modules, as the script for Node to run: the
+ * fixture's own copy, never npx, which resolves a missing one from the registry.
+ */
+function installedBin(root, name, bin = name) {
+  const dir = path.join(root, "node_modules", name);
+  const manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
+  const entry = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.[bin];
+  if (!entry) throw new Error(`${name} has no "${bin}" bin in ${dir}`);
+  return path.join(dir, entry);
+}
+
+/**
+ * Runs the `vitest-native` command npm linked when it installed the packed tarball, the
+ * way a user's package script or `npx vitest-native` reaches it. installedBin() reads the
+ * manifest's path and runs that file directly, so it passes even when npm linked no
+ * command: npm rewrites a bin entry while publishing and drops one it cannot use.
+ */
+function runLinkedBin(root) {
+  const manifestPath = path.join(root, "package.json");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  manifest.scripts = { ...manifest.scripts, "vitest-native-bin": "vitest-native --help" };
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+  const output = runCaptured("npm", ["run", "--silent", "vitest-native-bin"], root);
+  if (!output.includes("Usage:\n  vitest-native init")) {
+    throw new Error("the linked vitest-native command did not print its usage");
+  }
+}
 
 function run(command, args, cwd) {
   console.log(`\n> ${command} ${args.join(" ")}`);
@@ -216,6 +249,58 @@ function runExpoPnpmSuite(tarball, sdk) {
   return failures;
 }
 
+/**
+ * Reanimated at its supported floor (4.5.3, on React Native 0.86.3), with the worklets
+ * Babel plugin from the project's own config (consumer-tests/reanimated-floor). On 4.5
+ * and 4.6 the preset stands in for the library, and a project mock that spreads
+ * `jest.requireActual` runs the real `useAnimatedStyle`, which throws without the plugin.
+ * The repository does not install these versions, so the fixture goes through
+ * scratch-install: its pins, the repository's resolutions, and the release cooldown.
+ *
+ * Each row must pass and print the engine it asked for: a silent fallback to the mock
+ * engine, or a hot row that ran per-file, fails the leg.
+ */
+const REANIMATED_FLOOR_ROWS = [
+  { config: "mock", env: { VN_HOT: "false" }, engine: "native" },
+  { config: "mock", env: { VN_HOT: "true" }, engine: "native", hot: true },
+  { config: "preset", env: { VN_HOT: "false" }, engine: "native" },
+  { config: "preset", env: { VN_HOT: "true" }, engine: "native", hot: true },
+  { config: "preset", env: { VN_HOT: "false", VN_ENGINE: "mock" }, engine: "mock" },
+];
+
+async function runLibraryFloors(tarball) {
+  const fixtureRoot = path.join(tempRoot, "reanimated-floor");
+  fs.cpSync(path.join(fixturesRoot, "reanimated-floor"), fixtureRoot, { recursive: true });
+  addPackedDependency(fixtureRoot, tarball);
+  await scratchInstall(fixtureRoot, { tarballs: [tarball] });
+  const reactNativeVersion = JSON.parse(
+    fs.readFileSync(path.join(fixtureRoot, "node_modules/react-native/package.json"), "utf8"),
+  ).version;
+  const failures = [];
+  for (const row of REANIMATED_FLOOR_ROWS) {
+    const name = `${row.config} config, ${Object.entries(row.env)
+      .map(([k, v]) => `${k}=${v}`)
+      .join(" ")}`;
+    try {
+      const output = runCaptured(
+        process.execPath,
+        ["node_modules/vitest/vitest.mjs", "run", "--config", `vitest.${row.config}.config.mts`],
+        fixtureRoot,
+        row.env,
+      );
+      const problem = floorBannerProblem(output, row, reactNativeVersion);
+      if (problem) failures.push(`${name}: ${problem}`);
+    } catch (error) {
+      failures.push(`${name}: ${error.message}`);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(
+      `Reanimated floor: ${failures.length} row(s) failed\n- ${failures.join("\n- ")}`,
+    );
+  }
+}
+
 function runExpoPnpmSuites(tarball) {
   const failures = [...runExpoPnpmSuite(tarball, 58), ...runExpoPnpmSuite(tarball, 57)];
   if (failures.length > 0) {
@@ -225,7 +310,93 @@ function runExpoPnpmSuites(tarball) {
   }
 }
 
-// The README's and the quick start's code, run as written (scripts/doc-snippets.mjs).
+// The supported Expo SDKs at their newest patch: the latest-supported axis for Expo
+// (docs/upstream-policy.md). The fixtures pin exact releases; here `expo` follows its SDK
+// (`~58.0.0`) and Expo's own `expo install --fix` aligns the packages that go with it
+// (expo-*, react-native, the router). Every install keeps the repository's release
+// cooldown (scripts/release-age.mjs, imported above). Expo's CLI runs offline, so the
+// versions it aligns to are the installed expo release's own list (as old as that
+// release), not its online API's, which names releases younger than the gate allows.
+// The list is one entry per SDK in SUPPORTED_EXPO_SDKS, each checked against the SDK its
+// fixture pins (scripts/support/expo-latest.mjs).
+
+/**
+ * The newest SDK's fixture on the Expo prerelease in VN_EXPO_VERSION, which the canary
+ * job picks (.github/scripts/canary-version.mjs).
+ */
+function expoNext() {
+  const version = process.env.VN_EXPO_VERSION;
+  if (!version)
+    throw new Error("VN_CONSUMERS=expo-next needs VN_EXPO_VERSION, the expo prerelease to install");
+  return [{ fixture: "expo", expo: version }];
+}
+
+/**
+ * The Expo fixtures with `expo` set to each entry's version and `expo install --fix`
+ * aligning the rest (expo-*, react-native, the router), as an app upgrading would.
+ */
+function runExpoVersions(tarball, leg, entries) {
+  // Every entry runs, so a red run shows which SDKs drifted, not only the first.
+  runEachExpoEntry(entries, ({ fixture, expo }, resolved) => {
+    const fixtureRoot = path.join(tempRoot, `${fixture}-${leg}`);
+    fs.cpSync(path.join(fixturesRoot, fixture), fixtureRoot, { recursive: true });
+    if (fixture === "expo-sdk57") {
+      // As in the fixtures leg: the runtime-surface reader the SDK 57 test checks.
+      fs.mkdirSync(path.join(fixtureRoot, "src", "lib"), { recursive: true });
+      fs.copyFileSync(
+        path.join(packageRoot, "tests", "support", "expo-runtime-surface.ts"),
+        path.join(fixtureRoot, "src", "lib", "expo-runtime-surface.ts"),
+      );
+    }
+    const manifestPath = path.join(fixtureRoot, "package.json");
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    manifest.dependencies.expo = expo;
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    addPackedDependency(fixtureRoot, tarball);
+    runCaptured("npm", ["install", ...CANARY_INSTALL_FLAGS], fixtureRoot);
+    // The fixture's own Expo CLI, never npx: a missing binary would resolve from the registry.
+    runCaptured(
+      process.execPath,
+      [path.join("node_modules", "expo", "bin", "cli"), "install", "--fix"],
+      fixtureRoot,
+      { EXPO_OFFLINE: "1" },
+    );
+    // Expo aligns react but not react-test-renderer, which it does not manage;
+    // RNTL refuses a renderer from another React release, and asks for exactly this.
+    const reactVersion = JSON.parse(
+      fs.readFileSync(path.join(fixtureRoot, "node_modules", "react", "package.json"), "utf8"),
+    ).version;
+    // Declared as a dependency or a dev dependency, depending on the fixture.
+    const dev = Boolean(manifest.devDependencies?.["react-test-renderer"]);
+    if (dev || manifest.dependencies?.["react-test-renderer"]) {
+      const spec = `react-test-renderer@${reactVersion}`;
+      runCaptured(
+        "npm",
+        ["install", ...CANARY_INSTALL_FLAGS, ...(dev ? ["-D"] : []), spec],
+        fixtureRoot,
+      );
+    }
+    const version = (name) =>
+      JSON.parse(
+        fs.readFileSync(path.join(fixtureRoot, "node_modules", name, "package.json"), "utf8"),
+      ).version;
+    const versions = {
+      expo: version("expo"),
+      "react-native": version("react-native"),
+      "expo-router": version("expo-router"),
+    };
+    resolved(versions);
+    console.log(
+      `\n${fixture}: ${Object.entries(versions)
+        .map(([name, v]) => `${name} ${v}`)
+        .join(", ")}`,
+    );
+    run("npm", ["test"], fixtureRoot);
+    run("npm", ["run", "test:router"], fixtureRoot);
+  });
+}
+
+// The code on the SNIPPET_PAGES pages, run as written (scripts/doc-snippets.mjs).
 // The app is the Expo SDK 58 template fixture, on RNTL 14, whose async render() is
 // what an unawaited snippet breaks. Its own config and tests are removed first, so the
 // run is nothing but what the pages show.
@@ -241,7 +412,36 @@ function runDocSnippets(tarball) {
   addPackedDependency(fixtureRoot, tarball);
   run("npm", ["install"], fixtureRoot);
   // The fixture's own Vitest, never npx: a missing binary would resolve from the registry.
-  run(process.execPath, [path.join("node_modules", "vitest", "vitest.mjs"), "run"], fixtureRoot);
+  const vitest = path.join("node_modules", "vitest", "vitest.mjs");
+  run(process.execPath, [vitest, "run"], fixtureRoot);
+  checkHeroRun(fixtureRoot, vitest);
+}
+
+// The landing page's hero shows a test and the output of running it. Both come from here:
+// the test is a snippet file, and its output is committed beside it (HERO_RUN). This runs
+// the test alone, as a reader would, and fails when the output the page shows (the engine
+// banner, each test's line, the totals) no longer matches. VN_UPDATE_HERO_RUN=1 rewrites it.
+function checkHeroRun(fixtureRoot, vitest) {
+  const output = runCaptured(
+    process.execPath,
+    [vitest, "run", HERO_TEST, "--reporter=verbose"],
+    fixtureRoot,
+  );
+  const lines = heroRunLines(output);
+  const file = path.join(packageRoot, "../..", HERO_RUN);
+  if (process.env.VN_UPDATE_HERO_RUN === "1") {
+    fs.writeFileSync(file, `${lines.join("\n")}\n`);
+    console.log(`\nhero run: wrote ${HERO_RUN}`);
+    return;
+  }
+  const committed = fs.readFileSync(file, "utf8").trimEnd().split("\n");
+  if (lines.join("\n") !== committed.join("\n")) {
+    throw new Error(
+      `the landing page's run output (${HERO_RUN}) no longer matches a run of ${HERO_TEST}.\n` +
+        `committed:\n  ${committed.join("\n  ")}\nnow:\n  ${lines.join("\n  ")}\n` +
+        "Rerun with VN_UPDATE_HERO_RUN=1 to record the new output, and review the page.",
+    );
+  }
 }
 
 try {
@@ -253,14 +453,26 @@ try {
   // VN_CONSUMERS=expo-pnpm-suite runs only the real-suite Expo workspace (its own CI
   // cell); VN_CONSUMERS=fixtures everything else, the doc snippets included;
   // VN_CONSUMERS=doc-snippets only the snippets (to run them locally, and for a
-  // docs-only pull request that changes a page carrying snippets).
+  // docs-only pull request that changes a page carrying snippets);
+  // VN_CONSUMERS=library-floors only the library-floor fixtures (also in fixtures).
   // Unset runs all of them, as prepublishOnly does.
   const only = process.env.VN_CONSUMERS;
-  const LEGS = ["fixtures", "doc-snippets", "expo-pnpm-suite"];
+  const LEGS = [
+    "fixtures",
+    "doc-snippets",
+    "library-floors",
+    "expo-pnpm-suite",
+    "expo-latest",
+    "expo-next",
+  ];
   if (only && !LEGS.includes(only)) {
     throw new Error(`VN_CONSUMERS=${only} is not one of ${LEGS.join(", ")}`);
   }
-  const runs = (leg) => !only || only === leg || (leg === "doc-snippets" && only === "fixtures");
+  // The doc snippets and the library floors run in the fixtures cell.
+  const runs = (leg) =>
+    !only ||
+    only === leg ||
+    ((leg === "doc-snippets" || leg === "library-floors") && only === "fixtures");
   if (runs("fixtures")) {
     for (const fixture of [
       "bare",
@@ -316,8 +528,12 @@ try {
           path.join(fixtureRoot, "jest.config.json"),
           `${JSON.stringify({ preset: "jest-expo", testMatch: ["<rootDir>/router-tests/**/*.test.tsx"] }, null, 2)}\n`,
         );
-        run("npx", ["--no-install", "vitest-native", "migrate", "--write"], fixtureRoot);
-        run("npx", ["--no-install", "vitest", "run"], fixtureRoot);
+        run(
+          process.execPath,
+          [installedBin(fixtureRoot, "vitest-native"), "migrate", "--write"],
+          fixtureRoot,
+        );
+        run(process.execPath, [installedBin(fixtureRoot, "vitest"), "run"], fixtureRoot);
       }
       if (fixture === "current-rn") {
         // npm installs the fixture's local probe packages as SYMLINKS (and npm 11
@@ -370,7 +586,8 @@ try {
     // engine detection, and preset scanning against the fixture's real installs;
     // migrate analyzes a minimal Jest config planted for the smoke).
     const cliFixture = path.join(tempRoot, "bare");
-    run("npx", ["--no-install", "vitest-native", "doctor"], cliFixture);
+    runLinkedBin(cliFixture);
+    run(process.execPath, [installedBin(cliFixture, "vitest-native"), "doctor"], cliFixture);
 
     // `init` writes the config a new user starts from, so run a suite against exactly
     // what it produces rather than only asserting on its text. Nothing executed the
@@ -389,14 +606,18 @@ try {
     addPackedDependency(initFixture, tarball);
     run("npm", ["install"], initFixture);
     // The bare fixture's suite uses jest globals, so it needs the jest-compat shape.
-    run("npx", ["--no-install", "vitest-native", "init", "--jest-compat"], initFixture);
+    run(
+      process.execPath,
+      [installedBin(initFixture, "vitest-native"), "init", "--jest-compat"],
+      initFixture,
+    );
     run("npm", ["test"], initFixture);
 
     fs.writeFileSync(
       path.join(cliFixture, "jest.config.json"),
       `${JSON.stringify({ preset: "react-native", testTimeout: 10000 }, null, 2)}\n`,
     );
-    run("npx", ["--no-install", "vitest-native", "migrate"], cliFixture);
+    run(process.execPath, [installedBin(cliFixture, "vitest-native"), "migrate"], cliFixture);
 
     // The same treatment for `migrate --write`, whose template has far more moving
     // parts than init's: a setup file, an alias derived from moduleNameMapper, a
@@ -409,11 +630,22 @@ try {
     fs.cpSync(path.join(fixturesRoot, "jest-migration"), migrateFixture, { recursive: true });
     addPackedDependency(migrateFixture, tarball);
     run("npm", ["install"], migrateFixture);
-    run("npx", ["--no-install", "vitest-native", "migrate", "--write"], migrateFixture);
+    run(
+      process.execPath,
+      [installedBin(migrateFixture, "vitest-native"), "migrate", "--write"],
+      migrateFixture,
+    );
     run("npm", ["test"], migrateFixture);
   }
   if (runs("doc-snippets")) runDocSnippets(tarball);
+  if (runs("library-floors")) await runLibraryFloors(tarball);
   if (runs("expo-pnpm-suite")) runExpoPnpmSuites(tarball);
+  // Only when asked for: they install the newest Expo patches, or an Expo prerelease, so
+  // they never run in a pull request's gate. expo-latest runs on every push to main
+  // (ci.yml expo-latest) and weekly (compat-check.yml); expo-next only in compat-check.yml's
+  // canary job.
+  if (only === "expo-latest") runExpoVersions(tarball, only, expoLatestEntries());
+  if (only === "expo-next") runExpoVersions(tarball, only, expoNext());
 
   console.log("\nThe packed consumer fixtures passed.");
 } finally {

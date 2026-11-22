@@ -19,6 +19,13 @@ export declare function extensionsFor(
  * First existing platform variant of an extensionless absolute base path, or its
  * directory index, or null when nothing matches.
  */
+/** The platform variant of a package's extensionless subpath, or null (#573). */
+export declare function platformSubpathFile(
+  request: string,
+  resolved: string,
+  platform: string,
+  sourceExts?: readonly string[],
+): string | null;
 export declare function resolvePlatformFile(
   absBase: string,
   platform?: "ios" | "android",

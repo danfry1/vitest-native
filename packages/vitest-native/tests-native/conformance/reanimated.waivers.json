@@ -1,0 +1,32 @@
+[
+  {
+    "export": "makeMutable",
+    "path": "makeMutable()._value",
+    "reason": "internal member of Mutable",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "makeMutable",
+    "path": "makeMutable().setDirtyFlag",
+    "reason": "internal member of Mutable",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "makeShareableCloneRecursive",
+    "path": "makeShareableCloneRecursive().__",
+    "reason": "internal serialisation fields of a shareable ref",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "useAnimatedStyle",
+    "path": "useAnimatedStyle().",
+    "reason": "internal members of the style handle; the mock gives the style itself, which tests read (toHaveAnimatedStyle)",
+    "issue": "n/a (internal)"
+  },
+  {
+    "export": "runOnRuntime",
+    "path": "runOnRuntime().__workletHash",
+    "reason": "internal metadata the worklets Babel plugin adds to a worklet",
+    "issue": "n/a (internal)"
+  }
+]

@@ -22,6 +22,7 @@ import Animated, {
   useComposedEventHandler,
   useScrollOffset,
   useScrollViewOffset,
+  useTimestamp,
   useAnimatedRef,
   useSharedValue,
   useAnimatedStyle,
@@ -214,11 +215,12 @@ describe("react-native-reanimated under native engine", () => {
     expect(seen).toEqual([2]);
   });
 
-  it("gives scroll offsets as shared values", async () => {
+  // useTimestamp too, whose value an app reads with .get() (#351).
+  it("gives scroll offsets and the timestamp as shared values", async () => {
     const offsets: unknown[] = [];
     function List() {
       const ref = useAnimatedRef<any>();
-      offsets.push(useScrollOffset(ref), useScrollViewOffset(ref));
+      offsets.push(useScrollOffset(ref), useScrollViewOffset(ref), useTimestamp());
       return (
         <Animated.ScrollView ref={ref}>
           <Text>row</Text>

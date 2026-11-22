@@ -19,12 +19,17 @@ import { installKnownNativeModules } from "./native-modules.mjs";
 import { installRequireHooks, resetExpoSdkWarnings, verifyExpoSdkWarningsReset } from "./hooks.mjs";
 import { installHotReset } from "./reset.mjs";
 import { installRegistry } from "./registry.mjs";
-import { captureModuleBaseline, resetEvaluatedModules } from "./module-reset.mjs";
+import {
+  captureModuleBaseline,
+  resetEvaluatedModules,
+  trackCjsResolutions,
+} from "./module-reset.mjs";
+import { isFreshRuntime } from "./ownership.mjs";
 import { registerRntlHooksOnImport } from "./rntl-hooks.mjs";
 import { residentProblems } from "./resident-health.mjs";
-import { enableV8CompileCache } from "./compile-cache.mjs";
 import { installOwnershipLedger } from "./ownership-ledger.mjs";
 import { VitestNativeError } from "../errors.mjs";
+import { hotDiagnostic } from "./hot-diagnostic.mjs";
 import { activeRegistry, markBootContext, requireProjectContext } from "../context.mjs";
 
 if (isMainThread || !parentPort) {
@@ -45,7 +50,7 @@ const sourceExts = context.sourceExts ?? ["js", "jsx", "json", "ts", "tsx"];
 if (diagnostics) {
   // One line per worker boot: under a hot pool, N files sharing a worker print
   // this once, not N times — the "RN loads once" proof.
-  console.log(`[vitest-native] hot worker boot (pid ${process.pid}, tid ${threadId})`);
+  hotDiagnostic(`hot worker boot (pid ${process.pid}, tid ${threadId})`);
 }
 
 // --- One-time worker init: load RN into the resident Node require cache ---
@@ -53,13 +58,6 @@ if (diagnostics) {
 // guarded; doing them at boot lets RN preload BEFORE the globals baseline and
 // listener tracking in reset.mjs, so RN's own boot state is preserved across
 // per-file resets rather than wrongly torn down with test pollution.
-// Enable the V8 compile cache before any RN module compiles, so the resident
-// graph's bytecode is cached to disk for the next worker/run. Not while hot ESM
-// generation is on (the same test setup.mjs makes): every file would add an entry
-// per re-evaluated ES module (compile-cache.mjs).
-const hotEsmGeneration =
-  context.hotEsmGeneration !== false && process.env.VITEST_NATIVE_HOT_ESM_GEN !== "0";
-enableV8CompileCache(projectRoot, { skip: hotEsmGeneration });
 // First, so the resident graph is in the ledger: a later Vite evaluation of a file this
 // worker keeps resident is the dual evaluation that outlives every per-file reset.
 installOwnershipLedger({ projectRoot });
@@ -84,6 +82,9 @@ installRequireHooks(
 );
 // After the hooks: the polyfill is Flow-typed and compiled by them (see globals.mjs).
 installErrorUtils(projectRoot);
+// With the runtime packages re-run per file, the preload's lookups into them must be
+// drained too, so resolution tracking starts before it.
+const earlyResolutions = isFreshRuntime() ? trackCjsResolutions() : undefined;
 try {
   const req = createRequire(path.join(projectRoot, "package.json"));
   const RN = req("react-native");
@@ -118,7 +119,7 @@ try {
     { cause: error },
   );
 }
-const resetModules = captureModuleBaseline();
+const resetModules = captureModuleBaseline(earlyResolutions);
 const { hotReset, bless, registerState, stateEntries } = installHotReset({
   projectRoot,
   diagnostics,
@@ -133,7 +134,7 @@ registerState({
   verify: verifyExpoSdkWarningsReset,
 });
 globalThis.__vitest_native_state_entries = stateEntries;
-globalThis.__vitest_native_hot_reset = () => {
+globalThis.__vitest_native_hot_reset = (file) => {
   globalThis.__vitest_native_registry_reset?.();
   // Advance the ESM generation so externalized packages a test file `import`s are
   // re-evaluated instead of served from Node's uninvalidatable ESM registry, and let go
@@ -145,11 +146,9 @@ globalThis.__vitest_native_hot_reset = () => {
     released = hot.release?.(generation) ?? 0;
   }
   const dropped = resetModules();
-  hotReset();
+  hotReset(file);
   if (diagnostics) {
-    console.log(
-      `[vitest-native] hot reset: dropped ${dropped} modules, released ${released} module generations`,
-    );
+    hotDiagnostic(`hot reset: dropped ${dropped} modules, released ${released} module generations`);
   }
 };
 globalThis.__vitest_native_hot_bless = bless;
@@ -203,13 +202,13 @@ function clearPendingMocks(mocker) {
   }
 }
 
-globalThis.__vitest_native_reset_module_runner = () => {
+globalThis.__vitest_native_reset_module_runner = (file) => {
   try {
     // The previous file's realm state (fake timers, stubbed globals, listeners) must be
     // gone before ANY setup file of the next one runs. It used to be reset from this
     // package's setup file, which Vitest runs after the user's own: a user setup that
     // installs fake timers then found the previous file's still installed.
-    globalThis.__vitest_native_hot_reset?.();
+    globalThis.__vitest_native_hot_reset?.(file);
   } finally {
     // A failed realm restore is reported by the runner as this file's failure; the
     // previous file's modules and mocks are still dropped, so what follows does not

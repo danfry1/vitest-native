@@ -2,7 +2,7 @@
 
 - **Class:** per-file-state
 - **Source:** #449
-- **Fixed by:** #449's fix (draft, `fix/hot-act-scope-retire`)
+- **Fixed by:** #452 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

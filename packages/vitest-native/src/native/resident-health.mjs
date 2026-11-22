@@ -21,11 +21,13 @@
 import fs from "node:fs";
 import Module, { createRequire } from "node:module";
 import path from "node:path";
+import { isFreshRuntime } from "./ownership.mjs";
 
 // The key Node's module cache holds `file` under, if it is cached.
 function cachedModule(file) {
   if (Module._cache[file]) return Module._cache[file];
   try {
+    // Node's spelling (fs.realpathSync): the key Module._cache holds the file under.
     return Module._cache[fs.realpathSync(file)] ?? null;
   } catch {
     return null;
@@ -107,7 +109,10 @@ const CHECKS = [
     // it and never commit: later files fail with "Unable to find an element".
     id: "react.act-scope",
     clearsOnItsOwn: true,
+    // Under hotRuntime.freshRuntime React is not resident: the next file gets its own, and
+    // a scope left open belongs to an instance nothing renders with again.
     read: (projectRoot) =>
+      !isFreshRuntime() &&
       reactEntriesFor(projectRoot).some((entry) => actScopeOpen(cachedModule(entry)?.exports))
         ? "React's act() scope is still open"
         : null,

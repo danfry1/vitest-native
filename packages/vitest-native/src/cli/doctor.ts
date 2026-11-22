@@ -24,7 +24,13 @@ import {
   autoDetectedPresetApplies,
   type PresetName,
 } from "../preset-map.js";
-import { babelRecipe, classifyBabelPlugins, readBabelConfig } from "./babel-config.js";
+import {
+  babelRecipe,
+  classifyBabelPlugins,
+  normalizeBabelName,
+  readBabelConfig,
+} from "./babel-config.js";
+import { missingBabelCoreNotice, projectBabelTrigger } from "../project-babel.js";
 import {
   activePresets,
   installedManifest,
@@ -35,11 +41,14 @@ import {
   installedExpoVersion,
   isBelowSupportedReactNative,
   PEER_REQUIREMENTS,
+  belowRecommendedMessage,
   unsupportedExpoSdkMessage,
   unsupportedReactNativeMessage,
 } from "../peer-requirements.js";
 import { SUPPORTED_NODE, satisfiesNodeRange, unsupportedNodeMessage } from "../node-range.js";
 import { installedViteVersion, ownVitestPackage, usesVitePlus } from "../host.js";
+import { docsUrl } from "../docs-url.mjs";
+import { escapeRegExp } from "../regexp.js";
 
 /**
  * The Vitest that runs here, as the peer check reports it: the project's own, or under
@@ -149,11 +158,100 @@ export function extendsSharedConfig(source: string): boolean {
       if (binding === "defineConfig" || binding === "default") continue;
       // The binding has to BE the exported config, or the base being merged into it —
       // merely appearing on the export line is any ordinary helper call.
-      if (new RegExp(`export\\s+default\\s+${binding}\\s*;?\\s*$`, "m").test(code)) return true;
-      if (new RegExp(`\\bmergeConfig\\s*\\(\\s*${binding}\\b`).test(code)) return true;
+      // Escaped: `$` is legal in an identifier and an anchor in a RegExp.
+      if (new RegExp(`export\\s+default\\s+${escapeRegExp(binding)}\\s*;?\\s*$`, "m").test(code))
+        return true;
+      if (new RegExp(`\\bmergeConfig\\s*\\(\\s*${escapeRegExp(binding)}(?![\\w$])`).test(code))
+        return true;
     }
   }
   return false;
+}
+
+/** Source extensions a shared config module can have, in the order a relative import tries them. */
+const CONFIG_MODULE_EXTENSIONS = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"];
+/** How many relative imports deep the config is followed (config → shared → its base). */
+const SHARED_CONFIG_DEPTH = 3;
+const RELATIVE_SPECIFIER =
+  /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)["'](\.{1,2}\/[^"']+)["']/g;
+
+/** The relative modules `code` imports (static, dynamic, side-effect, require). */
+function relativeSpecifiers(code: string): string[] {
+  return [...new Set([...code.matchAll(RELATIVE_SPECIFIER)].map((m) => m[1]))];
+}
+
+/** A relative import as a file, as Vite resolves it: as written, by extension, as a directory index. */
+function resolveConfigModule(fromFile: string, specifier: string): string | null {
+  const base = path.resolve(path.dirname(fromFile), specifier);
+  // TypeScript's ESM convention writes "./shared.js" for shared.ts.
+  const stem = /\.[cm]?js$/.test(base) ? base.replace(/\.([cm]?)js$/, "") : null;
+  const candidates = [
+    base,
+    ...CONFIG_MODULE_EXTENSIONS.map((ext) => base + ext),
+    ...(stem ? [".ts", ".mts", ".cts"].map((ext) => stem + ext) : []),
+    ...CONFIG_MODULE_EXTENSIONS.map((ext) => path.join(base, `index${ext}`)),
+  ];
+  return candidates.find((file) => fs.statSync(file, { throwIfNoEntry: false })?.isFile()) ?? null;
+}
+
+export interface SharedConfigUse {
+  /** The module (relative to the config's directory) that imports and calls reactNative(). */
+  via: string | null;
+  /** Why it could not be confirmed either way, when it was not found. */
+  unconfirmed: string | null;
+}
+
+/**
+ * Whether a config that does not import vitest-native itself builds on a module that does:
+ * a monorepo package's config merging a shared `../../vitest.shared.ts`, say. The config's
+ * relative imports are followed up to SHARED_CONFIG_DEPTH deep, each module once. A
+ * relative import that cannot be resolved or read, or the depth running out, leaves it
+ * unconfirmed rather than "does not import".
+ */
+export function sharedConfigUse(configFile: string): SharedConfigUse {
+  const shown = (file: string) =>
+    path.relative(path.dirname(configFile), file).split(path.sep).join("/");
+  const seen = new Set<string>([path.resolve(configFile)]);
+  let unconfirmed: string | null = null;
+  const note = (reason: string) => (unconfirmed ??= reason);
+  let level: string[] = [path.resolve(configFile)];
+  for (let depth = 1; level.length > 0; depth++) {
+    const next: string[] = [];
+    for (const file of level) {
+      let source: string;
+      try {
+        source = fs.readFileSync(file, "utf8");
+      } catch (error) {
+        note(
+          `${shown(file)} could not be read (${(error as NodeJS.ErrnoException).code ?? "error"})`,
+        );
+        continue;
+      }
+      const code = withoutComments(source);
+      if (file !== path.resolve(configFile)) {
+        const usage = analyzeConfigUsage(source);
+        if (usage.imports && usage.invokes) return { via: shown(file), unconfirmed: null };
+        if (usage.imports)
+          note(`${shown(file)} imports vitest-native but does not call reactNative() there`);
+      }
+      for (const specifier of relativeSpecifiers(code)) {
+        const target = resolveConfigModule(file, specifier);
+        if (!target) {
+          note(`'${specifier}' (imported by ${shown(file)}) could not be resolved`);
+          continue;
+        }
+        if (!CONFIG_MODULE_EXTENSIONS.includes(path.extname(target)) || seen.has(target)) continue;
+        if (depth > SHARED_CONFIG_DEPTH) {
+          note(`it builds on modules more than ${SHARED_CONFIG_DEPTH} imports deep`);
+          continue;
+        }
+        seen.add(target);
+        next.push(target);
+      }
+    }
+    level = next;
+  }
+  return { via: null, unconfirmed };
 }
 
 export interface ConfigUsage {
@@ -196,10 +294,16 @@ export function analyzeConfigUsage(source: string): ConfigUsage {
     // Imported something else from the package (helpers, presets) — not our call
     // to judge; treat the import as use.
     if (!binding) return { imports: true, invokes: true };
-    return { imports: true, invokes: new RegExp(`\\b${binding}\\s*\\(`).test(code) };
+    return {
+      imports: true,
+      invokes: new RegExp(`(?<![\\w$])${escapeRegExp(binding)}\\s*\\(`).test(code),
+    };
   }
   if (namespaced) {
-    return { imports: true, invokes: new RegExp(`\\b${namespaced[1]}\\.\\w+\\s*\\(`).test(code) };
+    return {
+      imports: true,
+      invokes: new RegExp(`(?<![\\w$])${escapeRegExp(namespaced[1])}\\.\\w+\\s*\\(`).test(code),
+    };
   }
   // Any other import form (side-effect, dynamic) still counts as importing.
   if (/from\s*["']vitest-native["']|require\(\s*["']vitest-native["']\s*\)/.test(code)) {
@@ -254,7 +358,7 @@ export function resolutionRoot(start: string, exists = fs.existsSync): string {
 export const NODE_24_13_0_CRASH =
   "Node 24.13.0 can crash a test run at startup with a segmentation fault (an intermittent " +
   "V8 garbage-collection crash on worker threads). Use another Node 24 release, such as 24.14 or later. " +
-  "See https://danfry1.github.io/vitest-native/guide/troubleshooting#node-24-13-0-segmentation-fault-at-startup";
+  `See ${docsUrl("/guide/troubleshooting#node-24-13-0-segmentation-fault-at-startup")}`;
 
 export function runDoctor(root: string, nodeVersion: string = process.versions.node): DoctorResult {
   const lines: string[] = [];
@@ -312,8 +416,11 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
     const error = validatePeerDependency(name, minimum, from, maximumMajor, running);
     if (error) fail(error);
     else {
-      pass(`${name} ${running ?? packageVersion(from, name)}`);
+      const version = running ?? packageVersion(from, name);
+      pass(`${name} ${version}`);
       if (from !== root) lines.push(`      (resolved from ${from}, not from here)`);
+      const advice = version && belowRecommendedMessage(name, version);
+      if (advice) warn(advice);
     }
   }
 
@@ -495,7 +602,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
           `\`presets: { expo: true }\`, where the expo preset shadows ${PRESET_MODULES.expo.join(", ")}). `
         : `expo ${expo} detected. Under the mock engine the expo preset shadows ${PRESET_MODULES.expo.join(", ")}; ` +
           `other Expo modules load their real JavaScript. `) +
-        `Coming from jest-expo, run \`vitest-native migrate\`. See https://danfry1.github.io/vitest-native/guide/expo`,
+        `Coming from jest-expo, run \`vitest-native migrate\`. See ${docsUrl("/guide/expo")}`,
     );
   }
 
@@ -504,12 +611,39 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   // not. A warning, never blocking: most plugins in a React Native config exist for
   // Metro, and the classification says which ones a test run actually misses.
   const babel = readBabelConfig(root);
+  const engineAppliedPlugins: string[] = [];
   if (babel.source) {
     lines.push("", "Babel");
-    const classified = classifyBabelPlugins(babel, root, activePresets(root, [], decision.engine));
-    const required = classified.filter((p) => p.verdict === "required");
+    const active = activePresets(root, [], decision.engine);
+    const classified = classifyBabelPlugins(babel, root, active);
+    // The engine applies these itself to the project source that needs it (projectBabel
+    // 'auto'), so they need nothing from the project.
+    const byEngine = (name: string, kind: "plugin" | "preset", options: unknown) =>
+      projectBabelTrigger({ name, kind, options }, root, active);
+    // projectBabel runs only where @babel/core resolves from the project. The engine's own
+    // startup notice says so once; doctor repeats it, then names what it leaves unapplied.
+    const babelCore = installedManifest(root, "@babel/core") !== null;
+    const notice = babelCore ? null : missingBabelCoreNotice(root, "auto");
+    if (notice) warn(notice.replace(/^\[vitest-native\] /, ""));
+    for (const p of babel.presetEntries ?? []) {
+      const reason = byEngine(p.name, "preset", p.options);
+      if (reason && !babelCore) {
+        lines.push(`  · preset ${p.name}: not applied without @babel/core (${reason}).`);
+      } else if (reason) {
+        lines.push(`  · preset ${p.name}: applied by the engine where needed (${reason}).`);
+      }
+    }
+    const required = classified.filter(
+      (p) => p.verdict === "required" && !byEngine(p.name, "plugin", p.options),
+    );
     for (const p of classified) {
-      if (p.verdict === "required") {
+      const reason = byEngine(p.name, "plugin", p.options);
+      if (reason && !babelCore) {
+        lines.push(`  · ${p.written}: not applied without @babel/core (${reason}).`);
+      } else if (reason) {
+        lines.push(`  · ${p.written}: applied by the engine where needed (${reason}).`);
+        engineAppliedPlugins.push(p.name);
+      } else if (p.verdict === "required") {
         warn(`${p.reason} Required: ${babelRecipe(required)}.`);
       } else if (p.verdict === "alias") {
         warn(
@@ -538,6 +672,23 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
   } else {
     const content = fs.readFileSync(path.join(configRoot, configFile), "utf8");
     const usage = analyzeConfigUsage(content);
+    let shared: SharedConfigUse = { via: null, unconfirmed: null };
+    // A Babel Vite plugin that repeats what the engine already applies: redundant, not a
+    // conflict (the engine never steps aside for it; the worklets plugin run twice is a no-op).
+    const code = withoutComments(content);
+    if (/@rolldown\/plugin-babel|vite-plugin-babel/.test(code)) {
+      // The config's string literals, read as Babel names (`macros` → babel-plugin-macros).
+      const listed = new Set(
+        [...code.matchAll(/["'`]([^"'`\s]+)["'`]/g)].map((m) => normalizeBabelName(m[1])),
+      );
+      const repeated = engineAppliedPlugins.filter((name) => listed.has(name));
+      if (repeated.length) {
+        warn(
+          `${configFile}'s babel() lists ${repeated.join(", ")}, which the engine already applies to the ` +
+            `project source that needs it; the entry is redundant and can be removed.`,
+        );
+      }
+    }
     if (usage.imports && usage.invokes) {
       pass(`${configFile} uses vitest-native.`);
       // A static read: a flag set through a variable is not seen here, so the run's
@@ -548,7 +699,7 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       if (model) {
         lines.push(
           `  · experimental.ownershipModel: '${model}' is on: Vite and Node's loaders ` +
-            "resolve bare imports through one shared resolver (https://danfry1.github.io/vitest-native/guide/plugin-options#experimental).",
+            `resolve bare imports through one shared resolver (${docsUrl("/guide/plugin-options#experimental")}).`,
         );
         if (model === "resolution") {
           lines.push(
@@ -563,6 +714,8 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
         `${configFile} imports vitest-native but never calls reactNative() — ` +
           "the plugin is not in `plugins: [...]`, so React Native imports will not resolve.",
       );
+    } else if ((shared = sharedConfigUse(path.join(configRoot, configFile))).via) {
+      pass(`${configFile} uses vitest-native through ${shared.via}.`);
     } else if (extendsSharedConfig(content)) {
       // A workspace config that re-exports a shared preset cannot be judged from
       // this file: the plugin is wired up in the package it imports. Saying it does
@@ -571,6 +724,11 @@ export function runDoctor(root: string, nodeVersion: string = process.versions.n
       lines.push(
         `  · ${configFile} builds on a shared config, so this cannot tell from here ` +
           "whether the plugin is wired up. Check the config it extends.",
+      );
+    } else if (shared.unconfirmed) {
+      lines.push(
+        `  · couldn't confirm that ${configFile} uses vitest-native: it does not import it ` +
+          `itself, and ${shared.unconfirmed}. Check that reactNative() is in its plugins.`,
       );
     } else {
       warn(

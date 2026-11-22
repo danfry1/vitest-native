@@ -38,17 +38,40 @@ export default defineConfig({
 |---|---|
 | `jest.fn()`, `jest.spyOn()`, `jest.useFakeTimers()` | work as-is (the global `jest` is `vi`, and its mocks are `vi` mocks); `jest.useFakeTimers(options)` takes Jest's options — see [Fake timers](#fake-timers) |
 | `new` on a `jest.fn(() => ({ ... }))` | returns the implementation's object, as in Jest — Vitest's own `vi.fn` requires a `function` or `class` implementation for `new`, and `jest.fn` does not |
-| `import { jest } from '@jest/globals'` | resolves to the `vi`-backed `jest` (aliased) |
+| `import { jest } from '@jest/globals'` or `require('@jest/globals')` | resolves to the `vi`-backed `jest` (aliased), the same module either way, also when the real `@jest/globals` is installed |
 | top-level `jest.mock('m', factory)` | hoisted + applied, with Jest's factory interop |
+| `import { jest as mockJest } from '@jest/globals'`, or `import * as g` and `g.jest` | the same `jest`: `mockJest.mock(…)` is hoisted and applied like `jest.mock(…)`. A call through a further name (`const j = mockJest; j.mock(…)`) fails with [`JEST_BINDING_NOT_FOLLOWED`](/guide/errors#JEST_BINDING_NOT_FOLLOWED) |
+| `__mocks__/<package>` beside `node_modules` | applied with no `jest.mock()` call — see [Manual mocks of `node_modules` packages](#manual-mocks-of-node-modules-packages) |
+| `jest.replaceProperty(Platform, 'OS', 'android')` | replaced in place and restored by the handle's `restore()`, `jest.restoreAllMocks()`, the `restoreMocks` setting, or the end of the test file, with Jest's errors. A bare `vi.restoreAllMocks()` leaves it: that is Vitest's own |
+| `jest.spyOn(View.prototype, 'measure')` | reaches every `View` ref, as with the Jest preset's `View` stand-in: under the native engine, jest-compat gives `View` a prototype holding the native methods its refs call. `Text` and `ScrollView` keep React Native's own shape, without one |
 | `describe` / `it` / `expect` / `beforeEach` | same names, available as globals |
+
+## Manual mocks of `node_modules` packages
+
+Jest applies a file in a `__mocks__` folder to the `node_modules` package of the same name, with no `jest.mock()` call: `__mocks__/moti.ts` replaces `moti`, and `__mocks__/@scope/pkg.js` replaces `@scope/pkg`. `jestMockTransform()` does the same, following Jest's rules:
+
+- **Which files count.** Every `__mocks__` folder under Jest's `roots`, at any depth (`src/api/__mocks__/axios.ts` mocks `axios` too). A file is named by its path inside `__mocks__`, and `__mocks__/pkg/index.js` also answers `pkg`. Files that `modulePathIgnorePatterns` match do not count, and neither do `node_modules`, `ios`, `android`, `Pods`, `build`, `dist`, `.expo` and `.tmp`, which Jest crawls but where no manual mock lives. Pass Jest's settings as `jestMockTransform({ roots: ['src'], modulePathIgnorePatterns: [...] })`, relative to the Vite root. The default is the root. `migrate` carries them over.
+- **Which one wins.** A `jest.mock(name, factory)` or `jest.unmock(name)` in a setup file or test file wins over the manual mock, as in Jest. A factory-less `jest.mock(name)` gets the manual mock, wherever under the roots it lives. The manual mocks are registered by a generated setup module that runs straight after the jest-compat setup, whether `test.setupFiles` lists it or the project's own setup file imports it.
+- **Every load.** The manual mock replaces the package for the test's imports, for `require()` and for the modules Node loads. A manual mock that loads its own package (`jest.requireActual('pkg')`, or `require('pkg')` while it runs) gets the real module, as in Jest.
+- **`__mocks__/react-native.js`.** It applies too, as in Jest: write it as the real module with your changes, `{ ...jest.requireActual('react-native'), Platform: { … } }`. Spreading `requireActual('react-native')` loads the whole React Native graph, so every test file that uses the mock also logs React Native's deprecation warnings, as under Jest. Mock only what you need.
+- **Two files with one name.** Jest warns `duplicate manual mock found` and uses one of them. `jestMockTransform()` prints the same warning and uses the one it reads last, in name order. Delete the others.
+- **What is left alone.** A Node core module (`fs`, `path`) still needs an explicit `jest.mock()`, as in Jest. A package that `reactNative()` already stands in for keeps that: a preset shadows it, or the library runs with its own Jest setup. The run warns once that its manual mock is not applied, and `migrate` lists these mocks to delete.
+
+This is a change for a suite whose manual mocks were not applied before 0.15. To keep the previous behaviour, pass `jestMockTransform({ rootMocks: false })`; each mock then needs a `jest.mock('<package>')`.
+
+::: tip Watch mode
+The `__mocks__` folders are read when the run starts. After adding, renaming or deleting a manual mock, restart `vitest --watch`.
+:::
 
 ## Fake timers
 
 `jest.useFakeTimers(options)` translates Jest's options into Vitest's the way Jest translates them for `@sinonjs/fake-timers`, which both runners use: `advanceTimers` (`true` or a step in ms), `doNotFake`, `now` and `timerLimit` (default 100,000 as in Jest, where Vitest's is 10,000). It returns the `jest` object, as Jest does, so `jest.useFakeTimers().setSystemTime(date)` chains. Calling `vi.useFakeTimers` directly still takes Vitest's options.
 
+`queueMicrotask` is faked, as in Jest, so a callback queued with it (react-native-worklets' Jest mock reports `runOnJS` and `scheduleOnRN` calls this way) runs when the timers run. `jest.useFakeTimers({ doNotFake: ['queueMicrotask'] })` keeps it real. A project whose `test.fakeTimers` sets `toFake` or `toNotFake` keeps its own list, including one a workspace project inherits. A call's `doNotFake` replaces that list, as a call's `doNotFake` replaces the project's in Jest. Under a project `toNotFake`, `queueMicrotask` stays real.
+
 Two differences remain:
 
-- `process.nextTick` and `queueMicrotask` stay real. Jest fakes them by default; Vitest does not, because Node and Vitest's runner depend on them. Name them in Vitest's `toFake` if a test needs them faked.
+- `process.nextTick` stays real. Jest fakes it by default; Vitest does not, because Node and Vitest's runner depend on it, and refuses to under the forks pool.
 - `legacyFakeTimers: true` runs modern fake timers over the timer functions and leaves `Date` real, as legacy timers do. The timer functions are not mock functions, so assertions such as `expect(setTimeout).toHaveBeenCalled()` do not work; the first such call logs a warning.
 
 Options set in Jest's `fakeTimers` config are not read. Pass them to `jest.useFakeTimers(...)` in the tests, where a `beforeEach(() => jest.useFakeTimers({ ... }))` in a setup file covers every test. Or set them in Vitest's names under `test.fakeTimers` (`doNotFake` as `toFake`, `advanceTimers` as `shouldAdvanceTime` and `advanceTimeDelta`), which applies to every call except for `loopLimit` and `now`: `jest.useFakeTimers` always passes Jest's `timerLimit`, and starts the clock at the real time unless given `now`.
@@ -67,8 +90,9 @@ Jest keeps one module registry per test file, so a `jest.mock(spec, factory)` ap
 | `jest.mock('a', () => jest.requireActual('a/index.web'))` while `jest.mock('#/storage', …)` | the module `requireActual` loads gets the mocked `#/storage`: only the requested module is unmocked, as in Jest |
 | `jest.requireActual('#/x')` of a mocked module | the real module; everything else still gets the mock |
 | `jest.mock('#/x', () => ({ ...jest.requireActual('#/x'), y: jest.fn() }))` of your own source | the real members load through Vite, so they share module state (a store, a cache) with the code the test imports. A `requireActual` inside a function the factory returns, or a `require()` of the module that runs before any import, still loads a separate copy through Node |
+| `jest.mock('#/a', () => { const { defaults } = require('#/b'); … })` of your own source | `#/b` loads through Vite too, so it is the instance the test imports, or the mock if the file mocks `#/b`. A `require` inside a function the factory returns still goes through Node |
 | `const { Sentry } = jest.requireMock('#/sentry')` | the registered mock, the same objects the file's imports see |
-| `jest.mock('react-native/Libraries/AppState/AppState', factory)` | applies to React Native's own `require` of that module, so `import { AppState } from 'react-native'` and `require('react-native').AppState` see the mock |
+| `jest.mock('react-native/Libraries/AppState/AppState', factory)` | applies to React Native's own `require` of that module, so `import { AppState } from 'react-native'` and `require('react-native').AppState` see the mock. A module with platform files (`Libraries/Utilities/BackHandler`) is mocked as the one for the run's platform (`BackHandler.ios.js`), the file React Native loads. A `vi.mock` of the same path reaches React Native's own `require` only with [`experimental.nodeMocks`](/guide/plugin-options#experimental); without it, only the test's own imports of that path see it |
 | `jest.mock('virtual', factory, { virtual: true })` | `require('virtual')` returns the mock |
 | `jest.doMock` / `jest.setMock` / `jest.unmock` / `jest.dontMock` | register and unregister for `require()` too |
 | `jest.resetModules()` then `require(…)` | a fresh copy of each project module, which still sees the mocks; factories run again on the next load. React Native and other `node_modules` packages stay loaded |
@@ -91,6 +115,7 @@ Remaining differences:
 - Two errors are compared as Vitest compares them, except that an own property that is a function on both is left out, so two identical zod 3 `ZodError`s, whose methods are per-instance closures, are equal. `expect` is shared, so this applies to Vitest-style assertions anywhere in the project too.
 - Errors that differ in a data property, their `name` or their `cause` still differ under `toEqual`, as in Vitest. Jest compares two errors by message alone there, so it passes them.
 - Without `jestCompatSetup` in `test.setupFiles`, a `jest.mock` factory fails with an error naming it (`JEST_COMPAT_SETUP_MISSING`). It must come before any setup file that calls `jest.mock`.
+- `jest.mock` does not need `globals: true`: `jestMockTransform()` imports `vi` from `vitest` in each file it rewrites, unless the file already imports it. A file that declares its own `vi` keeps it, and the rewritten calls reach Vitest as `vitest`. A file that binds both names to something other than an import from `vitest`, where the rewritten calls run, fails with [`JEST_MOCK_VI_UNAVAILABLE`](/guide/errors#JEST_MOCK_VI_UNAVAILABLE).
 
 ## What it does *not* do
 

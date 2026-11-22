@@ -294,8 +294,12 @@ Routes:
   reporter the plugin adds in `configureVitest`. It prints a summary to stderr in both
   modes. Worker console output is dropped by `silent`, by reporters that print only
   failures, and by Vitest 5's agent reporter, so a warning printed only there could be
-  missed. The summary also names `ownership.allow` entries that exempted nothing during
-  the run.
+  missed. Causes that start in one installed package by one route print as one line
+  naming the package (#638): an installed package's TypeScript source is otherwise a
+  cause per file, since none of its files has a parent outside `node_modules`. The header
+  keeps the cause count and adds the grouped one. With `diagnostics: true` in any project,
+  every file of every cause is listed with its own route and Node's loader. The summary
+  also names `ownership.allow` entries that exempted nothing during the run.
 
 ### Cost, in counts
 

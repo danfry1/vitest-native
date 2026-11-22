@@ -1,10 +1,11 @@
 /**
- * Vitest snapshot serializer for React Native components.
+ * vitest-native's earlier snapshot format for React Native trees: props as inline JSON,
+ * `undefined` as `"[undefined]"`.
  *
- * Produces clean JSX-like output from React test renderer instances
- * instead of raw createElement objects.
- *
- * Usage: expect.addSnapshotSerializer(serializer)
+ * @deprecated No longer registered: snapshots print with pretty-format's
+ * ReactTestComponent plugin, as Jest and Vitest print React trees. Kept for one release
+ * for a suite that wants the earlier format: `expect.addSnapshotSerializer(serializer)`
+ * in a setup file. It will be removed in the release after.
  */
 
 /** Props that are React internals and should be omitted from snapshot output. */
@@ -148,6 +149,7 @@ export interface SnapshotSerializer {
   test(val: any): boolean;
 }
 
+/** @deprecated See the module comment: snapshots now print in Jest's format. */
 export const serializer: SnapshotSerializer = {
   test(val: unknown): boolean {
     return isReactTestInstance(val);

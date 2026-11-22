@@ -2,12 +2,14 @@
 // `--mode regression` is a pair the hot runtime once dropped the second of, silently;
 // `--mode guard` breaks a task on purpose, so its other file must still be reported.
 // One worker and name order: the files share one task, the shape that loses them.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 import { reactNative } from "../dist/index.mjs";
 import { jestMockTransform } from "../dist/jest-compat.mjs";
+import { OTHER_FIXTURES_MOCKS } from "./support/fixture-mocks.mts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -26,7 +28,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       reactNative({ ownership: "error", engine: "native", hotRuntime: { allowUnboundedMemory: true } }),
-      jestMockTransform(),
+      jestMockTransform(OTHER_FIXTURES_MOCKS),
     ],
     test: {
       environment: "node",

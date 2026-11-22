@@ -1,7 +1,6 @@
-import React from "react";
 import { vi } from "vitest";
 
-export function createScrollViewMock() {
+export function createScrollViewMock(React: typeof import("react")) {
   const ScrollView = React.forwardRef((props: any, ref: any) => {
     const { children, refreshControl, ...rest } = props;
     const instanceMethods = {
@@ -16,8 +15,9 @@ export function createScrollViewMock() {
     React.useImperativeHandle(ref, () => instanceMethods);
 
     return React.createElement(
+      // The ref is the handle above; the host takes none.
       "RCTScrollView",
-      { ...rest, ref },
+      rest,
       refreshControl,
       React.createElement("View", null, children),
     );

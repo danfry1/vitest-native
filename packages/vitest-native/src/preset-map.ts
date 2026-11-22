@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { METRO_ASSET_EXTS } from "./native/assets.mjs";
 import type * as Presets from "./presets/index.js";
+import type { PresetFactoryContext } from "./types.js";
 
 /** Valid preset factory names exported from `presets/index.ts`. */
 export type PresetName = keyof typeof Presets;
@@ -93,6 +94,23 @@ export const NATIVE_ENGINE_RUNS_PACKAGES: readonly PresetName[] = [
 ];
 
 /**
+ * The versions supported of each library the native engine serves a mock for or runs with
+ * its own Jest support: one table, which the conformance gate's latest-supported CI axis
+ * reads (tests-native/conformance/) and tests/library-versions.test.ts holds to the presets
+ * guide. Ranges use engines-style comparators (node-range.ts satisfiesNodeRange).
+ *
+ * The rule (latest-only support, support-floors 0.15): each floor is the version the
+ * oldest supported Expo SDK ships (SUPPORTED_EXPO_SDKS.minimum, now 57: consumer-tests/
+ * expo-sdk57), and each ceiling is below the library's next major. When the Expo SDK floor
+ * moves, these floors move to what the new oldest SDK ships, in the same change.
+ */
+export const SUPPORTED_LIBRARY_VERSIONS: Readonly<Record<string, string>> = {
+  "react-native-reanimated": ">=4.5.0 <5",
+  "react-native-worklets": ">=0.10.0 <1",
+  "react-native-gesture-handler": ">=2.32.0 <4",
+};
+
+/**
  * The Jest setup files libraries ship for their real JavaScript, which the native engine
  * runs before the project's own setup files for each installed package whose preset
  * steps aside (NATIVE_ENGINE_RUNS_PACKAGES), as a Jest suite lists them in `setupFiles`.
@@ -150,6 +168,11 @@ export interface LibraryMock {
   alsoFiles?: string[];
   /** The export the mock module is, when it is not the whole module ("default"). */
   exportKey?: string;
+  /**
+   * Names `extend` adds to the mock: public exports of the package its mock leaves out.
+   * They are export names of the module as the mock file's are.
+   */
+  addsNames?: string[];
   /** Whether the installed package can run its mock here; by default, whether `entry` resolves. */
   available?: (packageDir: string, projectRoot: string) => boolean;
   /**
@@ -162,8 +185,13 @@ export interface LibraryMock {
    * Corrections for names the library's mock gets wrong, as a copy of the loaded mock;
    * the mock module itself is left as the library ships it. Each is the library's own
    * code where it has one (see reanimated.ts), and every one is listed where it is made.
+   * Given the factory context, for corrections that make components or hooks.
    */
-  extend?: (mock: Record<string, any>, packageDir: string) => Record<string, any>;
+  extend?: (
+    mock: Record<string, any>,
+    packageDir: string,
+    context: PresetFactoryContext,
+  ) => Record<string, any>;
   /**
    * Whether the mock's module body sets up globals of the test environment
    * (worklets' sets `requestAnimationFrame`). Such a mock is built as each file is set
@@ -196,6 +224,8 @@ export function libraryMockDir(mock: LibraryMock, root: string): string | null {
     for (let at = path.resolve(root); ; at = path.dirname(at)) {
       const candidate = path.join(at, "node_modules", mock.pkg);
       if (fs.existsSync(path.join(candidate, "package.json"))) {
+        // Node's spelling (fs.realpathSync): the directory require() loads the preset's
+        // package from.
         const real = fs.realpathSync(candidate);
         const available =
           mock.available ??

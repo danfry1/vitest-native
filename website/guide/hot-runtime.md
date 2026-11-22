@@ -28,7 +28,7 @@ The [`hotRuntime` option](/guide/plugin-options#hotruntime) lists every value an
 
 - the run has one worker (`maxWorkers: 1`, `--maxWorkers=1`, `--no-file-parallelism`, or a memory plan that admits only one), because Vitest then runs every file as one task and a worker cannot be recycled between them;
 - the config or the command line chooses a pool or isolation explicitly (`pool`, `test.isolate`, `--pool`, `--isolate`, `--no-isolate`). An explicit choice is always kept;
-- another project in the same `sequence.groupOrder` runs a different worker count, which Vitest does not allow. Give the native project its own `test.sequence.groupOrder` to keep the hot runtime;
+- another project in the same `sequence.groupOrder` runs a different worker count, which Vitest does not allow. Give every project the same `maxWorkers` to keep the hot runtime (see [projects in one run](#react-native-and-other-projects-in-one-run));
 - the hot worker would load a different Vitest version from the one running the tests.
 
 With `hotRuntime: true` these fail at startup instead: a one-worker config (`maxWorkers: 1`, `fileParallelism: false`) or memory plan with `HOT_MEMORY_UNBOUNDED`; a one-worker CLI flag or `VITEST_MAX_WORKERS=1`, an explicit pool or isolation, or a `groupOrder` clash with `HOT_RUNTIME_OVERRIDDEN`; a different Vitest version with `HOT_RUNTIME_UNAVAILABLE`.
@@ -45,6 +45,21 @@ Workers stay alive, and some state is known to carry over from one file to the n
 - fake timers active when React first loads stay captured by React's scheduler;
 - RNTL reinstalls fake timers only in the first file that loads it;
 - an environment variable a module sets when it is imported is set only in the first file on a worker that imports it (RNTL's `dont-cleanup-after-each` is handled).
+- a `jest.mock` or `vi.mock` does not reach the requires React, its renderers, `scheduler` and RNTL make themselves; the test file's own code still gets the mock. Under Jest and per-file isolation these packages load again in every file and see its mocks, so in a file that mocks `react-native`, RNTL's own uses of it (`StyleSheet.flatten` in `fireEvent`, say) see the real module under hot and the mock elsewhere. Serving them the mock would keep it for every later file on the worker. `hotRuntime: { freshRuntime: true }` loads them in every file, so they see the file's mocks as under Jest.
+- a property a library defines on `globalThis` as non-configurable, such as the provider registry the `openai` SDK defines once per process, stays for the worker's life, because nothing can delete it. Every other global a file adds is deleted before the next file, and `reactNative({ diagnostics: true })` names each property kept this way.
+
+With `hotRuntime: { freshRuntime: true }` (experimental), React, its renderers, `scheduler` and React Native Testing Library run again for every file, so the first five of these no longer apply: each file counts `useId` from the start, sees React's warnings, renders outside any `act()` scope an earlier file left open, loads the scheduler under its own timers, and has RNTL reinstall fake timers. It costs re-running those packages, about 5 ms per file with four workers and 17 ms with one, measured on a 135-file suite. A worker also holds a few earlier copies of React at a time, about 18 MB more heap than without the option in one measurement; it does not grow with the number of files, and worker recycling (`memoryLimit`, `recycleAfterFiles`) bounds it as usual.
+
+vitest-native's presets build their mocks with each file's React. A [preset of your own](/guide/presets#your-own-presets) whose factory makes components, contexts or hooks should do the same, using the React the factory is given rather than one imported at the module's top level, which keeps the first file's copy:
+
+```ts
+'my-lib': {
+  exports: ['ThingView'],
+  factory: ({ React }) => ({
+    ThingView: (props) => React.createElement('ThingView', props),
+  }),
+},
+```
 
 [Troubleshooting](/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files) describes each one and how to confirm it. Beyond these, vitest-native cannot discover every piece of state a third-party library keeps for the life of a process. A test that passes on its own but fails after other files is the sign: set `hotRuntime: false` for that suite, and [report it](https://github.com/danfry1/vitest-native/issues) with the library involved.
 
@@ -57,11 +72,17 @@ The hot runtime plans its workers from the lower of the host's and the container
 - **Your own threshold.** `hotRuntime: { mode: 'auto', memoryLimit }` (bytes) sets the heap at which a worker is recycled and keeps `'auto'`'s fallback; without `mode`, an object requires the hot runtime. The heap a worker reports is read when its file finishes, before garbage collection, so it can sit above what the worker really retains: leave headroom.
 - **One worker.** Recycling needs two or more workers, so use `maxWorkers` of 2 or more. If something outside the run already bounds its memory, `hotRuntime: { allowUnboundedMemory: true }` accepts a single-worker run; it also turns off the automatic worker cap, recycling on process memory and the memory hard stop, and warns when Vitest batches the files into one task.
 
+### React Native and other projects in one run
+
+Vitest requires every project in one `sequence.groupOrder` to run the same number of workers. When a run mixes `reactNative()` projects with node or web projects, give every project the same explicit `test.maxWorkers`. The hot runtime lowers its own project's count to what the memory plan admits on the machine running the tests, and the other projects keep theirs. Pick a count that the smallest machine you run on admits, such as a CI runner; the startup log names the count the hot project runs. Where the plan admits fewer, the counts differ: `'auto'` turns the hot runtime off and prints why, and `hotRuntime: true` fails with [`HOT_RUNTIME_OVERRIDDEN`](/guide/errors#HOT_RUNTIME_OVERRIDDEN).
+
+Don't give the React Native projects their own `groupOrder` instead. Vitest runs groups one after another, so every node and web project would finish before any React Native file starts.
+
 ## Caches
 
-Under the native engine, vitest-native turns on Node's on-disk compile cache (`node_modules/.cache/vitest-native/v8`), so React Native's compiled code is reused by later workers and runs. Hot workers leave it off while `esmGeneration` is on, which is the default: each test file re-runs the packages Node loads for its `import`s, and the cache would keep one entry per package per file. Leaving it off costs about 15–20 ms per hot worker start, including each recycle, in one measured project. With `hotRuntime: { esmGeneration: false }` hot workers keep the cache, and packages loaded that way keep their state across files.
+vitest-native leaves Node's on-disk compile cache off in test workers. Each worker wrote its entries when it exited, inside the pool's close, which held runs open for seconds on loaded Windows machines, and with React Native loading from its precompiled modules a warm cache saved no measurable time.
 
-If you set `NODE_COMPILE_CACHE` yourself, Node turns the cache on in every worker before vitest-native runs, and hot workers then write those per-file entries again; unset it for hot runs, or set `esmGeneration: false`.
+If you set `NODE_COMPILE_CACHE` yourself, Node turns the cache on in every worker, and every worker writes it when it exits; under the hot runtime with `esmGeneration` on, each file adds an entry per package it re-runs. Unset it for hot runs.
 
 React Native's own compiled modules are cached separately; [troubleshooting](/guide/troubleshooting#when-react-native-s-precompiled-modules-are-reused-or-rebuilt) says where and when they are rebuilt.
 

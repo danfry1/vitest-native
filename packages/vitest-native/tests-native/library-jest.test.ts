@@ -8,9 +8,10 @@
  */
 import { createRequire } from "node:module";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 // @ts-expect-error — runtime .mjs
 import { beginTestFile } from "../dist/native/library-jest.mjs";
+import { COLD_IMPORT_BUDGET_MS } from "./support/cold-import";
 
 const require = createRequire(import.meta.url);
 const globalJestBefore = (globalThis as { jest?: unknown }).jest;
@@ -91,8 +92,14 @@ describe("at the next test file in the same worker", () => {
 });
 
 describe("a library's support files of other kinds", () => {
+  // The first TypeScript support file compiles cold on a fresh runner (it has taken 1.8 s
+  // on Windows).
+  let typed: () => string;
+  beforeAll(() => {
+    ({ typed } = require("vn-lib-jest-support/jest/typed"));
+  }, COLD_IMPORT_BUDGET_MS);
+
   it("gives a TypeScript support file its jest", () => {
-    const { typed } = require("vn-lib-jest-support/jest/typed");
     expect(vi.isMockFunction(typed)).toBe(true);
     // The library's jest, not the test's: its built implementation survives a reset.
     vi.resetAllMocks();

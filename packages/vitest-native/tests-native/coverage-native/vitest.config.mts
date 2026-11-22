@@ -6,6 +6,7 @@
 //   VN_COVERAGE_MODE=hot      The same, under the hot runtime, both files in one worker.
 //   VN_COVERAGE_MODE=vite     Nothing linked; @cov/rnlib is aliased to its source, so
 //                             Vite loads it. The reference the Node modes must match.
+import "../support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

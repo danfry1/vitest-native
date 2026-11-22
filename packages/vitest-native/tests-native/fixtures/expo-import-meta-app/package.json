@@ -1,0 +1,8 @@
+{
+  "name": "expo-import-meta-app",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "expo": "*"
+  }
+}

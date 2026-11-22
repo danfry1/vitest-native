@@ -9,8 +9,9 @@
 import { createRequire } from "node:module";
 import * as imported from "vn-lib-two-entries";
 import * as worklets from "react-native-worklets";
-import { expect, it } from "vitest";
+import { beforeAll, expect, it } from "vitest";
 import { projectContext } from "../src/context.mjs";
+import { COLD_IMPORT_BUDGET_MS } from "./support/cold-import";
 
 const require = createRequire(import.meta.url);
 
@@ -41,13 +42,19 @@ it.skipIf(ownership)(
   },
 );
 
+// Under ownershipModel the import compiles the package, cold on a fresh runner (it has
+// taken 1.7 s on Windows). Still the import first, then the require, as the case needs.
+let plainImported: typeof import("vn-lib-plain-two-entries");
+beforeAll(async () => {
+  if (ownership) plainImported = await import("vn-lib-plain-two-entries");
+}, COLD_IMPORT_BUDGET_MS);
+
 it.runIf(ownership)(
   "under experimental.ownershipModel, compiles that package and gives both sides one instance of its field",
-  async () => {
+  () => {
     // The shared resolver follows the react-native field on both module systems, as Metro
     // does, so the package joins the compile selection (ecosystem.ts,
     // compileReactNativeFieldSource) instead of loading raw.
-    const plainImported = await import("vn-lib-plain-two-entries");
     const required = require("vn-lib-plain-two-entries");
     expect(plainImported.entry).toBe("react-native");
     expect(required.entry).toBe("react-native");

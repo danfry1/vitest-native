@@ -61,7 +61,7 @@ jobs:
       # signing keys. Keep this external observation job on a current compatible
       # pair; minimum-Node support is covered by the authoritative CI matrix.
       - name: Install Corepack
-        run: npm install --global corepack@0.35.0
+        run: node .github/scripts/install-global.mjs corepack 0.35.0
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

@@ -1,12 +1,27 @@
 # Error Codes
 
-Errors vitest-native raises start with `[vitest-native]`, and most carry a `code`. The message says what went wrong and how to fix it; this page adds the common causes. Search for the start of the message, or, in your own `try`/`catch`, read `error.code`. (Vitest's reporter shows the message but not the code.)
+Errors vitest-native raises start with `[vitest-native]`, and most carry a `code`. The message says what went wrong and how to fix it; this page adds the common causes. Paste the message below to find its entry, or, in your own `try`/`catch`, read `error.code`. (Vitest's reporter shows the message but not the code.)
+
+<script setup>
+import ErrorFinder from '../.vitepress/theme/components/ErrorFinder.vue'
+</script>
+
+<ErrorFinder />
 
 ## Configuration
 
 ### `INVALID_OPTION` {#INVALID_OPTION}
 
-An option has the wrong type or value: for example a preset factory passed without calling it (`presets.reanimated` instead of `presets.reanimated()`), a hand-built or copied preset object, a function inside [`mocks`](/guide/plugin-options#mocks), or a `hotRuntime.mode` other than `'auto'` (or `mode: 'auto'` combined with `allowUnboundedMemory: true`). A preset module listed by path raises it too when it does not exist, does not resolve, fails to import, default-exports an async function or something that is not a preset, or reuses a built-in or duplicate preset name. Unknown keys in `transform` raise it as well. The message names the option and the accepted values. See [Plugin Options](/guide/plugin-options).
+An option has the wrong type or value. Most messages read `"<option>" must be …` and name what the option accepts, or `"<option>" accepts only …` and list the keys it takes. One option can also rule out another: `hotRuntime.freshRuntime` needs `hotRuntime.esmGeneration`, `hotRuntime.allowUnboundedMemory` cannot be combined with `mode: 'auto'`, and `experimental.ownershipModel: 'resolution'` cannot run with `experimental.nodeMocks: false`. It is also raised for:
+
+- a preset factory passed without calling it (`presets.reanimated` instead of `presets.reanimated()`), or a preset object that is not the one its factory returned, such as a copy;
+- a preset module listed by path that does not exist, could not be imported, default-exports an async function or something that is not a preset, declares a module without a factory and exports, lists an export that is not a valid name, or names its preset after a built-in preset or another preset module's;
+- function values in [`mocks`](/guide/plugin-options#mocks), which cannot be transferred to Vitest's worker processes;
+- an `ownership.allow` entry that covers the whole project, or an alias `experimental.ownershipModel` cannot apply in Node's loaders;
+- a hot runtime state manifest entry without `capture()`, `restore()` and `verify()`;
+- a `jestMockTransform({ modulePathIgnorePatterns })` entry that is not a valid regular expression.
+
+See [Plugin Options](/guide/plugin-options).
 
 ### `UNKNOWN_OPTION` {#UNKNOWN_OPTION}
 
@@ -58,7 +73,7 @@ With `metroConfig` on, the loaded Metro config has no usable `resolver.sourceExt
 
 ### `CONTEXT_INVALID` {#CONTEXT_INVALID}
 
-A test worker could not read the configuration the plugin writes for it: missing, from another vitest-native version, changed after it was written, or malformed. It also fires when one Vitest project is handed another project's settings: give each Vitest project its own `root`. Otherwise re-run Vitest, and if it persists, delete the directory the message names. See [troubleshooting](/guide/troubleshooting#context-invalid-at-startup).
+The plugin's description of a Vitest project, its _project context_, is missing or cannot be used. The plugin writes one for each Vitest project to `node_modules/.cache/vitest-native/contexts/`, in the project's own `node_modules` or else the nearest one above it that holds React Native, as in a workspace with hoisted dependencies, and to `vitest-native-cache/contexts/` in the system temp directory when that cannot be written. Every test worker reads its configuration from that file. The message reads `the project context is invalid (<reason>)` when the file is missing, unreadable, from another vitest-native version, changed after it was written, or has a field missing, unknown or of the wrong shape, and names the field and the directory where they apply. A worker started without the plugin's configuration reports it too, and so does the plugin when it cannot find a context it wrote earlier in the run. It also fires when one Vitest project is handed another project's settings: give each Vitest project its own `root`. Otherwise re-run Vitest, and if it persists, delete the directory the message names.
 
 ## Loading your code
 
@@ -72,7 +87,11 @@ A project file Node loads (through `require()` or `jest.requireActual`) is exclu
 
 ### `IMPORT_META_IN_NODE_OWNED` {#IMPORT_META_IN_NODE_OWNED}
 
-A file Node loads compiled to CommonJS uses `import.meta` beyond `url`, `filename` and `dirname`, which CommonJS cannot provide. The message names the file and the property. Move that code into a file your tests import, or avoid the property in it.
+A file Node loads compiled to CommonJS uses `import.meta` beyond `url`, `filename` and `dirname`, which CommonJS cannot provide. The message names the file and the property. If the file is in a package, let Vite load that package: add it to `transform: { exclude: [...] }`, and also to `test.server.deps.inline` when it is published as an ES module (`"type": "module"` or `.mjs`). If it is your own source, import it from the test instead of requiring it, or avoid the property in it.
+
+### `UNDECLARED_DEPENDENCY_UNCOMPILED` {#UNDECLARED_DEPENDENCY_UNCOMPILED}
+
+Node could not run a file of a package as published: it ships untranspiled source (JSX, Flow or TypeScript), or it is an ES module with a relative import that leaves out `.js` or `/index.js` (a re-export of `./Asset`, meaning `./Asset.js`), which only a bundler resolves. A missing package or a misspelled path is reported as Node reports it. That package is a dependency of an installed React Native package your project does not declare (or only a sibling declares). vitest-native compiles such a package, but not that package's dependencies, so the dependency was loaded as published. Nothing in the file ran. The message names the dependency and the package that pulled it in. Add the dependency to `transform: [...]`, or declare the parent package in your `package.json` dependencies, which compiles its dependencies too.
 
 ### `PRESET_UNAVAILABLE` {#PRESET_UNAVAILABLE}
 
@@ -90,6 +109,10 @@ The message says which.
 
 The Skia preset's mock was built before CanvasKit loaded. Inside a test run the setup file loads it first; a mock built outside a test run needs `await presets.skia().prepare()` first.
 
+### `PRESET_REACT_MISMATCH` {#PRESET_REACT_MISMATCH}
+
+Under the native engine, a preset builds its mock with the React that `react-native` uses, and the project or React Native Testing Library resolves a different copy of React. Hooks and contexts from one copy fail in a tree the other renders. The message names both paths. Install one copy of `react`: dedupe it in the workspace, or align the versions the packages ask for.
+
 ### `NITRO_HYBRID_OBJECT_UNAVAILABLE` {#NITRO_HYBRID_OBJECT_UNAVAILABLE}
 
 A library asked Nitro for a native HybridObject, which has no implementation in tests. Use the library's own test mode if it has one, or mock the library with `vi.mock()`.
@@ -100,17 +123,21 @@ vitest-native's module loader was given a step it does not know. Usually two cop
 
 ### `SOURCE_EVALUATED_TWICE` {#SOURCE_EVALUATED_TWICE}
 
-One file ran twice in the same worker: Vite loaded it for the test's imports, and Node loaded it through a `require()`. The two copies don't share state, so a store or cache written through one is not seen by the other. The message names the file, which side loaded it first, how the second load reached it, and the fix for that case. With [`ownership`](/guide/plugin-options#ownership) at its default, `'warn'`, it is a warning, printed once per worker. With `'error'` it fails the test file. To accept a file that runs twice on purpose, list it in `ownership.allow: [{ path, reason }]`. An installed package's TypeScript source that a test both requires and imports runs twice unless [`experimental.nodeMocks`](/guide/plugin-options#experimental) is on: with it, Node loads the file once for both, and a `vi.mock` still reaches it.
+One file ran twice in the same worker: Vite loaded it for the test's imports, and Node loaded it through a `require()`. The two copies don't share state, so a store or cache written through one is not seen by the other. The message names the file, which side loaded it first, how the second load reached it, and the fix for that case. Files Node loaded through the same first `require()` share one cause: a `jest.mock` factory that requires a module importing 600 others is one cause, not 600 warnings. With [`ownership`](/guide/plugin-options#ownership) at its default, `'warn'`, the first file of each cause is printed in full, once per worker, and the end of the run lists each cause with its file count, its test files and the fix. Causes that start in one installed package by the same route are one line naming the package, and [`diagnostics: true`](/guide/plugin-options#diagnostics) lists every file of every cause with how Node reached it. With `'error'` it fails the test file. To accept a file that runs twice on purpose, list it in `ownership.allow: [{ path, reason }]`. An installed package's TypeScript source that a test both requires and imports runs twice unless [`experimental.nodeMocks`](/guide/plugin-options#experimental) is on: with it, Node loads the file once for both, and a `vi.mock` still reaches it.
 
 ### `LIBRARY_REGISTRY_FAILED` {#LIBRARY_REGISTRY_FAILED}
 
 vitest-native could not precompile the modules of libraries such as Reanimated and Worklets into one file, which makes them load faster. You see it as a warning, `could not precompile the library registry (…); those libraries load file by file, which is slower`, and results are unaffected; the code itself is raised only inside the process that builds the file. The build is retried once any file it read changes. To retry sooner, delete the `registry` folder in vitest-native's cache ([where it lives](/guide/troubleshooting#when-react-native-s-precompiled-modules-are-reused-or-rebuilt)). If the warning keeps coming back, report the reason it names.
 
+### `PROJECT_BABEL_COMMONJS` {#PROJECT_BABEL_COMMONJS}
+
+A project file compiled with your Babel config ([`projectBabel`](/guide/plugin-options#projectbabel)) came out as CommonJS, which Vite's module runner cannot run. vitest-native turns off the module transforms it knows, wherever a preset adds them, so a plugin or preset in your config transforms modules some other way. The message names the file and, when it is a plugin or preset vitest-native does not know, that entry. Leave it out of the config for tests, or set `projectBabel: 'never'`. The run does not fail when the plugin writing CommonJS is the only thing that sent the file to Babel: the file compiles with Oxc as before, without that plugin, and one warning names it. It fails when the file also needs another plugin or option from the config, because Oxc would drop what that does; the message lists them.
+
 ## Helpers and jest-compat
 
 ### `HELPERS_BEFORE_SETUP` {#HELPERS_BEFORE_SETUP}
 
-A helper from `vitest-native/helpers` ran before the plugin's setup, usually because `reactNative()` is not in the Vitest config's `plugins`, or the helper runs outside a test run.
+A helper from `vitest-native/helpers` ran before the plugin's setup, and the message says the helpers were called before setup ran. Usually `reactNative()` is not in the Vitest config's `plugins` array, or the helper runs outside a test run.
 
 ### `WRONG_ENGINE_FOR_HELPER` {#WRONG_ENGINE_FOR_HELPER}
 
@@ -124,9 +151,21 @@ A `jest.*` API with no Vitest equivalent was called (such as `jest.createMockFro
 
 A test file uses `jest.mock()` factories, but the jest-compat setup is not loaded. Add `jestCompatSetup` from `vitest-native/jest-compat` to `test.setupFiles`, ahead of any setup file that calls `jest.mock()`. See [jest-compat](/guide/jest-compat).
 
+### `JEST_BINDING_NOT_FOLLOWED` {#JEST_BINDING_NOT_FOLLOWED}
+
+`jestMockTransform()` met a `jest.mock`, `unmock`, `doMock` or `doUnmock` call through a further top-level name for the jest object, such as `const j = jest; j.mock(…)` or `const { mock } = jest; mock(…)`. It would not be hoisted or registered, so the test file fails instead of running without the mock. The message names the binding and both lines. Call the method on the jest object itself: the global `jest`, or `jest` imported from `@jest/globals` under any name. Jest does not hoist such a call either.
+
+### `JEST_MOCK_VI_UNAVAILABLE` {#JEST_MOCK_VI_UNAVAILABLE}
+
+`jestMockTransform()` rewrites `jest.mock()` and its siblings to calls on Vitest's `vi` object, which Vitest hoists only as `vi` or `vitest` imported from `vitest`. Where those calls run, the test file binds both names to something other than that import: its own variables, a namespace import (`import * as vitest`), or `vi` destructured from one, which is not yet initialised when Vitest moves `vi.mock` above it. Import `vi` from `vitest` by name, or rename the file's own `vi` or `vitest`.
+
 ### `JEST_MOCK_FACTORY_CYCLE` {#JEST_MOCK_FACTORY_CYCLE}
 
 A `jest.mock` factory requires the module it mocks, directly or through something it loads. Use `jest.requireActual()` inside the factory for the real module, or break the cycle. It also fires when something requires the mocked module while its factory is still loading the real module, which `require()` cannot wait for: break the cycle, or import the module instead of requiring it.
+
+### `JEST_MOCK_MISSING_EXPORT` {#JEST_MOCK_MISSING_EXPORT}
+
+A module that Node loads called an export that a `jest.mock` it was given does not provide, so the module failed while it loaded. For example, `expo-constants` calls `requireOptionalNativeModule` from `expo-modules-core`, and a `jest.mock('expo-modules-core', () => ({ … }))` without it fails the load. The message names the module, the export, the mock and the file that registered it (for a `__mocks__` mock, its file), and keeps the original `… is not a function` error as its cause. A factory's object is the whole module, as under Jest, so the export is not filled in. Add the export to the mock, or build the mock on the real module: `jest.mock('x', () => ({ ...jest.requireActual('x'), … }))`.
 
 ### `REQUIRE_ACTUAL_ALIAS_UNSUPPORTED` {#REQUIRE_ACTUAL_ALIAS_UNSUPPORTED}
 

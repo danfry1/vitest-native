@@ -1,0 +1,5 @@
+{
+  "name": "vn-kitchen-sink",
+  "private": true,
+  "description": "A Jest-migrated React Native app that combines what real ones do: babel.config.js, root __mocks__, a mock beside a module, a setup file, presets and a library's own Jest mock."
+}

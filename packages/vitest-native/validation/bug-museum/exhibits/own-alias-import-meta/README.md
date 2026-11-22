@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** migration testing (2026-10)
-- **Fixed by:** #453 (draft) (`origin/feat/import-meta-node-compile`)
+- **Fixed by:** #453 (merged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

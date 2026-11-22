@@ -23,6 +23,9 @@ const shared = {
       /[\\/]src[\\/]context\.mjs$/,
       // The shared resolver too: the plugin and Node's loaders run the same file.
       /[\\/]src[\\/]native[\\/]shared-resolver\.mjs$/,
+      // The error classes too: the CommonJS entries require the shipped file (require(esm),
+      // which every Node version in engines has), so dist holds one errors module.
+      /[\\/]src[\\/]errors\.mjs$/,
     ],
   },
 } satisfies UserConfig;
@@ -33,8 +36,8 @@ const shared = {
 // (the plugin's process loads the registry and Metro profile modules from dist/native)
 // holds one instance of each module, with one set of caches. The pattern lists exactly
 // the .mjs files isVerbatimRuntimeFile copies, so what ships verbatim and what the
-// bundles leave external cannot drift apart. The CommonJS build keeps its copy, because
-// a require() of these ESM files would need require(esm) from every consumer.
+// bundles leave external cannot drift apart. The CommonJS build leaves external only the
+// shared ones listed above, which it requires as ES modules.
 const SEP = "[\\\\/]";
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const VERBATIM_RUNTIME = new RegExp(

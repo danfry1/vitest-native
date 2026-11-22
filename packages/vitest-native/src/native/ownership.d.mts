@@ -94,12 +94,28 @@ export declare const RUNTIME_RESIDENT_PATH: RegExp;
 export declare const TEST_RUNTIME_RESIDENT_PACKAGES: readonly string[];
 export declare const TEST_RUNTIME_RESIDENT_PATH: RegExp;
 
+export declare function isFreshRuntime(): boolean;
 export declare function isRuntimeResidentFile(file: string): boolean;
 export declare function isTestRuntimeResidentFile(file: string): boolean;
 export declare function isResidentPackageName(name: string): boolean;
 export declare function createNativeOwnershipPolicy(
   options?: NativeOwnershipOptions,
 ): NativeOwnershipPolicy;
+export declare function recordedPackageDirOf(
+  recorded: { root: string; dirs: Record<string, string | null> } | undefined,
+  resolve?: (name: string, fromDir: string) => string | null,
+): (name: string, fromDir: string) => string | null;
+export declare function workerOwnershipPolicy(
+  inputs: {
+    projectRoot: string;
+    projectDirs?: readonly string[];
+    reactNativeRoots?: readonly string[];
+    serverDepsInlineAll?: boolean;
+    runtimeTransforms?: readonly string[];
+  },
+  context?: { packageDirs?: { root: string; dirs: Record<string, string | null> } } | null,
+): NativeOwnershipPolicy;
+export declare function workerOwnershipPolicyBuilds(): number;
 export declare function findNativeOwnershipConflict(
   policy: NativeOwnershipPolicy,
   file: string,

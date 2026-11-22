@@ -68,7 +68,8 @@ function deviceConstants(platform, reactNativeVersion) {
   };
 }
 
-// A reusable mock-native-component factory, inlined into each source string that needs it.
+// The mock-native-component factory, inlined into NativeComponentRegistry's source, which
+// memoizes one class per view name for the other routes to host components.
 //
 // For RCTScrollView we drop the scroll-responder negotiation props that real
 // ScrollView attaches to its host (onStartShouldSetResponder &co). On a device
@@ -97,6 +98,20 @@ const MOCK_NATIVE_COMPONENT = `
   ]);
   const mockNativeComponent = (viewName) => {
     const hostName = __TEXT_INPUT_VIEWS.has(viewName) ? "TextInput" : viewName;
+    // The native methods a ref has, on an object between the class's prototype and
+    // React.Component's, so a ref inherits them and anything else put there: jest-compat
+    // gives it to View as its prototype, as React Native's Jest preset has one, and suites
+    // spy on methods there or add their own (react-native-paper's Menu tests add
+    // querySelector). A spy that replaces one reaches every ref of this view. The object
+    // shadows isReactComponent with undefined, so a component given it as its prototype is
+    // not taken for a class (by React, or by a library's createAnimatedComponent); the
+    // class keeps its own.
+    const nativeMethods = Object.create(React.Component.prototype, {
+      isReactComponent: { value: undefined, writable: true, configurable: true },
+    });
+    Object.assign(nativeMethods, {
+      blur() {}, focus() {}, measure() {}, measureInWindow() {}, measureLayout() {}, setNativeProps() {},
+    });
     const C = class extends React.Component {
       constructor(p) { super(p); this._nativeTag = __tag++; }
       render() {
@@ -107,9 +122,13 @@ const MOCK_NATIVE_COMPONENT = `
         }
         return React.createElement(hostName, props, props.children);
       }
-      blur() {} focus() {} measure() {} measureInWindow() {} measureLayout() {} setNativeProps() {}
     };
+    Object.setPrototypeOf(C.prototype, nativeMethods);
+    Object.defineProperty(C.prototype, "isReactComponent", {
+      value: React.Component.prototype.isReactComponent, writable: true, configurable: true,
+    });
     C.displayName = viewName === "RCTView" ? "View" : hostName;
+    C.nativeMethods = nativeMethods;
     return C;
   };
 `;
@@ -296,19 +315,41 @@ export const BOUNDARY_SOURCES = {
       has: (_t, n) => typeof n === "string" && isKnownModule(n),
     }) };
   `,
+  // The one place the boundary's host component classes are made, one per native view
+  // name: requireNativeComponent, ViewNativeComponent and createReactNativeComponentClass
+  // all ask it. Every RCTView host is then an instance of the same class, whichever path
+  // rendered it, so a host ref's methods live on one prototype (jest-compat exposes it as
+  // View.prototype, as React Native's Jest preset has one; jest-compat/setup.mjs).
   "Libraries/NativeComponent/NativeComponentRegistry.js": `
     ${MOCK_NATIVE_COMPONENT}
-    exports.get = (n) => mockNativeComponent(n);
-    exports.getWithFallback_DEPRECATED = (n) => mockNativeComponent(n);
+    const __classes = new Map();
+    const get = (n) => {
+      let C = __classes.get(n);
+      if (!C) __classes.set(n, (C = mockNativeComponent(n)));
+      return C;
+    };
+    exports.get = get;
+    exports.getWithFallback_DEPRECATED = get;
     exports.setRuntimeConfigProvider = () => {};
   `,
   "Libraries/ReactNative/requireNativeComponent.js": `
-    ${MOCK_NATIVE_COMPONENT}
-    module.exports = { __esModule: true, default: (n) => mockNativeComponent(n) };
+    const { get } = require("react-native/Libraries/NativeComponent/NativeComponentRegistry");
+    module.exports = { __esModule: true, default: get };
+  `,
+  // The last route to a host component that bypassed the boundary: Text's RCTText,
+  // RCTVirtualText and RCTSelectableText (TextNativeComponent.js). The real shim only
+  // registers a view config and returns the name, so React rendered a bare string host:
+  // React 19 passed it \`ref\` as a prop, which test-renderer's toJSON printed, and a Text
+  // ref was a renderer instance without measure() and the other native methods a View
+  // ref has. Through the boundary class, as View's host is, the ref is an instance with
+  // those methods, and \`ref\` is not among the host's props.
+  "Libraries/Renderer/shims/createReactNativeComponentClass.js": `
+    const { get } = require("react-native/Libraries/NativeComponent/NativeComponentRegistry");
+    module.exports = { __esModule: true, default: get };
   `,
   "Libraries/Components/View/ViewNativeComponent.js": `
-    ${MOCK_NATIVE_COMPONENT}
-    module.exports = { __esModule: true, default: mockNativeComponent("RCTView"), __INTERNAL_VIEW_CONFIG: {}, Commands: {} };
+    const { get } = require("react-native/Libraries/NativeComponent/NativeComponentRegistry");
+    module.exports = { __esModule: true, default: get("RCTView"), __INTERNAL_VIEW_CONFIG: {}, Commands: {} };
   `,
   // TextInput: mirror react-native/jest/setup.js, which replaces the real TextInput
   // with a passthrough host component (jest/mocks/TextInput, via mockComponent).
@@ -410,11 +451,42 @@ const EXPO_DEV_STUBS = {
 };
 const EXPO_SUFFIXES = Object.keys(EXPO_DEV_STUBS);
 
+/**
+ * expo-modules-core's `createSnapshotFriendlyRef` (src/Refs.ts) is React's `createRef`.
+ * Expo modules pass refs made with it to their native views as props: expo-image's
+ * `nativeViewRef` and `containerViewRef`. A snapshot then printed the host instance and
+ * React's fiber tree behind them, thousands of lines with render timings that differ on
+ * every run. jest-expo serves a ref that prints as "[React.ref]" (src/preset/setup.js),
+ * and this is that ref: `{ current: null }` with a non-enumerable `toJSON`.
+ */
+const SNAPSHOT_FRIENDLY_REF = `
+  exports.createSnapshotFriendlyRef = function createSnapshotFriendlyRef() {
+    const ref = { current: null };
+    Object.defineProperty(ref, "toJSON", { value: () => "[React.ref]" });
+    return ref;
+  };
+`;
+const EXPO_MODULES_CORE_STUBS = {
+  "build/Refs.js": SNAPSHOT_FRIENDLY_REF,
+  "src/Refs.ts": SNAPSHOT_FRIENDLY_REF,
+};
+const EXPO_MODULES_CORE_SUFFIXES = Object.keys(EXPO_MODULES_CORE_STUBS);
+
+/**
+ * The stand-ins for files outside react-native, by package directory. The registry keys
+ * on them, so a changed stand-in is not served from a registry built with the old one.
+ */
+export const PACKAGE_STUBS = {
+  expo: EXPO_DEV_STUBS,
+  "expo-modules-core": EXPO_MODULES_CORE_STUBS,
+};
+
 /** Normalised-path test: is this a native-boundary module? */
 export function isBoundary(normPath) {
   return (
     SUFFIXES.some((s) => normPath.endsWith("/react-native/" + s)) ||
-    EXPO_SUFFIXES.some((s) => normPath.endsWith("/expo/" + s))
+    EXPO_SUFFIXES.some((s) => normPath.endsWith("/expo/" + s)) ||
+    EXPO_MODULES_CORE_SUFFIXES.some((s) => normPath.endsWith("/expo-modules-core/" + s))
   );
 }
 
@@ -428,6 +500,9 @@ export function boundarySourceFor(normPath, platform = "ios", version = "0.0.0")
   }
   for (const s of EXPO_SUFFIXES) {
     if (normPath.endsWith("/expo/" + s)) return EXPO_DEV_STUBS[s];
+  }
+  for (const s of EXPO_MODULES_CORE_SUFFIXES) {
+    if (normPath.endsWith("/expo-modules-core/" + s)) return EXPO_MODULES_CORE_STUBS[s];
   }
   return null;
 }

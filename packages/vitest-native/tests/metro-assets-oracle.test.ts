@@ -104,6 +104,19 @@ describe("asset descriptors match Metro's", () => {
   });
 });
 
+// Asset files arrive in the native real-path spelling (Vite's ids); a root given in
+// another spelling (a Windows 8.3 short name, or the letter case on a case-insensitive
+// disk, which reproduces it here) must still contain them.
+const nativeRootPath = fs.realpathSync.native(projectRoot);
+const otherCase = nativeRootPath.replace(/[a-z]/, (c) => c.toUpperCase());
+it.runIf(otherCase !== nativeRootPath && fs.existsSync(otherCase))(
+  "an asset under a root spelled differently keeps its location inside the root",
+  () => {
+    const file = path.join(fs.realpathSync.native(FIXTURES), "logo.png");
+    expect(ours(file, "ios", otherCase)).toEqual(ours(file, "ios", nativeRootPath));
+  },
+);
+
 describe("image dimensions match Metro's for each format", () => {
   const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-asset-oracle-"));
   afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));

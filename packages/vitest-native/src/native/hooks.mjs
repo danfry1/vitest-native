@@ -28,11 +28,11 @@ import {
   subpathLeafOf,
 } from "./match.mjs";
 import {
-  createNativeOwnershipPolicy,
   findNativeOwnershipConflict,
   parseNativeOwnershipManifest,
+  workerOwnershipPolicy,
 } from "./ownership.mjs";
-import { explainUntransformedSyntaxError } from "./explain.mjs";
+import { explainUncompiledDependency, explainUntransformedSyntaxError } from "./explain.mjs";
 import { nativeAssetModuleSource } from "./assets.mjs";
 import { expandAlias } from "../jest-compat/aliases.mjs";
 import { noteIfRntlEntryLoaded } from "../rntl-support.mjs";
@@ -43,6 +43,8 @@ import {
   workerSharedResolver,
 } from "./shared-resolver.mjs";
 import { libraryExtensionsFor } from "./jest-resolvers.mjs";
+import { rootSpellings, under } from "./root-spelling.mjs";
+import { installReactDedupe } from "./react-dedupe.mjs";
 
 // Guarded via globalThis, not module scope: under the hot runtime this module
 // can be evaluated twice in one worker (once by the worker entry through Node's
@@ -104,6 +106,18 @@ function projectDirs() {
  * own source deliberately — `jest.requireActual('./src/thing')` — is Node loading
  * project files on purpose, and is not this.
  */
+// Each directory's spellings, once: the check runs for every resolution.
+const dirSpellings = new Map();
+function spellingsOf(dir) {
+  let spellings = dirSpellings.get(dir);
+  if (spellings === undefined) {
+    // The directory as given too: the paths a caller compares may be spelled that way.
+    spellings = [...new Set([dir, ...rootSpellings(dir)])];
+    dirSpellings.set(dir, spellings);
+  }
+  return spellings;
+}
+
 export function checkProjectSourceResolvedByNode(resolved, parent, dirs = projectDirs(), policy) {
   if (typeof resolved !== "string" || (!policy && dirs.length === 0)) return;
   // `_resolveFilename` returns bare names for built-ins (`fs`, `node:fs`, `module`).
@@ -121,9 +135,9 @@ export function checkProjectSourceResolvedByNode(resolved, parent, dirs = projec
     if (findNativeOwnershipConflict(policy, file, "node")?.decision.reason !== "project-source") {
       return;
     }
-  } else if (
-    !dirs.some((dir) => file.startsWith(dir.replace(/\\/g, "/").replace(/\/+$/, "") + "/"))
-  ) {
+  } else if (!dirs.some((dir) => spellingsOf(dir).some((spelling) => under(resolved, spelling)))) {
+    // In any spelling of the directory (root-spelling.mjs): Node's file name keeps the one
+    // its path was reached by, a Windows 8.3 short name too.
     return;
   }
   const from = parent && parent.filename ? parent.filename.replace(/\\/g, "/") : "";
@@ -325,10 +339,7 @@ export function installRequireHooks(
     reactNativeRoots: configuredOwnership?.reactNativeRoots ?? [],
     serverDepsInlineAll: configuredOwnership?.enforcement === "overridden-by-inline-all",
   };
-  let ownership = createNativeOwnershipPolicy({
-    ...ownershipBase,
-    runtimeTransforms: transformPkgs,
-  });
+  let ownership = workerOwnershipPolicy({ ...ownershipBase, runtimeTransforms: transformPkgs });
   let isExtra = ownership.matchesNodeTransformedFile;
   let isExtraKey = JSON.stringify(transformPkgs);
   // Whether these hooks compile a package file for the project, read at call time so a
@@ -352,7 +363,7 @@ export function installRequireHooks(
     const key = JSON.stringify(pkgs);
     if (key === isExtraKey) return compiles;
     isExtraKey = key;
-    ownership = createNativeOwnershipPolicy({ ...ownershipBase, runtimeTransforms: pkgs });
+    ownership = workerOwnershipPolicy({ ...ownershipBase, runtimeTransforms: pkgs });
     isExtra = ownership.matchesNodeTransformedFile;
     return compiles;
   };
@@ -512,6 +523,7 @@ export function installRequireHooks(
       key = path.resolve(file);
       if (!preserveSymlinks) {
         try {
+          // Node's spelling (fs.realpathSync): the key Module._cache holds the file under (#282).
           key = fs.realpathSync(key);
         } catch {
           // Missing: leave it to the loader to report.
@@ -640,6 +652,7 @@ export function installRequireHooks(
           options.paths.length === parent.paths.length &&
           options.paths.every((entry, i) => entry === parent.paths[i])),
     );
+  installReactDedupe(projectRoot);
   nodeDispatch().resolve.add(
     "hooks",
     (next) =>
@@ -824,7 +837,11 @@ export function installRequireHooks(
       try {
         return loadSupport(mod, filename, origJs);
       } catch (err) {
-        throw explainUntransformedSyntaxError(err, filename) ?? err;
+        throw (
+          explainUncompiledDependency(err, filename, projectContext()?.scanFoundDependencies) ??
+          explainUntransformedSyntaxError(err, filename) ??
+          err
+        );
       }
     }
     return loadSupport(mod, filename, origJs);

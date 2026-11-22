@@ -198,9 +198,24 @@ export interface ReactNativeMock {
 
 // ─── Plugin Types ────────────────────────────────────────────────────────────
 
+/** What a preset module's factory is given when it builds its mock. */
+export interface PresetFactoryContext {
+  /**
+   * The React the test file renders with: the copy `react-native` resolves (the
+   * project's, where `react-native` is not installed). A mock that creates components,
+   * contexts or hooks uses this one rather than a React it imported itself: under the
+   * hot runtime's `freshRuntime` each file has its own React, and a hook or context from
+   * another file's React fails there.
+   */
+  React: typeof import("react");
+}
+
 export interface PresetModule {
-  /** Factory that builds the mock object. Only called in Vitest worker processes. */
-  factory: () => Record<string, any>;
+  /**
+   * Factory that builds the mock object, once per test file that imports the module.
+   * Only called in Vitest worker processes.
+   */
+  factory: (context: PresetFactoryContext) => Record<string, any>;
   /** Static list of named exports for virtual ESM module generation. Read at Vite config time (no vitest available). */
   exports: string[];
   /**
@@ -257,6 +272,7 @@ export interface HotRuntimeRecycleOptions {
   memoryLimit?: number;
   preserveGlobals?: string[];
   esmGeneration?: boolean;
+  freshRuntime?: boolean;
 }
 
 export interface VitestNativeOptions {
@@ -317,6 +333,25 @@ export interface VitestNativeOptions {
 
   /** Log plugin activity. Default: false */
   diagnostics?: boolean;
+
+  /**
+   * Compile project source with the project's own Babel config where it needs a
+   * plugin or option that Vite's Oxc transform does not cover (legacy decorators,
+   * macros, a custom plugin), as Metro and babel-jest do. Packages in node_modules
+   * are not affected.
+   *
+   * - `'auto'` (default): a project file compiles with Babel only when the config
+   *   Babel loads for it has a plugin, preset or option outside what Oxc and the
+   *   engine already cover; an unknown plugin counts as outside. Every other file
+   *   keeps Oxc. The plugins that caused it are named once at startup.
+   * - `'always'`: every project file the config applies to compiles with Babel, as
+   *   under babel-jest.
+   * - `'never'`: project source compiles with Oxc only.
+   *
+   * A Babel plugin already in the Vite config (such as `@rolldown/plugin-babel`)
+   * compiles that source itself, and this steps aside for it.
+   */
+  projectBabel?: "auto" | "always" | "never";
 
   /** Additional asset file extensions, loaded as Metro loads assets (e.g. ['.lottie', '.m4b']) */
   assetExts?: string[];
@@ -405,7 +440,7 @@ export interface VitestNativeOptions {
      * only. `'resolution'` adds the bridge: Node's \`require\` of a file Vite owns gets
      * Vite's own instance, evaluated then if Vite has not yet, so the order a test loads
      * files in cannot split a module. `'resolution'` turns `nodeMocks` on: a mocked module
-     * the bridge or Node reaches is the test's mock. See https://danfry1.github.io/vitest-native/guide/plugin-options#experimental.
+     * the bridge or Node reaches is the test's mock. See https://vitest-native.danfry.dev/guide/plugin-options#experimental.
      */
     ownershipModel?: "resolver" | "resolution";
   };
@@ -445,10 +480,14 @@ export interface VitestNativeOptions {
    *   re-execution: a suite whose files import many externalized (non-React
    *   Native) packages measured 55% more wall clock at the extreme — still 9x
    *   stock isolation, against 13.9x with it off. Set false to trade that back,
-   *   accepting that a package holding state across files will keep it. While it
-   *   is on, hot workers leave Node's V8 compile cache off, because every file
-   *   would add an entry per re-evaluated module (unless `NODE_COMPILE_CACHE` is
-   *   set, which turns the cache on before vitest-native runs).
+   *   accepting that a package holding state across files will keep it.
+   * - `freshRuntime` (experimental, off by default): React, its renderers, `scheduler`
+   *   and React Native Testing Library run again for every test file, as React Native
+   *   does, instead of staying loaded for the worker's life. State they hold at module
+   *   level (`useId` counters, warning de-duplication, scheduler timers) then starts
+   *   fresh in each file, as under per-file isolation. It costs re-execution: about
+   *   20 ms per file with one worker and 5 ms with four, on a 135-file suite. Requires
+   *   `esmGeneration`.
    *
    * `'auto'` selects the bounded hot runtime when the configuration has recyclable
    * task boundaries (enough memory headroom for at least two workers) and no
@@ -492,16 +531,31 @@ export interface VitestNativeOptions {
    * is not in the cache yet (first install, an upgrade of React Native or
    * vitest-native, a Babel toolchain change, a cleared cache).
    *
-   * - `'background'` *(default)*: the run starts at once and the registry compiles in
-   *   a low-priority background process. Test files that start before it is ready
-   *   load React Native file by file; files that start after use it. When Vitest
-   *   closes, a build still running gets up to half of `teardownTimeout` to finish,
-   *   so the next run starts warm.
-   * - `'wait'`: compile the registry before the run starts, as in earlier versions.
+   * - `'wait'` *(default)*: compile the registry before the first test file starts.
+   * - `'background'`: the run starts at once and the registry compiles in a
+   *   low-priority background process. Test files that start before it is ready load
+   *   React Native file by file, compiling it inside their tests, so on a cold cache
+   *   their tests run slower and can reach `testTimeout`; files that start after use
+   *   it. When Vitest closes, a build still running gets up to half of
+   *   `teardownTimeout` to finish, so the next run starts warm.
    *
    * The hot runtime, CI runs and `experimental.ownershipModel` always wait.
    */
   registryBuild?: "background" | "wait";
+
+  /**
+   * Fail the run when no test makes progress for this many milliseconds, naming the files
+   * and tests that were running. A module loaded through Vite counts as progress, so a
+   * cold start that is still importing is not taken for a hang. Default: 60 000, or twice
+   * the larger of `testTimeout` and `hookTimeout` if that is longer. `false` turns it off.
+   * Off while a debugger is attached.
+   *
+   * Vitest's `testTimeout` runs on the test's own worker, so a test stuck in synchronous
+   * code (a loop that never ends) never reaches it, and the run waits forever with nothing
+   * on screen. This watch runs in Vitest's main process, which stays responsive, so it can
+   * still say where the run stopped.
+   */
+  hangTimeout?: number | false;
 
   /**
    * `engine: 'native'` only. What happens when one file is evaluated by both Node and
@@ -519,7 +573,7 @@ export interface VitestNativeOptions {
    * off.
    *
    * Default: `'warn'`.
-   * See https://danfry1.github.io/vitest-native/guide/errors#SOURCE_EVALUATED_TWICE.
+   * See https://vitest-native.danfry.dev/guide/errors#SOURCE_EVALUATED_TWICE.
    */
   ownership?:
     | "warn"

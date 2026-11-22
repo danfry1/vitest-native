@@ -1,4 +1,5 @@
 import React from "react";
+import { hostComponent } from "../host.js";
 import { vi } from "vitest";
 
 /** The parts of the mock React Native that asset resolution reads. */
@@ -78,7 +79,7 @@ function resolveRegistered(asset: PackagerAsset, deviceScale: number, os: string
 
 export function createImageMock(context: () => ImageMockContext = () => ({})) {
   const Image = React.forwardRef((props: any, ref: any) => {
-    return React.createElement("Image", { ...props, ref });
+    return React.createElement(hostComponent("Image"), { ...props, ref });
   });
   Image.displayName = "Image";
   (Image as any).getSize = vi.fn((_uri: string, success: Function, _failure?: Function) => {

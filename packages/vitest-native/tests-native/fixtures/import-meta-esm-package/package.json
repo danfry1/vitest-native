@@ -1,0 +1,8 @@
+{
+  "name": "import-meta-esm-package",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "vn-import-meta-esm": "1.0.0"
+  }
+}

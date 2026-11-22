@@ -63,3 +63,14 @@ export function expandAlias(specifier, entries) {
   if (find.endsWith("/") && !replacement.endsWith("/")) return `${replacement}/${rest}`;
   return replacement + rest;
 }
+
+/**
+ * jest-compat's shims for packages that work only inside Jest, the targets of
+ * jestCompatAliases(), as files beside the jest-compat setup: each export names only an
+ * `import` target, which a CommonJS require() cannot resolve by name. Kept in step with
+ * jestCompatAliases() by tests/jest-compat.test.ts.
+ */
+export const JEST_COMPAT_SHIM_FILES = Object.freeze({
+  "vitest-native/jest-compat/jest-globals": "./jest-globals.mjs",
+  "vitest-native/jest-compat/extend-expect-noop": "./noop.mjs",
+});

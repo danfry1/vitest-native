@@ -2,9 +2,9 @@
 //
 // The native engine runs RN's real JS, and with isolation on (the default) that
 // graph is re-instantiated for every test FILE: ~440 separate Node module loads,
-// each paying a filesystem stat, a module-wrapper construction, and a compile-cache
-// lookup. Measured on RN 0.86, that is ~59ms for a typical test's slice of RN and
-// ~110ms for the full public surface — per file.
+// each paying a filesystem stat, a module-wrapper construction, and a compile.
+// Measured on RN 0.86, that is ~59ms for a typical test's slice of RN and ~110ms
+// for the full public surface — per file.
 //
 // This module collapses that into ONE file. At config time we walk RN's require
 // graph once, apply exactly the transforms the per-file hooks would apply (native
@@ -39,7 +39,7 @@ import {
   TRANSFORM_CACHE_VERSION,
 } from "./transform.mjs";
 
-import { boundarySourceFor, BOUNDARY_SOURCES } from "./boundary.mjs";
+import { boundarySourceFor, BOUNDARY_SOURCES, PACKAGE_STUBS } from "./boundary.mjs";
 import { resolveTransformPreset } from "./babel-preset.mjs";
 import { assetRegistryPathFor, nativeAssetModuleSource } from "./assets.mjs";
 import {
@@ -310,6 +310,11 @@ export function registryKeyInputs({
       String(boundarySourceFor(`/react-native/${suffix}`, platform, reactNativeVersion)),
     );
     boundaries.update("\0");
+  }
+  for (const [dir, stubs] of Object.entries(PACKAGE_STUBS)) {
+    for (const suffix of Object.keys(stubs).sort()) {
+      boundaries.update(`${dir}/${suffix}\0${stubs[suffix]}\0`);
+    }
   }
   return [
     `f${REGISTRY_FORMAT_VERSION}`,
@@ -1144,6 +1149,7 @@ export function installRegistry(
   // `/var/…` tmpdir), so match the registry file by both spellings.
   let registryRealFile = registryFile;
   try {
+    // Node's spelling (fs.realpathSync): the file name Node records for the loaded registry.
     registryRealFile = fs.realpathSync(registryFile);
   } catch {
     // Just loaded, so it exists; an unresolvable path keeps the given spelling.
@@ -1230,6 +1236,7 @@ function linkLibraryRegistry(req, file, rnRegistry) {
   let spellings;
   try {
     registry = req(file)(rnRegistry.ids, rnRegistry.load);
+    // The given and Node's spelling (fs.realpathSync), as Node records a loaded file.
     spellings = new Set([file, fs.realpathSync(file)]);
   } catch (error) {
     warnRegistryUnavailable(`library registry: ${error?.message ?? error}`);

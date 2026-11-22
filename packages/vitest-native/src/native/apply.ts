@@ -39,10 +39,12 @@
  * follows what is under test. The invariant still holds — one owner per run — but the
  * same library is not hosted identically by both kinds of run.
  */
+import path from "node:path";
 import type { PoolRunnerInitializer } from "vitest/node";
 import type { ProjectContextFields } from "../context.mjs";
 import type { NativeOwnershipPolicy } from "./ownership.mjs";
 import { createNativeOwnershipPolicy, formatNativeOwnershipManifest } from "./ownership.mjs";
+import { REACT_DEDUPE } from "./react-dedupe.mjs";
 
 /** React's automatic JSX runtime, through Vite 8's Oxc transform. */
 export type JsxTransformConfig = { oxc: { jsx: { runtime: "automatic" } } };
@@ -99,6 +101,17 @@ export function nativeEngineConfig(
   const nodeTransformed = ownership.nodeTransformPackages;
   const ownershipManifest = ownership.manifest();
   fields.ownership = ownershipManifest as unknown as Record<string, unknown>;
+  // The directories the policy just resolved, so workers do not resolve them again. Only
+  // a directory (or "not found"): a preset-shadowed package resolves to the preset's
+  // virtual module here, which a worker resolves for itself, as it always has.
+  fields.packageDirs = {
+    root: ownership.projectRoot,
+    dirs: Object.fromEntries(
+      nodeTransformed
+        .map((name) => [name, ownership.packageDirOf(name)] as const)
+        .filter(([, dir]) => dir === null || path.isAbsolute(dir)),
+    ),
+  };
   if (fields.diagnostics) {
     for (const line of formatNativeOwnershipManifest(ownershipManifest)) {
       const report = `[vitest-native] ownership: ${line}`;
@@ -141,7 +154,8 @@ export function nativeEngineConfig(
       // Ensure a single React instance across the test, RN, and the renderer —
       // a fresh consumer project can otherwise resolve duplicates and hit a null
       // hooks dispatcher ("Cannot read properties of null (reading 'use...')").
-      dedupe: ["react", "react-test-renderer", "test-renderer", "react-is"],
+      // Node serves the same list as one copy too (react-dedupe.mjs).
+      dedupe: [...REACT_DEDUPE],
     },
     test: {
       setupFiles: [setupFilePath],

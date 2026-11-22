@@ -2,7 +2,7 @@
 
 - **Class:** ownership
 - **Source:** ADR-0004 (`dual-export-file`); #370's identity probes (`tests-native/ownership/identity.test.ts`)
-- **Fixed by:** #370 (draft; `experimental.ownershipModel: 'resolver'`, ownership track A1)
+- **Fixed by:** open (#370, experimental.ownershipModel: 'resolver', closed unmerged)
 - **Needs:** nothing beyond this repository's install
 
 ## The bug

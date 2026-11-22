@@ -1,6 +1,6 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
-import React from "react";
+import { hosts } from "../mocks/host-classes.js";
 import { createPressableMock } from "../mocks/components/Pressable.js";
 import { builtInPreset } from "./built-in.js";
 
@@ -39,7 +39,8 @@ export function gestureHandler(): Preset {
           "RawButton",
           "PureNativeButton",
         ],
-        factory: () => {
+        factory: ({ React }) => {
+          const { hostComponent: hostClass, asHost } = hosts(React);
           const State = {
             UNDETERMINED: 0,
             FAILED: 1,
@@ -58,24 +59,28 @@ export function gestureHandler(): Preset {
 
           function createGestureHandler(name: string) {
             const Handler = React.forwardRef((props: any, ref: any) =>
-              React.createElement(name, { ...props, ref }, props.children),
+              React.createElement(asHost(name), { ...props, ref }, props.children),
             );
             Handler.displayName = name;
             return Handler;
           }
 
           const GestureHandlerRootView = React.forwardRef((props: any, ref: any) =>
-            React.createElement("GestureHandlerRootView", { ...props, ref }, props.children),
+            React.createElement(
+              hostClass("GestureHandlerRootView"),
+              { ...props, ref },
+              props.children,
+            ),
           );
           GestureHandlerRootView.displayName = "GestureHandlerRootView";
 
           const Swipeable = React.forwardRef((props: any, ref: any) =>
-            React.createElement("Swipeable", { ...props, ref }, props.children),
+            React.createElement(hostClass("Swipeable"), { ...props, ref }, props.children),
           );
           Swipeable.displayName = "Swipeable";
 
           const DrawerLayout = React.forwardRef((props: any, ref: any) =>
-            React.createElement("DrawerLayout", { ...props, ref }, props.children),
+            React.createElement(hostClass("DrawerLayout"), { ...props, ref }, props.children),
           );
           DrawerLayout.displayName = "DrawerLayout";
 
@@ -137,7 +142,7 @@ export function gestureHandler(): Preset {
           };
 
           const GestureDetector = React.forwardRef((props: any, ref: any) =>
-            React.createElement("GestureDetector", { ...props, ref }, props.children),
+            React.createElement(hostClass("GestureDetector"), { ...props, ref }, props.children),
           );
           GestureDetector.displayName = "GestureDetector";
 
@@ -167,7 +172,7 @@ export function gestureHandler(): Preset {
             TouchableNativeFeedback: createGestureHandler("GH-TouchableNativeFeedback"),
             // RNGH's Pressable mirrors RN's Pressable API. Reuse the RN mock so
             // it inherits behaviors like suppressing press handlers when disabled.
-            Pressable: createPressableMock(),
+            Pressable: createPressableMock(React),
             // Button components (gesture-handler/Button). Common in real apps
             // (e.g. RectButton wrapped by Touchables). Render as host views that
             // pass through children + handlers.

@@ -1,24 +1,27 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { runTempRoot } from "./support/run-temp-root";
 // @ts-expect-error — runtime .mjs, no types
 import { CI_VARIABLES } from "../src/native/registry-process.mjs";
 
-// On a cold cache the native engine starts the run without waiting for the precompiled
-// registry: it compiles in a background child, test files that start before it lands
-// load React Native file by file, and later ones use it (registry-process.mjs). These
-// run real Vitest processes against a scratch project, each with its own cache.
+// On a cold cache the native engine builds the precompiled registry before the run by
+// default (registryBuild: 'wait'). With registryBuild: 'background' it starts the run
+// without waiting: the registry compiles in a background child, test files that start
+// before it lands load React Native file by file, and later ones use it
+// (registry-process.mjs). These run real Vitest processes against a scratch project,
+// each with its own cache.
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(path.join(packageRoot, "package.json"));
 const vitestEntry = path.join(path.dirname(require.resolve("vitest/package.json")), "vitest.mjs");
 const posix = process.platform !== "win32";
-const scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-registry-bg-"));
-afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }));
+const scratch = fs.mkdtempSync(path.join(fs.realpathSync(runTempRoot()), "vn-registry-bg-"));
+// Under the run's temporary root (support/run-temp-root.ts), which global teardown removes:
+// the scratch projects hold React Native registry builds, slow to delete in a hook.
 
 // Each test file records whether its worker serves React Native from the registry,
 // and whether the registry existed when it started. A file that started before the
@@ -60,8 +63,15 @@ const registryProcessUrl = pathToFileURL(
   path.join(packageRoot, "dist/native/registry-process.mjs"),
 ).href;
 
+/** The plugin options of a scratch project that builds in the background. */
+const BACKGROUND = '{ engine: "native", registryBuild: "background" }';
+
 let count = 0;
-function project(files = ["a.test.mjs"], test: Record<string, unknown> = {}) {
+function project(
+  files = ["a.test.mjs"],
+  test: Record<string, unknown> = {},
+  plugin = BACKGROUND,
+) {
   const root = path.join(scratch, `p${count++}`);
   for (const name of ["react", "react-native", "@babel/core", "@react-native/babel-preset"]) {
     const link = path.join(root, "node_modules", ...name.split("/"));
@@ -81,7 +91,7 @@ function project(files = ["a.test.mjs"], test: Record<string, unknown> = {}) {
     `import { reactNative } from ${JSON.stringify(pathToFileURL(path.join(packageRoot, "dist/index.mjs")).href)};\n` +
       `import { _setRegistryBuildOptions } from ${JSON.stringify(registryProcessUrl)};\n` +
       `_setRegistryBuildOptions({ compilerDelayMs: Number(process.env.${DELAY}) || 0 });\n` +
-      `export default { plugins: [reactNative({ engine: "native" })], test: ${JSON.stringify({
+      `export default { plugins: [reactNative(${plugin})], test: ${JSON.stringify({
         globals: true,
         include: ["*.test.mjs"],
         maxWorkers: 1,
@@ -174,6 +184,7 @@ function start(
 
 /** Processes left in the run's process group (POSIX), other than none expected. */
 function survivors(pid: number): string[] {
+  if (!posix) return windowsDescendants(pid);
   const listing = execFileSync("ps", ["-A", "-o", "pgid=,pid=,command="], { encoding: "utf8" });
   return listing
     .split("\n")
@@ -181,12 +192,53 @@ function survivors(pid: number): string[] {
     .filter((line) => line.split(/\s+/)[0] === String(pid));
 }
 
+/**
+ * Processes descended from `pid` (Windows has no process groups). A process keeps its
+ * parent's id after the parent exits, so the run's children are found by it.
+ */
+function windowsDescendants(pid: number): string[] {
+  const listing = execFileSync(
+    "powershell",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.CommandLine)" }',
+    ],
+    { encoding: "utf8" },
+  );
+  const processes = listing
+    .split(/\r?\n/)
+    .map((line) => line.trim().match(/^(\d+) (\d+) ?(.*)$/))
+    .filter((match) => match !== null)
+    .map(([, child, parent, command]) => ({
+      child: Number(child),
+      parent: Number(parent),
+      command,
+    }));
+  const found: string[] = [];
+  const parents = new Set([pid]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const { child, parent, command } of processes) {
+      if (parents.has(parent) && !parents.has(child)) {
+        parents.add(child);
+        found.push(`${child} ${command}`);
+        grew = true;
+      }
+    }
+  }
+  return found;
+}
+
 async function settled(pid: number): Promise<string[]> {
-  // A killed child is reaped asynchronously; give the OS a moment.
-  for (let i = 0; i < 20; i++) {
+  // A killed child is reaped asynchronously; give the OS a moment (listing processes
+  // is slower on Windows, so fewer, longer waits there).
+  const [tries, waitMs] = posix ? [20, 50] : [5, 400];
+  for (let i = 0; i < tries; i++) {
     const left = survivors(pid);
     if (left.length === 0) return left;
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, waitMs));
   }
   return survivors(pid);
 }
@@ -197,6 +249,21 @@ const records = (out: string) =>
     .trim()
     .split("\n")
     .map((line) => JSON.parse(line) as { installed: boolean; before: boolean });
+
+describe("native engine: a cold cache with the default options", () => {
+  it("builds the registry before the run, so every test file uses it (#873)", async () => {
+    // Files loading React Native file by file on a cold cache compile it inside their
+    // tests, each worker the same files at once, which outran Vitest's test timeout.
+    // Several workers start at once here, and the compiler is held for a few seconds,
+    // so a run that did not wait would start every file before the registry landed.
+    const files = ["a.test.mjs", "b.test.mjs", "c.test.mjs", "d.test.mjs"];
+    const p = project(files, { maxWorkers: 2, fileParallelism: true }, '{ engine: "native" }');
+    const run = await start(p, { [DELAY]: "3000" }).done;
+    expect(run.code, run.output).toBe(0);
+    expect(records(p.out)).toEqual(files.map(() => ({ installed: true, before: false })));
+    if (posix) expect(await settled(run.pid)).toEqual([]);
+  }, 120_000);
+});
 
 describe("native engine: the registry builds in the background on a cold cache", () => {
   it("starts without it, picks it up for later files, and leaves it for the next run", async () => {
@@ -234,17 +301,7 @@ describe("native engine: the registry builds in the background on a cold cache",
   }, 120_000);
 
   it("waits for the build with registryBuild: 'wait'", async () => {
-    const p = project();
-    const config = path.join(p.root, "vitest.config.mjs");
-    fs.writeFileSync(
-      config,
-      fs
-        .readFileSync(config, "utf8")
-        .replace(
-          'reactNative({ engine: "native" })',
-          'reactNative({ engine: "native", registryBuild: "wait" })',
-        ),
-    );
+    const p = project(undefined, {}, '{ engine: "native", registryBuild: "wait" }');
     const run = await start(p).done;
     expect(run.code, run.output).toBe(0);
     expect(records(p.out)).toEqual([{ installed: true, before: false }]);
@@ -253,19 +310,89 @@ describe("native engine: the registry builds in the background on a cold cache",
   it("keeps building after a cancelled run, and close then stops it", async () => {
     // --bail cancels the run after the first failure; the build goes on (in watch mode
     // the session continues and later reruns use it), but close does not wait for it.
-    const p = project(["a.test.mjs", "fail.test.mjs"]);
+    // Without the cancel, close waits half of teardownTimeout for the build: set to 60 s
+    // here, far above how long close takes on a loaded CI machine, so the two cannot be
+    // mistaken for each other.
+    const p = project(["a.test.mjs", "fail.test.mjs"], { teardownTimeout: 120_000 });
     fs.writeFileSync(
       path.join(p.root, "fail.test.mjs"),
       `test("fails", () => { throw new Error("x"); });\n`,
     );
-    const begun = Date.now();
+    // The run records, inside the process, when it ended and how, when the close hooks
+    // started (after global teardown and the pool's close), when its Vite server closed,
+    // when close resolved, and when it exited, with what held it open meanwhile. So a
+    // slow start on a loaded machine does not count, and a failure shows which step
+    // took the time.
+    const timeline = path.join(p.root, "timeline.jsonl");
+    const config = path.join(p.root, "vitest.config.mjs");
+    fs.writeFileSync(
+      config,
+      `import fs from "node:fs";\n` +
+        fs
+          .readFileSync(config, "utf8")
+          .replace(
+            "export default {",
+            `const mark = (event, extra) => fs.appendFileSync(${JSON.stringify(timeline)}, JSON.stringify({ event, at: Math.round(performance.now()), ...extra }) + "\\n");\n` +
+              `process.on("exit", () => mark("exit"));\n` +
+              // After close resolves the process exits once nothing holds its event loop:
+              // what still does is sampled until then. Vitest's removal of its temporary
+              // directory, the last step of close, is timed when it exists (internal).
+              // Each sample names the owner of every handle and request still active: this
+              // process's stdout, stderr or stdin, or a child's stdio[n].
+              `const owners = () => { const handles = process._getActiveHandles(); const children = handles.filter((h) => h?.constructor?.name === "ChildProcess"); ` +
+              `const owner = (s) => s === process.stdout ? "stdout" : s === process.stderr ? "stderr" : s === process.stdin ? "stdin" : children.map((c) => [c, c.stdio?.indexOf(s) ?? -1]).filter(([, i]) => i >= 0).map(([c, i]) => "child " + c.spawnfile + " " + (c.spawnargs ?? []).slice(1).join(" ").slice(-80) + " stdio[" + i + "]")[0] ?? null; ` +
+              `return { handles: handles.map((h) => ({ type: h?.constructor?.name, owner: owner(h), pid: h?.pid, fd: h?._handle?.fd, destroyed: h?.destroyed, pending: h?.writableLength })), ` +
+              `requests: process._getActiveRequests().map((r) => { const s = handles.find((h) => h?._handle && h._handle === r.handle); return { type: r?.constructor?.name, owner: s ? owner(s) ?? s.constructor?.name : r.handle?.constructor?.name ?? null }; }) }; };\n` +
+              `const held = () => { mark("held", { resources: process.getActiveResourcesInfo(), ...owners() }); setTimeout(held, 500).unref(); };\n` +
+              `const timed = (vitest, key, start, end) => { const original = vitest[key]; if (typeof original === "function") vitest[key] = async (...args) => { if (start) mark(start); try { return await original.apply(vitest, args); } finally { mark(end); if (end === "closed") held(); } }; };\n` +
+              `const timing = { name: "timing", closeBundle: () => mark("viteClosed"), configureVitest: ({ vitest }) => { vitest.onClose(() => mark("hooks")); timed(vitest, "close", null, "closed"); timed(vitest, "_clearTmpDir", "tmpStart", "tmpEnd"); } };\n` +
+              "export default {",
+          )
+          .replace(`reactNative(${BACKGROUND})`, `reactNative(${BACKGROUND}), timing`)
+          .replace(
+            '"maxWorkers"',
+            'reporters: ["default", { onTestRunEnd: (_m, _e, reason) => mark("end", { reason }) }], "maxWorkers"',
+          ),
+    );
     const run = await start(p, { [DELAY]: "60000" }, ["--bail=1"]).done;
     expect(run.output).toMatch(/fails/);
-    // Without the cancel, close would wait 15 s (half the fixture's teardownTimeout).
-    expect(Date.now() - begun).toBeLessThan(12_000);
-    if (posix) expect(await settled(run.pid)).toEqual([]);
+    const events = fs.existsSync(timeline)
+      ? fs
+          .readFileSync(timeline, "utf8")
+          .trim()
+          .split("\n")
+          .map(
+            (line) =>
+              JSON.parse(line) as {
+                event: string;
+                at: number;
+                reason?: string;
+                resources?: string[];
+                handles?: unknown[];
+                requests?: unknown[];
+              },
+          )
+      : [];
+    const at = (event: string) => events.find((entry) => entry.event === event);
+    const last = (event: string) => events.findLast((entry) => entry.event === event);
+    const detail = `${JSON.stringify(events)}\n${run.output}`;
+    // A repro collects every run's timeline, passing or not, in this file.
+    const collect = process.env.VN_REGISTRY_BG_TIMELINES;
+    if (collect) fs.appendFileSync(collect, `${JSON.stringify(events)}\n`);
+    expect(at("end")?.reason, detail).toBe("interrupted");
+    expect(at("exit"), detail).toBeDefined();
+    // Bounds from 40 runs on a loaded Windows runner. A missed cancel waits 60 s within
+    // the close hooks (max 0.21 s seen). A stopped helper holding the process open shows
+    // after close resolves (max 0.12 s seen; up to 9 s before #824). The time from the
+    // run's end to the close hooks, the pool's shutdown with the workers' exit, took up to
+    // 14 s while workers wrote Node's compile cache at exit (#831), and at most 0.05 s
+    // with the cache off.
+    expect(at("hooks")!.at - at("end")!.at, detail).toBeLessThan(2_000);
+    expect(last("closed")!.at - at("hooks")!.at, detail).toBeLessThan(5_000);
+    expect(at("exit")!.at - last("closed")!.at, detail).toBeLessThan(2_000);
+    expect(await settled(run.pid)).toEqual([]);
     expect(published(p.root)).toBe(false);
-  }, 120_000);
+  }, 180_000);
 
   it.skipIf(!posix)(
     "keeps building when a watch session cancels a run",

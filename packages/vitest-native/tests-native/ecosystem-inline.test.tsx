@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeAll, describe, it, expect, vi } from "vitest";
 import { Banner, renderCount, platformSeen } from "rn-ecosystem-lib";
 import { render, screen } from "@testing-library/react-native";
+import { COLD_IMPORT_BUDGET_MS } from "./support/cold-import";
 
 // rn-ecosystem-lib is published the way most of the React Native ecosystem
 // publishes: untranspiled JSX in CommonJS, assuming Metro will compile it, with
@@ -19,6 +20,13 @@ vi.mock("react-native", async (importOriginal) => {
   return { ...actual, Platform: { ...actual.Platform, OS: "mocked-os" } };
 });
 
+// The test graph's first import of react-native runs the mock's factory, whose
+// importOriginal compiles the facade: cold on a fresh runner (it has taken 2 s on Windows).
+let ReactNative: typeof import("react-native");
+beforeAll(async () => {
+  ReactNative = await import("react-native");
+}, COLD_IMPORT_BUDGET_MS);
+
 describe("auto-detected React Native packages", () => {
   it("compiles and runs untranspiled ecosystem source with no configuration", async () => {
     await render(<Banner label="hello" />);
@@ -31,7 +39,7 @@ describe("auto-detected React Native packages", () => {
     expect(renderCount()).toBe(4242);
   });
 
-  it("still sees the real React Native even when the test mocks it", async () => {
+  it("still sees the real React Native even when the test mocks it", () => {
     // Documented scope: mocking react-native rewrites what the TEST graph imports.
     // The library's own imports compile to require(), which reaches React Native
     // directly — so a library never observes the test's mock.
@@ -39,7 +47,7 @@ describe("auto-detected React Native packages", () => {
     // This assertion used to read `Platform.OS === "ios"` with nothing in the file
     // mocking react-native at all, so it could not fail from the behaviour its own
     // name describes. The two views are now distinguishable at run time.
-    const { Platform } = await import("react-native");
+    const { Platform } = ReactNative;
     expect(Platform.OS).toBe("mocked-os");
     expect(platformSeen()).toBe("ios");
   });

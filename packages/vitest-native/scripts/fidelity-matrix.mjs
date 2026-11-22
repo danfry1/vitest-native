@@ -10,23 +10,25 @@
 //   node scripts/fidelity-matrix.mjs --reports <dir>   # <dir>/**/report.json
 //   node scripts/fidelity-matrix.mjs                   # placeholder page
 //
-// The page is rendered at DEPLOY time by pages.yml from the latest successful
-// matrix run's artifacts; the committed website/guide/fidelity-matrix.md is a
-// placeholder that keeps local site builds (and VitePress dead-link checks)
-// working and is overwritten in the deploy workspace before the build.
+// The RN matrix workflow (.github/workflows/native-rn-matrix.yml) renders the page
+// from its own run's reports on main and pushes it to the site-data branch; the
+// site's build fetches it from there (website/scripts/fetch-fidelity-matrix.mjs).
+// The committed website/guide/fidelity-matrix.md is a placeholder that keeps local
+// site builds (and VitePress dead-link checks) working.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { cliArguments } from "./support/arguments.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.resolve(root, "..", "..");
 
-function argValue(flag) {
-  const i = process.argv.indexOf(flag);
-  return i !== -1 ? process.argv[i + 1] : undefined;
-}
-const reportsDir = argValue("--reports");
-const outPath = argValue("--out") ?? path.join(repoRoot, "website", "guide", "fidelity-matrix.md");
+const options = cliArguments(
+  { script: "fidelity-matrix.mjs", valued: ["reports", "out"], flags: ["check"] },
+  "fidelity-matrix.mjs [--reports <dir>] [--out <file>] [--check]",
+).values;
+const reportsDir = options.reports;
+const outPath = options.out ?? path.join(repoRoot, "website", "guide", "fidelity-matrix.md");
 
 // Same VitePress hazards as fidelity-report.mjs — bare tags, table pipes, and
 // Vue interpolation in free text break the site build — plus backticks, which
@@ -111,9 +113,9 @@ function matrixKey({ rn, flavor }) {
 
 const HEADER = `<!--
   GENERATED FILE — do not edit by hand.
-  The committed version is a placeholder; pages.yml regenerates this page at
-  deploy time from the latest CI matrix run's cross-check reports
-  (scripts/fidelity-matrix.mjs).
+  The committed version is a placeholder. The RN matrix workflow renders this
+  page from its cross-check reports (scripts/fidelity-matrix.mjs) and publishes it
+  to the site-data branch, which the site's build fetches.
 -->
 # Fidelity matrix
 
@@ -212,7 +214,7 @@ ${
 
 const content = `${HEADER}${body}`;
 
-if (process.argv.includes("--check")) {
+if (options.check) {
   // Drift gate for the COMMITTED page: it must be exactly the placeholder
   // render — real matrix data belongs only in the deploy workspace, never in
   // the repository.

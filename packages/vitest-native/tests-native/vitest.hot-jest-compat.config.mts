@@ -4,12 +4,14 @@
 // default sequencer orders by cached duration, which let a mock from whichever file
 // ran last go unobserved, and 99 — which mocks nothing and checks every surface — has
 // to run after the others.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 import { reactNative } from "../dist/index.mjs";
 import { jestCompatAliases, jestMockTransform } from "../dist/jest-compat.mjs";
+import { OTHER_FIXTURES_MOCKS } from "./support/fixture-mocks.mts";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -31,7 +33,7 @@ export default defineConfig(({ mode }) => {
         engine: "native",
         hotRuntime: mode === "hot" ? { allowUnboundedMemory: true } : false,
       }),
-      jestMockTransform(),
+      jestMockTransform(OTHER_FIXTURES_MOCKS),
     ],
     // As `migrate` writes it: @jest/globals and friends resolve to the compat shims.
     resolve: { alias: { ...jestCompatAliases() } },

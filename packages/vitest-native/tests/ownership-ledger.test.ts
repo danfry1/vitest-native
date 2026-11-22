@@ -20,6 +20,7 @@ import {
 } from "../src/native/ownership-ledger.mjs";
 import {
   OwnershipSummaryReporter,
+  installedPackageOf,
   ownershipGuardConfig,
   reactNative,
   withOwnershipMarker,
@@ -53,6 +54,92 @@ describe("the ledger", () => {
       ["node", "vite", "require-from-vite"],
       ["node", "vite", "require-from-vite"],
     ]);
+  });
+
+  it("groups the files one require pulled in under that require, printed once", () => {
+    // A jest.mock factory's require of schema.ts, which imports two more files: Node
+    // loads all three, then Vite evaluates each.
+    const { ledger, warnings } = ledgerWith();
+    const TEST = "/repo/app/src/provider.test.tsx";
+    const SCHEMA = "/repo/app/src/schema.ts";
+    const A = "/repo/app/src/a.ts";
+    const B = "/repo/app/src/b.ts";
+    ledger.recordNode(B, { via: "cjs", parent: A });
+    ledger.recordNode(A, { via: "cjs", parent: SCHEMA });
+    ledger.recordNode(SCHEMA, { via: "cjs", parent: TEST });
+    for (const file of [SCHEMA, A, B]) ledger.recordVite(nodeKey(file), file);
+    expect(ledger.conflicts.map((c) => [c.route, c.cause])).toEqual([
+      ["require-from-vite", { route: "require-from-vite", file: SCHEMA }],
+      ["node-owned-source", { route: "require-from-vite", file: SCHEMA }],
+      ["node-owned-source", { route: "require-from-vite", file: SCHEMA }],
+    ]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("Other files with the same origin are not printed here");
+    // A pulled-in file's warning names the origin and the origin's fix.
+    ledger.recordNode("/repo/app/src/c.ts", { via: "cjs", parent: "/repo/app/src/d.ts" });
+    ledger.recordNode("/repo/app/src/d.ts", { via: "cjs", parent: TEST });
+    ledger.recordVite(nodeKey("/repo/app/src/c.ts"), "/repo/app/src/c.ts");
+    expect(warnings).toHaveLength(2);
+    expect(warnings[1]).toContain("route        -> an import from source Node evaluated");
+    expect(warnings[1]).toContain(
+      "origin       -> /repo/app/src/d.ts, which Node loaded through require()",
+    );
+    expect(warnings[1]).toContain("await vi.importActual(...)");
+    expect(warnings[1]).toContain("ownershipModel: 'resolution'");
+  });
+
+  it("stops at a parent whose record is no longer live, as under the hot runtime", () => {
+    const A = "/repo/app/src/a.ts";
+    const B = "/repo/app/src/b.ts";
+    // A's record is from an earlier hot generation: not live, so not B's origin.
+    const { ledger } = ledgerWith({ nodeLive: (record) => record.filename !== A });
+    ledger.recordNode(A, { via: "cjs", parent: "/repo/app/src/a.test.ts" });
+    ledger.recordNode(B, { via: "cjs", parent: A });
+    ledger.recordVite(nodeKey(B), B);
+    expect(ledger.conflicts.map((c) => c.cause.file)).toEqual([B]);
+  });
+
+  it("does not walk past a parent the policy gives Node, which is the cause itself", () => {
+    const LIB = "/repo/packages/feature/src/index.ts";
+    const { ledger } = ledgerWith({
+      ownerOf: (file: string) =>
+        file.startsWith("/repo/packages/feature/")
+          ? { owner: "node", reason: "react-native-package" }
+          : { owner: "vite", reason: "project-source" },
+    });
+    ledger.recordNode(LIB, { via: "cjs", parent: "/repo/app/src/store.test.ts" });
+    ledger.recordNode(FILE, { via: "cjs", parent: LIB });
+    ledger.recordVite(nodeKey(FILE), FILE);
+    expect(ledger.conflicts.map((c) => [c.route, c.cause])).toEqual([
+      ["node-owned-source", { route: "node-owned-source", file: FILE }],
+    ]);
+  });
+
+  it("meets Node's and Vite's spellings of one file under the key both sides use", () => {
+    // Node reached the files through a short (8.3) spelling of the root; Vite's ids are
+    // long. Keyed as given, the two copies never met (#592).
+    const SHORT = "/repo/RUNNER~1/app";
+    const LONG = "/repo/runneradmin/app";
+    const toLong = (file: string) => nodeKey(file.replace(SHORT, LONG));
+    for (const [keyOf, reported] of [
+      [undefined, 0],
+      [toLong, 2],
+    ] as const) {
+      const { ledger } = ledgerWith(keyOf ? { keyOf } : {});
+      ledger.recordNode(`${SHORT}/src/schema.ts`, { via: "cjs", parent: `${LONG}/x.test.ts` });
+      ledger.recordNode(`${SHORT}/src/a.ts`, { via: "cjs", parent: `${SHORT}/src/schema.ts` });
+      for (const name of ["schema", "a"]) {
+        ledger.recordVite(nodeKey(`${LONG}/src/${name}.ts`), `${LONG}/src/${name}.ts`);
+      }
+      expect(ledger.conflicts).toHaveLength(reported);
+      if (reported) {
+        // The parent lookup uses the same key: a.ts's cause is schema.ts's require.
+        expect(ledger.conflicts.map((c) => c.cause)).toEqual([
+          { route: "require-from-vite", file: `${SHORT}/src/schema.ts` },
+          { route: "require-from-vite", file: `${SHORT}/src/schema.ts` },
+        ]);
+      }
+    }
   });
 
   it("reports Vite then Node, and classifies the route from the requiring parent", () => {
@@ -339,6 +426,33 @@ describe("the installed ledger", () => {
     console.warn = () => {};
   `;
 
+  it("reads the hot generation from the counter setup stores, for an ES module record (#669)", () => {
+    // Under the hot runtime, setup.mjs stores the generation channel as { counter } (an
+    // Int32Array on a SharedArrayBuffer), and Node's ES module loads carry the generation
+    // they ran in (?vnhot=). Checking such a record's liveness read the wrapper as if it
+    // were the array, and threw "is not an integer typed array" (#669).
+    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-ledger-hot-")));
+    fs.writeFileSync(path.join(dir, "a.mjs"), "export const a = 1;\n");
+    const out = node(`
+      import { pathToFileURL } from "node:url";
+      ${prelude}
+      const counter = new Int32Array(new SharedArrayBuffer(4));
+      counter[0] = 3;
+      globalThis.__vitest_native_hot_generation = { counter };
+      const file = fs.realpathSync("a.mjs");
+      const channel = globalThis[Symbol.for("vitest-native.node-dispatch")].channel(L.OWNERSHIP_CHANNEL);
+      channel.nodeEsm(pathToFileURL(file).href + "?vnhot=3");
+      // Generation 3 is the live one: Vite's copy of the same file is a twin.
+      viteEvaluates(file);
+      const live = ledger.conflicts.length;
+      // The next file's generation: the record from generation 3 can never be live again.
+      Atomics.store(counter, 0, 4);
+      viteEvaluates(file);
+      console.log(JSON.stringify({ live, after: ledger.conflicts.length }));
+    `);
+    expect(JSON.parse(out)).toEqual({ live: 1, after: 1 });
+  });
+
   it("treats a Node copy as live only while Node's cache holds that module", () => {
     dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-ledger-live-")));
     fs.writeFileSync(path.join(dir, "m.js"), "exports.store = {};\n");
@@ -416,7 +530,7 @@ describe("the installed ledger", () => {
    * make the same calls with the ledger installed as without it. The marker's realpath
    * is per directory, never per module.
    */
-  it("adds no file-system call or resolution per evaluation, and one realpath per directory", () => {
+  it("adds one realpath per directory, shared by both sides, and nothing per evaluation", () => {
     dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-ledger-cost-")));
     for (let d = 0; d < 4; d++) {
       fs.mkdirSync(path.join(dir, `d${d}`));
@@ -445,8 +559,14 @@ describe("the installed ledger", () => {
     const without = run(false);
     const withLedger = run(true);
     expect(withLedger.evaluation.compile).toBe(200);
-    expect(withLedger.evaluation).toEqual(without.evaluation);
-    expect(withLedger.markerRealpaths).toBe(4);
+    // Node's records are keyed as Vite's markers are (fileKey): the native real path of
+    // each of the 4 directories, once, and nothing else per module.
+    const { realpath, ...rest } = withLedger.evaluation;
+    const { realpath: realpathWithout, ...restWithout } = without.evaluation;
+    expect(realpath - realpathWithout).toBe(4);
+    expect(rest).toEqual(restWithout);
+    // Vite's markers reuse the same per-directory cache.
+    expect(withLedger.markerRealpaths).toBe(0);
   });
 
   it("does not keep a module alive once Node's cache has let it go", () => {
@@ -550,8 +670,9 @@ describe("the plugin's side of the guard", () => {
     const text = written.join("");
     expect(text).toContain("1 file(s) were evaluated by both");
     expect(text).toContain("failed: ownership 'error'");
-    expect(text).toContain("/repo/src/store.ts");
-    expect(text).toMatch(/in .*a\.test\.ts \(an import from source Node evaluated\)/);
+    expect(text).toMatch(
+      /repo\/src\/store\.ts, loaded by Node through an import from source Node evaluated: 1 file\(s\), in .*a\.test\.ts/,
+    );
   });
 
   it("adds one summary per Vitest run, whatever the number of reactNative() calls", async () => {
@@ -571,6 +692,95 @@ describe("the plugin's side of the guard", () => {
     }
     expect(vitest.reporters.filter((r) => r instanceof OwnershipSummaryReporter)).toHaveLength(1);
   }, 60_000);
+
+  it("prints one line per cause, with its file count and test files", () => {
+    const written: string[] = [];
+    const reporter = new OwnershipSummaryReporter(
+      () => [],
+      (text) => written.push(text),
+    );
+    const cause = { route: "require-from-vite", file: "/repo/src/schema.ts" };
+    const testFile = (name: string, files: string[]) => ({
+      moduleId: `/repo/src/${name}`,
+      meta: () => ({
+        vitestNativeOwnership: {
+          mode: "warn",
+          conflicts: files.map((file) => ({
+            file,
+            second: "vite",
+            route: "node-owned-source",
+            cause,
+          })),
+          allowUsed: [],
+        },
+      }),
+    });
+    const many = [
+      "/repo/src/schema.ts",
+      ...Array.from({ length: 656 }, (_, i) => `/repo/src/m${i}.ts`),
+    ];
+    reporter.onTestRunStart();
+    for (const name of ["a.test.tsx", "b.test.tsx", "c.test.tsx", "d.test.tsx"]) {
+      reporter.onTestModuleEnd(testFile(name, many));
+    }
+    reporter.onTestModuleEnd(testFile("e.test.tsx", []));
+    reporter.onTestRunEnd();
+    const text = written.join("");
+    expect(text).toContain("657 file(s) were evaluated by both Node and Vite");
+    expect(text).toContain("from 1 cause(s):");
+    expect(text).toMatch(
+      /repo\/src\/schema\.ts, loaded by Node through require\(\) in a file Vite evaluated: 657 file\(s\), in .*a\.test\.tsx, .*b\.test\.tsx, .*c\.test\.tsx, \+1 more/,
+    );
+    // The origin is one of the files, so no other file is singled out.
+    expect(text).not.toContain("first:");
+    expect(text).toContain("fix: Vitest's `require`");
+    // One line per cause, not per file.
+    expect(text.split("\n").length).toBeLessThan(10);
+  });
+
+  it("groups error mode's findings, read from its messages, as warn mode groups them", () => {
+    // One require pulls in three files (the chain the warn-mode grouping test uses).
+    const TEST = "/repo/app/src/provider.test.tsx";
+    const chain = ["/repo/app/src/schema.ts", "/repo/app/src/a.ts", "/repo/app/src/b.ts"];
+    const run = (mode: "warn" | "error") => {
+      const { ledger } = ledgerWith({ mode });
+      ledger.recordNode(chain[2], { via: "cjs", parent: chain[1] });
+      ledger.recordNode(chain[1], { via: "cjs", parent: chain[0] });
+      ledger.recordNode(chain[0], { via: "cjs", parent: TEST });
+      const errors: { message: string }[] = [];
+      for (const file of chain) {
+        try {
+          ledger.recordVite(nodeKey(file), file);
+        } catch (error) {
+          errors.push({ message: (error as Error).message });
+        }
+      }
+      const written: string[] = [];
+      const reporter = new OwnershipSummaryReporter(
+        () => [],
+        (text) => written.push(text),
+      );
+      reporter.onTestRunStart();
+      reporter.onTestModuleEnd(
+        mode === "warn"
+          ? {
+              moduleId: TEST,
+              meta: () => ({
+                vitestNativeOwnership: { mode, conflicts: ledger.conflicts, allowUsed: [] },
+              }),
+            }
+          : { moduleId: TEST, meta: () => ({}), errors: () => errors },
+      );
+      reporter.onTestRunEnd();
+      return written.join("").replace(/\((?:warning|failed)[^\n]*?\), from/, "(mode), from");
+    };
+    const warn = run("warn");
+    expect(warn).toContain("from 1 cause(s)");
+    expect(warn).toMatch(
+      /schema\.ts, loaded by Node through require\(\) in a file Vite evaluated: 3 file\(s\)/,
+    );
+    expect(run("error")).toBe(warn);
+  });
 
   it("reports each watch-mode run's findings, not every run's so far", () => {
     const written: string[] = [];
@@ -593,4 +803,185 @@ describe("the plugin's side of the guard", () => {
     reporter.onTestRunEnd();
     expect(written).toEqual([]);
   });
+});
+
+describe("the end-of-run summary groups by installed package and lists files under diagnostics (#638)", () => {
+  // An installed package's TypeScript source: each file is its own cause, since no file of
+  // it has a parent outside node_modules (a pnpm install, as on the app that showed it).
+  const SDK = "/repo/node_modules/.pnpm/@rocket.chat+sdk@1.3.3/node_modules/@rocket.chat/sdk";
+  const sdkFiles = [
+    `${SDK}/index.ts`,
+    ...Array.from({ length: 13 }, (_, i) => `${SDK}/lib/m${i}.ts`),
+  ];
+  const own = (file: string, route = "installed-typescript", via = "cjs") => ({
+    file,
+    second: "vite",
+    route,
+    via,
+    cause: { route, file },
+  });
+  const summary = (
+    conflicts: ReturnType<typeof own>[],
+    { diagnostics = false, test = "/repo/src/a.test.ts" } = {},
+  ) => {
+    const written: string[] = [];
+    const reporter = new OwnershipSummaryReporter(
+      () => [],
+      (text) => written.push(text),
+      () => diagnostics,
+    );
+    reporter.onTestRunStart();
+    reporter.onTestModuleEnd({
+      moduleId: test,
+      meta: () => ({ vitestNativeOwnership: { mode: "warn", conflicts, allowUsed: [] } }),
+    });
+    reporter.onTestRunEnd();
+    return written.join("");
+  };
+
+  it("prints one installed package's 14 causes as one line, its files truncated, one fix", () => {
+    const text = summary(sdkFiles.map((file) => own(file)));
+    expect(text).toContain("14 file(s) were evaluated by both Node and Vite");
+    // The cause count stays (corpus tracking reads it); the grouped count follows.
+    expect(text).toContain("from 14 cause(s), 1 after grouping by installed package:");
+    expect(text).toMatch(
+      /\n {2}@rocket\.chat\/sdk \(installed package, .*node_modules\/@rocket\.chat\/sdk\), loaded by Node through an installed package's TypeScript source, required and imported: 14 cause\(s\), 14 file\(s\), in .*a\.test\.ts\n/,
+    );
+    expect(text).toContain(
+      "    files: index.ts, lib/m0.ts, lib/m1.ts, +11 more (reactNative({ diagnostics: true }) lists them all)",
+    );
+    expect(text.match(/ {4}fix: /g)).toHaveLength(1);
+    expect(text).not.toContain("file: ");
+    expect(text.trimEnd().split("\n")).toHaveLength(5);
+  });
+
+  it("keeps different packages, different routes and project causes apart", () => {
+    const other = "/repo/node_modules/other-lib";
+    const text = summary([
+      ...sdkFiles.slice(0, 2).map((file) => own(file)),
+      // Same package, another route: another fix, so another line.
+      own(`${SDK}/dist/x.js`, "vite-inline"),
+      own(`${SDK}/dist/y.js`, "vite-inline"),
+      ...[`${other}/a.ts`, `${other}/b.ts`].map((file) => own(file)),
+      // Project files are one cause each, by origin, as before.
+      own("/repo/src/store.ts", "require-from-vite"),
+      own("/repo/src/cache.ts", "require-from-vite"),
+    ]);
+    expect(text).toContain("from 8 cause(s), 5 after grouping by installed package:");
+    expect(text).toMatch(
+      /@rocket\.chat\/sdk .*TypeScript source, required and imported: 2 cause\(s\), 2 file\(s\)/,
+    );
+    expect(text).toMatch(
+      /@rocket\.chat\/sdk .*an installed file that Vite also evaluates: 2 cause\(s\), 2 file\(s\)/,
+    );
+    expect(text).toMatch(
+      /other-lib \(installed package, .*node_modules\/other-lib\).*: 2 cause\(s\), 2 file\(s\)/,
+    );
+    expect(text).toMatch(
+      /\n {2}.*src\/store\.ts, loaded by Node through require\(\) in a file Vite evaluated: 1 file\(s\)/,
+    );
+    expect(text).toMatch(
+      /\n {2}.*src\/cache\.ts, loaded by Node through require\(\) in a file Vite evaluated: 1 file\(s\)/,
+    );
+  });
+
+  it("prints the header as before when grouping merges nothing", () => {
+    const text = summary([own(sdkFiles[0]), own("/repo/src/store.ts", "require-from-vite")]);
+    expect(text).toContain("from 2 cause(s):");
+    expect(text).not.toContain("after grouping");
+    // A package with one cause keeps the per-cause line.
+    expect(text).toMatch(/\n {2}.*@rocket\.chat\/sdk\/index\.ts, loaded by Node through/);
+  });
+
+  it("with diagnostics, lists every file of every cause with how Node reached it", () => {
+    const chain = ["/repo/src/schema.ts", "/repo/src/a.ts", "/repo/src/b.ts"];
+    const chainCause = { route: "require-from-vite", file: chain[0] };
+    const text = summary(
+      [
+        ...sdkFiles.map((file) => own(file, "installed-typescript", "require-esm")),
+        {
+          file: chain[0],
+          second: "vite",
+          route: "require-from-vite",
+          via: "cjs",
+          cause: chainCause,
+        },
+        {
+          file: chain[1],
+          second: "vite",
+          route: "node-owned-source",
+          via: "cjs",
+          cause: chainCause,
+        },
+        { file: chain[2], second: "vite", route: "node-esm", via: "esm", cause: chainCause },
+      ],
+      { diagnostics: true },
+    );
+    for (const file of sdkFiles) {
+      expect(text).toContain(
+        `    file: ${path.relative(process.cwd(), file).split(path.sep).join("/")}, through an installed package's TypeScript source, required and imported (require() of an ES module)`,
+      );
+    }
+    expect(text).toMatch(
+      / {4}file: .*src\/schema\.ts, through require\(\) in a file Vite evaluated \(CommonJS\)/,
+    );
+    expect(text).toMatch(
+      / {4}file: .*src\/a\.ts, through an import from source Node evaluated \(CommonJS\)/,
+    );
+    expect(text).toMatch(
+      / {4}file: .*src\/b\.ts, through Node's ESM loader imported it \(ESM loader\)/,
+    );
+    expect(text.match(/ {4}file: /g)).toHaveLength(17);
+    // The full list replaces the truncated one.
+    expect(text).not.toContain("    files: ");
+    expect(text).not.toContain("+11 more");
+  });
+
+  it("names the installed package of a path, after its last node_modules", () => {
+    expect(installedPackageOf(`${SDK}/lib/m0.ts`)).toEqual({ name: "@rocket.chat/sdk", dir: SDK });
+    expect(installedPackageOf("/r/node_modules/lodash/fp/map.js")).toEqual({
+      name: "lodash",
+      dir: "/r/node_modules/lodash",
+    });
+    expect(installedPackageOf("C:\\r\\node_modules\\@s\\p\\i.ts")).toEqual({
+      name: "@s/p",
+      dir: "C:\\r\\node_modules\\@s\\p",
+    });
+    expect(installedPackageOf("/repo/src/store.ts")).toBeNull();
+    expect(installedPackageOf("/r/node_modules/lodash")).toBeNull();
+    expect(installedPackageOf("/r/node_modules/@s/p")).toBeNull();
+  });
+
+  it("turns the listing on from reactNative({ diagnostics: true }) in any project of the run", async () => {
+    const listed = async (diagnostics: boolean[]) => {
+      const vitest = { reporters: [{}], config: { cliOptions: {} } };
+      for (const d of diagnostics) {
+        const plugin = reactNative({ engine: "native", diagnostics: d }) as any;
+        const config = await runPluginConfig(plugin, { root: process.cwd() });
+        await plugin.configResolved?.({ root: process.cwd() });
+        const project = {
+          config: { root: process.cwd(), setupFiles: config.test.setupFiles, env: config.test.env },
+        };
+        try {
+          await plugin.configureVitest({ vitest, project });
+        } catch {
+          // Only the reporter registration, which runs first, is under test here.
+        }
+      }
+      const reporter = vitest.reporters.find((r) => r instanceof OwnershipSummaryReporter) as any;
+      const written: string[] = [];
+      reporter.write = (text: string) => written.push(text);
+      reporter.onTestRunStart();
+      reporter.onTestModuleEnd({
+        moduleId: "/repo/src/a.test.ts",
+        meta: () => ({
+          vitestNativeOwnership: { mode: "warn", conflicts: [own(sdkFiles[0])], allowUsed: [] },
+        }),
+      });
+      reporter.onTestRunEnd();
+      return written.join("").includes("    file: ");
+    };
+    expect(await listed([false])).toBe(false);
+    expect(await listed([false, true])).toBe(true);
+  }, 60_000);
 });

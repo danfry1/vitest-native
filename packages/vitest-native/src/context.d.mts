@@ -13,6 +13,7 @@ export interface ProjectContextFields {
   assetExts?: string[];
   hotPreserveGlobals?: string[];
   hotEsmGeneration?: boolean;
+  hotFreshRuntime?: true;
   /** Coverage is on: Node-compiled project source carries an inline source map. */
   sourceMaps?: boolean;
   hotReleaseGenerations?: boolean;
@@ -22,9 +23,19 @@ export interface ProjectContextFields {
   /** The library registry layered on `registry` (registry.mjs, buildLibraryRegistry). */
   libraryRegistry?: string;
   ownership?: Record<string, unknown>;
+  /** Each Node-transformed package's directory, resolved from `root` at config time. */
+  packageDirs?: { root: string; dirs: Record<string, string | null> };
   ownershipGuard?: { mode: "warn" | "error"; allow: { path: string; reason: string }[] };
   projectDirs?: string[];
+  /**
+   * `[dir, name, parent]` for each installed dependency of a package found only by the
+   * installed scan that is not compiled: Node fails a file of one by name when it cannot
+   * run as published (#883).
+   */
+  scanFoundDependencies?: [string, string, string][];
   requireAliases?: [string, string][];
+  /** The project sets test.restoreMocks: jest-compat restores jest.replaceProperty() before each test. */
+  restoreMocks?: true;
   requireAliasesSkipped?: string[];
   presetNames?: string[];
   /** experimental.nodeMocks: a `vi.mock` applies to the modules Node loads. */

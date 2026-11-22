@@ -1,7 +1,8 @@
-import React from "react";
+import { hosts } from "../host-classes.js";
 import { vi } from "vitest";
 
-export function createSectionListMock() {
+export function createSectionListMock(React: typeof import("react")) {
+  const { hostComponent } = hosts(React);
   const SectionList = React.forwardRef((props: any, ref: any) => {
     const {
       sections,
@@ -136,7 +137,7 @@ export function createSectionListMock() {
       );
     }
 
-    return React.createElement("SectionList", { ...rest, ref }, ...children);
+    return React.createElement(hostComponent("SectionList"), { ...rest, ref }, ...children);
   });
   SectionList.displayName = "SectionList";
   return SectionList;

@@ -1,0 +1,74 @@
+{
+  "$comment": "Which lane owns each tracked file. A file in `shared` belongs to no lane: any change may edit it alongside its own lane's files. Otherwise the first lane with a matching glob owns it. `*` matches within one path segment, `**` across segments. tests/agent-lanes.test.ts fails if a tracked file matches nothing.",
+  "shared": [
+    ".changeset/*.md",
+    "packages/vitest-native/tests/**",
+    "website/guide/**"
+  ],
+  "lanes": [
+    {
+      "name": "compat",
+      "globs": [
+        "packages/vitest-native/src/jest-compat/**",
+        "packages/vitest-native/src/presets/**",
+        "packages/vitest-native/src/mocks/**",
+        "packages/vitest-native/src/matchers/**",
+        "packages/vitest-native/src/preset-*",
+        "packages/vitest-native/src/rntl-*",
+        "packages/vitest-native/src/native/boundary.mjs",
+        "packages/vitest-native/src/native/library-jest.mjs",
+        "packages/vitest-native/src/native/jest-resolvers.mjs"
+      ]
+    },
+    {
+      "name": "cli",
+      "globs": ["packages/vitest-native/src/cli/**"]
+    },
+    {
+      "name": "runtime",
+      "globs": [
+        "packages/vitest-native/src/native/**",
+        "packages/vitest-native/src/*",
+        "packages/vitest-native/tests-native/**"
+      ]
+    },
+    {
+      "name": "evidence",
+      "globs": [
+        "packages/vitest-native/validation/**",
+        "packages/vitest-native/crosscheck/**",
+        "packages/vitest-native/consumer-tests/**",
+        "packages/vitest-native/ecosystem-probe/**",
+        "packages/vitest-native/scorecard.json",
+        "packages/vitest-native/bakeoffs-ratchet.json",
+        "bench/**",
+        "apps/**"
+      ]
+    },
+    {
+      "name": "docs",
+      "globs": [
+        "website/**",
+        "packages/vitest-native/docs/**",
+        "*.md",
+        "packages/vitest-native/*.md",
+        "agents/**",
+        ".claude/**"
+      ]
+    },
+    {
+      "name": "delivery",
+      "globs": [
+        ".github/**",
+        "scripts/**",
+        ".changeset/config.json",
+        "packages/vitest-native/scripts/**",
+        "packages/vitest-native/lint/**",
+        "packages/vitest-native/*",
+        "packages/vitest-native/.gitignore",
+        "*",
+        ".*"
+      ]
+    }
+  ]
+}

@@ -11,10 +11,11 @@
  * shares Vite's instance only when Vite got there first (viteInstanceOf in
  * node-registry.mjs), so here two copies used to exist in silence.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { projectContext } from "../src/context.mjs";
+import { COLD_IMPORT_BUDGET_MS } from "./support/cold-import";
 
-declare const require: (id: string) => { store: { value: string | null } };
+declare const require: (id: string) => { store: { value: string | null } } & { warm: string };
 
 const ledger = (
   globalThis as Record<
@@ -35,6 +36,13 @@ const STORE = /fixtures[\\/]dual-evaluation[\\/]store\.ts was evaluated by both 
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+// Each module system's first load of a project file, on a file the cases never touch, so
+// their timeouts measure the guard and not a cold compile (on Windows it has taken 3 s).
+beforeAll(async () => {
+  expect(require("./fixtures/dual-evaluation/warm-node.ts").warm).toBe("node");
+  expect((await import("./fixtures/dual-evaluation/warm-vite")).warm).toBe("vite");
+}, COLD_IMPORT_BUDGET_MS);
 
 describe("a file evaluated by Node and then by Vite", () => {
   it("is installed in this worker", () => {

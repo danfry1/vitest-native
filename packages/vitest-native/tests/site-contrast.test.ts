@@ -4,9 +4,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-// The site's brand buttons put white text on a teal that read at 2.6:1, and the hero name's
-// gradient dropped to 2:1 on white; WCAG AA asks 4.5:1 for text and 3:1 for large text. This
-// resolves the colours a page actually gets, VitePress's tokens with the site's overrides from
+// The site once put white text on a teal that read at 2.6:1, and ran the hero name through a
+// gradient that fell to 2:1 on white; WCAG AA asks 4.5:1 for text. This resolves the colours
+// a page actually gets, VitePress's tokens with the site's overrides from
 // website/.vitepress/theme/custom.css on top, in both themes, and holds each pair to AA.
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const CUSTOM = path.join(repoRoot, "website/.vitepress/theme/custom.css");
@@ -94,6 +94,13 @@ function contrast(a: Rgba, b: Rgba): number {
 
 // Text, then the surfaces under it, outermost first (each laid over the page). AA: 4.5:1.
 const PAIRS: Array<[text: string, ...surfaces: string[]]> = [
+  ["--vp-c-text-1", "--vp-c-bg"], // body text
+  ["--vp-c-text-2", "--vp-c-bg"], // secondary text, the hero tagline
+  ["--vp-c-text-2", "--vp-sidebar-bg-color"], // sidebar items
+  ["--vp-c-text-3", "--vp-c-bg"], // hints and prompts
+  ["--vp-home-hero-name-color", "--vp-c-bg"], // the hero's name label
+  ["--vp-code-color", "--vp-code-bg"], // inline code
+  ["--vp-code-link-color", "--vp-code-bg"], // inline code inside a link
   ["--vp-c-brand-1", "--vp-c-bg"], // links, inline code
   ["--vp-c-brand-2", "--vp-c-bg"], // a link under the pointer
   ["--vp-c-brand-1", "--vp-sidebar-bg-color"], // the active sidebar link
@@ -109,6 +116,8 @@ const PAIRS: Array<[text: string, ...surfaces: string[]]> = [
   ["--vp-button-brand-text", "--vp-button-brand-bg"],
   ["--vp-button-brand-hover-text", "--vp-button-brand-hover-bg"],
   ["--vp-button-brand-active-text", "--vp-button-brand-active-bg"],
+  ["--vp-button-alt-text", "--vp-button-alt-bg"],
+  ["--vp-button-alt-hover-text", "--vp-button-alt-hover-bg"],
 ];
 
 for (const dark of [false, true]) {
@@ -122,15 +131,10 @@ for (const dark of [false, true]) {
       expect(contrast(over(raw(text), ground), ground)).toBeGreaterThanOrEqual(4.5);
     });
 
-    it("each stop of the hero name's gradient reads at 3:1 or more (large text)", () => {
-      const gradient = resolve(tokens, "var(--vp-home-hero-name-background)");
-      // Every stop must be a colour this reads, so none is skipped unchecked.
-      expect(gradient).not.toMatch(/var\(|hsl|#[\da-f]{3,4}\b|#[\da-f]{8}\b/i);
-      const stops = gradient.match(/#[\da-f]{6}\b|rgba?\([^)]*\)/gi) ?? [];
-      expect(stops.length).toBeGreaterThanOrEqual(2);
-      for (const stop of stops) {
-        expect(contrast(over(parseColor(stop), page), page), stop).toBeGreaterThanOrEqual(3);
-      }
+    it("the hero name is plain text, with no gradient behind it", () => {
+      // A gradient would make the name's colour vary along it, which the pair above cannot
+      // check, so the site keeps it to one colour.
+      expect(resolve(tokens, "var(--vp-home-hero-name-background)")).not.toMatch(/gradient/);
     });
   });
 }

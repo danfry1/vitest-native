@@ -134,4 +134,46 @@ describe("sharedGroupConflict", () => {
     ).toBe(null);
     expect(sharedGroupConflict(hot, [hot], {}, 10)).toBe(null);
   });
+
+  // #911: a separate groupOrder runs the groups one after another, so the message
+  // recommends one worker count for the whole group and names groupOrder second.
+  it("recommends the same maxWorkers first, and groupOrder only as the serial alternative", () => {
+    const reason = sharedGroupConflict(hot, [project("mock")], {}, 10) ?? "";
+    const same = reason.indexOf("give every project in the group the same test.maxWorkers");
+    const order = reason.indexOf("test.sequence.groupOrder");
+    expect(same).toBeGreaterThan(-1);
+    expect(order).toBeGreaterThan(same);
+    expect(reason).toMatch(/groupOrder also works, but Vitest runs the groups one after another/);
+    expect(reason).toContain(
+      "https://vitest-native.danfry.dev/guide/hot-runtime#react-native-and-other-projects-in-one-run",
+    );
+    expect(reason).not.toMatch(/memory plan/);
+  });
+
+  it("names the count the memory plan admitted when it lowered only the hot project's", () => {
+    const lowered = { name: "native", config: { maxWorkers: 2 } };
+    const node = project("node", { maxWorkers: 4 });
+    const reason = sharedGroupConflict(lowered, [node], {}, 10, {
+      admitted: 2,
+      requested: 4,
+      flag: false,
+    });
+    expect(reason).toMatch(/'node' .* with 4 workers to this project's 2/);
+    expect(reason).toMatch(
+      /the memory plan admits 2 of the 4 workers requested on this machine; give every project in the group the same test.maxWorkers, one the smallest machine you run on admits/,
+    );
+  });
+
+  it("asks for a smaller --maxWorkers when the flag set the count every project runs", () => {
+    const lowered = { name: "native", config: { maxWorkers: 4 } };
+    const reason = sharedGroupConflict(lowered, [project("node", { maxWorkers: 8 })], {}, 10, {
+      admitted: 4,
+      requested: 8,
+      flag: true,
+    });
+    expect(reason).toMatch(
+      /the memory plan admits 4 of the 8 workers requested on this machine; every project takes the --maxWorkers or VITEST_MAX_WORKERS count, so pass 4 or fewer here/,
+    );
+    expect(reason).not.toMatch(/same test.maxWorkers/);
+  });
 });

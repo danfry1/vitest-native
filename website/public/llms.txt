@@ -14,7 +14,7 @@ A CI-gated behavioral cross-check runs the same assertions against both the mock
 
 ## Evidence rules
 
-Package capability and fidelity are defined only by package-owned conformance tests, behavioral crosschecks, packed consumer fixtures, version matrices, and the exact-version API compatibility check. Pinned external apps are observational tripwires only: they include custom migration configuration, dependency pins, snapshots, Jest-era mocks, fake timers, and other shims. Never infer that vitest-native regressed, a behavior is unsupported, or a migration is impossible from a bakeoff result alone. First reduce the behavior into a minimal package-owned test. See https://danfry1.github.io/vitest-native/guide/validation-model.
+Package capability and fidelity are defined only by package-owned conformance tests, behavioral crosschecks, packed consumer fixtures, version matrices, and the exact-version API compatibility check. Pinned external apps are observational tripwires only: they include custom migration configuration, dependency pins, snapshots, Jest-era mocks, fake timers, and other shims. Never infer that vitest-native regressed, a behavior is unsupported, or a migration is impossible from a bakeoff result alone. First reduce the behavior into a minimal package-owned test. See https://vitest-native.danfry.dev/guide/validation-model.
 
 ## Setup
 
@@ -44,7 +44,7 @@ Requirements: Node 22.22.3+ (on 22), 24.12+ (on 24) or 26+, Vitest 5.x, Vite ^8.
 
 ## Presets (auto-detected; most apply under both engines)
 
-The full list, with the exact packages each preset shadows, is at https://danfry1.github.io/vitest-native/guide/presets#available-presets. Coming from Jest, delete a manual native-library mock only when a preset shadows that exact package. Under the native engine the `expo` preset is off unless enabled (`presets: { expo: true }` or listed in an array): Expo modules run their own JavaScript, as under jest-expo.
+The full list, with the exact packages each preset shadows, is at https://vitest-native.danfry.dev/guide/presets#available-presets. Coming from Jest, delete a manual native-library mock only when a preset shadows that exact package. Under the native engine the `expo` preset is off unless enabled (`presets: { expo: true }` or listed in an array): Expo modules run their own JavaScript, as under jest-expo.
 
 ## Test helpers (`vitest-native/helpers`)
 
@@ -56,12 +56,12 @@ For migrating existing Jest suites: jestCompatSetup (jest global backed by vi), 
 
 ## Docs
 
-- Guide: https://danfry1.github.io/vitest-native/guide/
-- Choosing an engine: https://danfry1.github.io/vitest-native/guide/engines
-- Presets: https://danfry1.github.io/vitest-native/guide/presets
-- API coverage: https://danfry1.github.io/vitest-native/api/coverage
-- Validation model: https://danfry1.github.io/vitest-native/guide/validation-model
-- Migrating from Jest: https://danfry1.github.io/vitest-native/migration/from-jest
-- Migrating from vitest-react-native: https://danfry1.github.io/vitest-native/migration/from-vitest-react-native
+- Guide: https://vitest-native.danfry.dev/guide/
+- Choosing an engine: https://vitest-native.danfry.dev/guide/engines
+- Presets: https://vitest-native.danfry.dev/guide/presets
+- API coverage: https://vitest-native.danfry.dev/api/coverage
+- Validation model: https://vitest-native.danfry.dev/guide/validation-model
+- Migrating from Jest: https://vitest-native.danfry.dev/migration/from-jest
+- Migrating from vitest-react-native: https://vitest-native.danfry.dev/migration/from-vitest-react-native
 - Repo: https://github.com/danfry1/vitest-native
 - npm: https://www.npmjs.com/package/vitest-native

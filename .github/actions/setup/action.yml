@@ -8,6 +8,12 @@ inputs:
   node-version:
     description: Node.js version for this job.
     required: true
+  npm-version:
+    description: >-
+      An npm release to install over the one Node ships, checked against its published
+      integrity (.github/scripts/install-global.mjs). Empty keeps Node's npm.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -19,6 +25,13 @@ runs:
     - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version: ${{ inputs.node-version }}
+
+    - name: npm ${{ inputs.npm-version }}, checked against its published integrity
+      if: inputs.npm-version != ''
+      shell: bash
+      env:
+        NPM_VERSION: ${{ inputs.npm-version }}
+      run: node .github/scripts/install-global.mjs npm "$NPM_VERSION"
 
     # On Windows the workspace is on the runner's D: drive and bun's cache defaulted to
     # the home directory on C:, so every package was unpacked onto the slower drive and

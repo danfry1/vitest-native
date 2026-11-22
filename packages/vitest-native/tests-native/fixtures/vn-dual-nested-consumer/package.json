@@ -1,0 +1,9 @@
+{
+  "name": "vn-dual-nested-consumer",
+  "version": "1.0.0",
+  "private": true,
+  "exports": {
+    ".": "./index.mjs",
+    "./package.json": "./package.json"
+  }
+}

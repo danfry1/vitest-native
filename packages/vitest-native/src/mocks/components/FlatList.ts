@@ -1,7 +1,8 @@
-import React from "react";
+import { hosts } from "../host-classes.js";
 import { vi } from "vitest";
 
-export function createFlatListMock() {
+export function createFlatListMock(React: typeof import("react")) {
+  const { hostComponent } = hosts(React);
   const FlatList = React.forwardRef((props: any, ref: any) => {
     const {
       data,
@@ -98,7 +99,7 @@ export function createFlatListMock() {
       children.unshift(refreshControl);
     }
 
-    return React.createElement("FlatList", { ...rest, ref }, ...children);
+    return React.createElement(hostComponent("FlatList"), { ...rest, ref }, ...children);
   });
   FlatList.displayName = "FlatList";
   return FlatList;

@@ -184,6 +184,41 @@ describe("native ownership policy", () => {
     }
   });
 
+  // A directory reaches the policy in one spelling and files in another: on Windows an 8.3
+  // short name (RUNNER~1) against Vite's long ids; on a case-insensitive disk, letter case,
+  // which reproduces it here. Each directory is matched in every spelling it has.
+  const tmp = fs.realpathSync.native(os.tmpdir());
+  const otherCase = tmp.replace(/[a-z]/, (c) => c.toUpperCase());
+  it.runIf(otherCase !== tmp && fs.existsSync(otherCase))(
+    "decides a file under a directory given in another spelling",
+    () => {
+      const fixture = fs.mkdtempSync(path.join(tmp, "vn-policy-spelling-"));
+      try {
+        const app = path.join(fixture, "app");
+        const rn = path.join(fixture, "rn");
+        fs.mkdirSync(path.join(app, "src"), { recursive: true });
+        fs.mkdirSync(path.join(rn, "Libraries"), { recursive: true });
+        fs.writeFileSync(path.join(app, "package.json"), '{"name":"app"}\n');
+        const spelled = (dir: string) => dir.replace(tmp, otherCase);
+        const spelledPolicy = createNativeOwnershipPolicy({
+          projectRoot: spelled(app),
+          projectDirs: [spelled(app)],
+          reactNativeRoots: [spelled(rn)],
+        });
+        expect(spelledPolicy.decideFile(path.join(app, "src", "a.ts"))).toMatchObject({
+          owner: "vite",
+          reason: "project-source",
+        });
+        const rnFile = path.join(rn, "Libraries", "View.js");
+        expect(spelledPolicy.decideFile(rnFile)).toMatchObject({ reason: "react-native-core" });
+        expect(spelledPolicy.reactNativePathFor(rnFile)).toBe("/react-native/Libraries/View.js");
+        expect(spelledPolicy.externalPatterns.some((pattern) => pattern.test(rnFile))).toBe(true);
+      } finally {
+        fs.rmSync(fixture, { recursive: true, force: true });
+      }
+    },
+  );
+
   it("actually Flow-compiles a linked React Native realpath in the CJS hook", () => {
     const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "vn-linked-rn-runtime-"));
     const projectRoot = path.join(fixture, "app");

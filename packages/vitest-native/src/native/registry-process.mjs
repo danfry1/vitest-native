@@ -8,10 +8,47 @@ import {
   registryLocation,
 } from "./registry.mjs";
 import { runBoundedProcess } from "./bounded-process.mjs";
+import { cacheRootFor } from "./transform.mjs";
 
 const INITIAL_HEAP_MB = 96;
 const RETRY_HEAP_MB = 256;
 const DEFAULT_TIMEOUT_MS = 120_000;
+
+/**
+ * How long a run may wait for the registry before it says why it has not started (#913).
+ * A cold build takes about 3 s before the first test file on large apps (Bluesky 2.82 s,
+ * Rocket.Chat 2.94 s, medians in #912), so a usual build stays silent; a compiler that
+ * hangs is explained after 5 s instead of after the timeout.
+ */
+export const COLD_WAIT_NOTICE_MS = 5_000;
+
+/** Whether this process has printed the cold-wait notice: one line per run, however many
+ * projects wait (Vitest initialises projects concurrently). */
+let coldWaitNoticePrinted = false;
+/** Test seam: let the next slow wait print the notice again. */
+export function _resetColdWaitNotice() {
+  coldWaitNoticePrinted = false;
+}
+
+/**
+ * Prints one line if the run is still waiting COLD_WAIT_NOTICE_MS from now, saying what
+ * it waits for, unless this process already has. The returned function cancels it: a
+ * wait that ends sooner prints nothing and is not delayed.
+ */
+function noticeIfSlow() {
+  const timer = setTimeout(() => {
+    if (coldWaitNoticePrinted) return;
+    coldWaitNoticePrinted = true;
+    console.warn(
+      "[vitest-native] (native) building the precompiled module registry before the " +
+        "first test file; tests start when the build ends. If it hangs, the run falls " +
+        `back to per-file module loading after ${DEFAULT_TIMEOUT_MS / 1000} s.`,
+    );
+  }, COLD_WAIT_NOTICE_MS);
+  // Never what keeps this process alive.
+  timer.unref?.();
+  return () => clearTimeout(timer);
+}
 
 /** Compile once at 96 MiB, retrying at 256 MiB only for a genuine V8 heap OOM. */
 export async function compileRegistryInChild(
@@ -36,6 +73,7 @@ export async function compileRegistryInChild(
     priority,
     unref,
     label: "compiler",
+    inputDir: options?.projectRoot ? cacheRootFor(options.projectRoot) : undefined,
   });
   if (result.ok && typeof result.registryFile !== "string") {
     return {
@@ -57,7 +95,8 @@ export const registryCompilerDefaults = Object.freeze({
 
 const COMPILER_FILE = () => fileURLToPath(new URL("./registry-compiler.mjs", import.meta.url));
 
-// Test seam: `wait` (as registryBuild: 'wait'); `compilerDelayMs` holds the compiler.
+// Test seam: `wait` (waits even with registryBuild: 'background'); `compilerDelayMs` holds
+// the compiler.
 let seams = {};
 export function _setRegistryBuildOptions(options = {}) {
   seams = options;
@@ -81,6 +120,18 @@ const BACKGROUND_PRIORITY = 19;
  */
 const inFlight = new Map();
 let exitHookInstalled = false;
+
+/**
+ * Registries whose compile already failed in this process, by registry file. A failure
+ * (a timeout, the compiler killed, an error) is reported once, and every later project or
+ * config reload that misses the same entry falls back to per-file loading at once instead
+ * of starting another compile that would fail the same way, each up to its timeout.
+ */
+const failed = new Set();
+/** Test seam: forget the failures recorded so far. */
+export function _resetFailedRegistries() {
+  failed.clear();
+}
 
 /**
  * Signals that end this process while a build runs. Vitest handles SIGINT and SIGTERM
@@ -114,11 +165,14 @@ function removeSignalHandlers() {
 }
 
 /**
- * Resolve a warm registry, or start compiling a cache miss without waiting for it.
+ * Resolve a warm registry, or start compiling a cache miss without waiting for it:
+ * `registryBuild: 'background'` only. The default, 'wait', builds a miss before the run
+ * (buildRegistryFor), as do the hot runtime and CI.
  *
  * Loading React Native file by file runs the same modules with the same semantics, so
- * a cold run can start at once and use the registry when it lands; the plugin still
- * waits under the hot runtime, on CI and with registryBuild: 'wait'. Rejected: a
+ * a cold run can start at once and use the registry when it lands. It is not the
+ * default, because files that start before the registry lands compile React Native
+ * inside their tests, each worker the same files at once (#873). Rejected: a
  * detached child (it outlives the run), building in teardown (slower than building
  * first), and building only for the next run (a large cold suite would load React
  * Native file by file throughout, which costs more than the build past roughly thirty
@@ -153,6 +207,7 @@ export function startRegistryBuild(options, compiler = compileRegistryInChild) {
       return { registry: warm.registry, libraryRegistry: warm.libraryRegistry };
     }
     if (warm.registry) return { wait: true };
+    if (failed.has(registryFile)) return {};
 
     const controller = new AbortController();
     const started = performance.now();
@@ -192,6 +247,7 @@ export function startRegistryBuild(options, compiler = compileRegistryInChild) {
           return { registry: built.registry, libraryRegistry: built.libraryRegistry };
         }
         if (!result.cancelled) {
+          failed.add(registryFile);
           _warnRegistryUnavailable(
             result.error ?? "bounded compiler completed without a usable cache entry",
           );
@@ -336,6 +392,7 @@ function cachedRegistries(options, location) {
  * compileRegistryInChild.
  */
 export async function buildRegistryFor(options, compiler = compileRegistryInChild) {
+  let stopNotice = () => {};
   try {
     // Preserve the explicit escape hatch's existing diagnostic and silence
     // contracts, and avoid launching a process for work the user disabled.
@@ -352,21 +409,56 @@ export async function buildRegistryFor(options, compiler = compileRegistryInChil
       if (warm.libraryError) _warnRegistryUnavailable(warm.libraryError);
       return { registry: warm.registry, libraryRegistry: warm.libraryRegistry };
     }
+    // A miss: the run waits from here, for a build or a failed entry's quick return.
+    stopNotice = noticeIfSlow();
 
-    // A background build of the same entry is already running in this process (another
-    // project in the run, or a config reload): wait for it instead of compiling twice.
-    // It was started for its own project's library entries, so read the cache for these
-    // options afterwards, and compile what is still missing.
-    const joined = inFlight.get(location.registryFile);
-    if (joined) {
-      await joined.done;
+    // Another wait for the same entry (projects initialise concurrently), or a background
+    // build of it (another project in the run, or a config reload), is already running in
+    // this process: wait for it instead of compiling twice (#920). A wait for the same
+    // library entries takes its result as is. Otherwise it was built for another project's
+    // library entries, so read the cache for these options afterwards, and compile what is
+    // still missing.
+    const file = location.registryFile;
+    const libraries = libraryEntriesKey(options);
+    for (;;) {
+      const sharedWait = waiting.get(file);
+      const joined = sharedWait?.done ?? inFlight.get(file)?.done;
+      if (!joined) break;
+      const shared = await joined;
+      if (sharedWait?.libraries === libraries) return shared;
       const after = cachedRegistries(options, location);
       if (after.complete) {
         if (after.libraryError) _warnRegistryUnavailable(after.libraryError);
         return { registry: after.registry, libraryRegistry: after.libraryRegistry };
       }
+      if (failed.has(file)) return null;
     }
 
+    if (failed.has(file)) return null;
+    const done = compileForWait(options, location, compiler).finally(() => waiting.delete(file));
+    waiting.set(file, { done, libraries });
+    return await done;
+  } catch (error) {
+    _warnRegistryUnavailable(error?.message ?? error);
+    return null;
+  } finally {
+    stopNotice();
+  }
+}
+
+/** Waits compiling now, by registry file: `{ done, libraries }` (buildRegistryFor). */
+const waiting = new Map();
+
+function libraryEntriesKey(options) {
+  return JSON.stringify(options.libraryEntries ?? []);
+}
+
+/**
+ * Compile a cache miss for a wait and validate it, recording a failure (failed) so that
+ * every wait sharing this build, and every later one, falls back at once.
+ */
+async function compileForWait(options, location, compiler) {
+  try {
     const result = await compiler(COMPILER_FILE(), compilerInput(options));
 
     // Validate through the same cache contract every reader uses instead of
@@ -412,11 +504,13 @@ export async function buildRegistryFor(options, compiler = compileRegistryInChil
       return { registry: built.registry, libraryRegistry: built.libraryRegistry };
     }
 
+    failed.add(location.registryFile);
     _warnRegistryUnavailable(
       result.error ?? "bounded compiler completed without a usable cache entry",
     );
     return null;
   } catch (error) {
+    failed.add(location.registryFile);
     _warnRegistryUnavailable(error?.message ?? error);
     return null;
   }

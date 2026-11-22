@@ -22,7 +22,8 @@ name: Native engine — Vitest × RN matrix
 #    most churn-prone surface we depend on. Every column is blocking — `RN matrix
 #    verdict` below is a required check — because the declared peer range (>=5 <6)
 #    promises every one of them: the lockfile version and the newest Vitest 5
-#    release on every row.
+#    release on every row. The latest-supported column also takes Vite and React
+#    Native Testing Library to their newest supported releases.
 #
 # Every cell runs the native suite STOCK and HOT, plus the mock-vs-real-RN
 # cross-check — the full real-RN gate against that (Vitest, RN) pair.
@@ -42,7 +43,7 @@ on:
   workflow_dispatch:
   schedule:
     # Weekly, to catch new Vitest releases and RN patch releases within range.
-    - cron: '0 9 * * 1'
+    - cron: "0 9 * * 1"
 
 permissions:
   contents: read
@@ -115,7 +116,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22.22.3'
+          node-version: "22.22.3"
 
       # Package-download cache: bun still verifies against the frozen lockfile,
       # it just skips re-downloading unchanged tarballs.
@@ -149,20 +150,26 @@ jobs:
           key: vn-transform-${{ runner.os }}-rn${{ matrix.rn }}-vitest-${{ matrix.vitest }}-${{ hashFiles('bun.lock') }}
           restore-keys: vn-transform-${{ runner.os }}-rn${{ matrix.rn }}-vitest-${{ matrix.vitest }}-
 
-      - name: Pin Vitest to the newest supported 5.x release
+      - name: Pin each peer to the newest supported release
         if: matrix.vitest == 'latest-supported'
-        # Bump the coverage provider in lockstep — a mismatched @vitest/coverage-v8
-        # vs vitest fails to load (a provider and runtime from different releases has
-        # bitten us).
-        # bunfig's minimumReleaseAge still applies: the newest 5.x at least a week old.
+        # Vitest (with its coverage provider in lockstep: a provider and runtime from
+        # different releases fail to load), Vite and React Native Testing Library, each at
+        # the newest release of its newest supported major. The specs come from the
+        # package's peer requirements, so this column follows a range change
+        # (.github/scripts/latest-supported.mjs, docs/upstream-policy.md).
+        # bunfig's minimumReleaseAge still applies: each at least a week old.
         run: |
-          bun add -d "vitest@^5" "@vitest/coverage-v8@^5" --cwd packages/vitest-native
+          specs=$(node .github/scripts/latest-supported.mjs)
+          echo "Installing: $specs"
+          bun add -d $specs --cwd packages/vitest-native
 
       - name: Resolved versions
         run: |
           node -e "console.log('react-native            ', require('./packages/vitest-native/node_modules/react-native/package.json').version)"
           node -e "console.log('@react-native/babel-preset', require('./packages/vitest-native/node_modules/@react-native/babel-preset/package.json').version)"
           node -e "console.log('vitest                  ', require('./packages/vitest-native/node_modules/vitest/package.json').version)"
+          node -e "console.log('vite                    ', require('./packages/vitest-native/node_modules/vite/package.json').version)"
+          node -e "console.log('@testing-library/react-native', require('./packages/vitest-native/node_modules/@testing-library/react-native/package.json').version)"
 
       - name: Build
         run: bun run build
@@ -217,3 +224,59 @@ jobs:
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
           echo "$RESULTS" | jq -e 'all(.[]; .result == "success" or .result == "skipped")' > /dev/null
+
+  # Publishes the fidelity matrix for the docs site. Vercel's build has no GitHub token, so
+  # it cannot read this run's artifacts; this job renders the page from them and pushes it,
+  # as a single commit, to the `site-data` branch, which the site's build fetches publicly
+  # (website/scripts/fetch-fidelity-matrix.mjs). Only a run on main that is not a pull
+  # request or a merge-queue group publishes: those execute code from the change itself.
+  publish-site-data:
+    name: Publish fidelity matrix
+    needs: matrix
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request' &&
+      github.event_name != 'merge_group' &&
+      needs.matrix.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # One publish at a time, in order; a newer run's page replaces an older one's.
+    concurrency:
+      group: site-data
+      cancel-in-progress: false
+    permissions:
+      # Pushes only refs/heads/site-data (below); main is protected by its ruleset.
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Render the fidelity matrix from this run's reports
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'crosscheck-report-*' --dir "$RUNNER_TEMP/reports"
+          mkdir -p "$RUNNER_TEMP/site-data"
+          node packages/vitest-native/scripts/fidelity-matrix.mjs \
+            --reports "$RUNNER_TEMP/reports" --out "$RUNNER_TEMP/site-data/fidelity-matrix.md"
+      - name: Push it to the site-data branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: ${{ runner.temp }}/site-data
+        run: |
+          git init -q -b site-data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # The branch holds data, not a site: Vercel must not deploy it.
+          printf '{ "git": { "deploymentEnabled": false } }\n' > vercel.json
+          git add fidelity-matrix.md vercel.json
+          git commit -q -m "Fidelity matrix from run $GITHUB_RUN_ID ($GITHUB_SHA)"
+          # The token goes in a header, not the URL, so no git message can print it.
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c http.extraheader="$auth" push -q --force \
+            "https://github.com/${GITHUB_REPOSITORY}.git" HEAD:refs/heads/site-data

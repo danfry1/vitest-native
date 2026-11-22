@@ -17,11 +17,13 @@ import path from "node:path";
 import {
   DEFAULT_ASSET_EXTS,
   LIBRARY_SETUP_FILES,
+  libraryMockUsable,
   presetShadowing,
   type PresetName,
 } from "../preset-map.js";
 import { detectEcosystemPackages } from "../native/ecosystem.js";
 import { allows, extractAllowlistPackages, type AllowlistEntry } from "./allowlist.js";
+import { findNodeModuleMocks, ignorePattern } from "../jest-compat/root-mocks.js";
 import { HOT_RUNTIME_NOTE } from "./init.js";
 import {
   booleanFlag,
@@ -33,7 +35,15 @@ import {
   type JestScriptFlags,
 } from "./jest-discovery.js";
 import { resolveJestPreset, withPresetSettings } from "./jest-preset.js";
-import { libraryResolver, onlyCallsSetUpTests, stripsOnlyReanimatedProps } from "./superseded.js";
+import { projectBabelTrigger } from "../project-babel.js";
+import { mockFactoryForwardReads } from "./mock-factory-reads.js";
+import {
+  callsReanimatedSetUpTests,
+  libraryResolver,
+  mocksReanimated,
+  onlyCallsSetUpTests,
+  stripsOnlyReanimatedProps,
+} from "./superseded.js";
 import {
   babelRecipe,
   classifyBabelPlugins,
@@ -50,6 +60,11 @@ import {
 } from "./manifest.js";
 import { STAR, tryExpand } from "./regex-subset.js";
 import { untranspiledFile } from "./untranspiled.js";
+import { babelParser, type Parse } from "../native/plain-javascript.js";
+import { REACT_DEDUPE } from "../native/react-dedupe.mjs";
+
+/** The engine's own dedupe list, as config source. */
+const DEDUPE_SOURCE = REACT_DEDUPE.map((name) => `'${name}'`).join(", ");
 
 export { extractAllowlistPackages } from "./allowlist.js";
 
@@ -308,15 +323,28 @@ export function analyzeJestConfig(root: string): MigrationReport {
   // Suggested-config fragments assembled at the end.
   const testEntries: string[] = [`globals: true`, `environment: 'node'`];
   const setupFiles: string[] = ["jestCompatSetup"];
-  // Object-form alias entries (`"key": value`), and RegExp-keyed ones that need
-  // Vite's array form ({ find, replacement }).
+  // Every alias as an array-form entry ({ find, replacement }), in the order Jest
+  // declared it: like moduleNameMapper, Vite's alias list takes the first match, and a
+  // string `find: "@"` also takes `@/assets/x`. The object form (`"key": value`) is
+  // used only when no entry needs a RegExp `find`.
   const aliasEntries: string[] = [];
   const aliasKeys = new Set<string>();
-  const regexAliases: string[] = [];
+  const aliasArray: string[] = [];
+  let regexAlias = false;
+  const addRegexAlias = (entry: string) => {
+    aliasArray.push(entry);
+    regexAlias = true;
+  };
   const transformPkgs: string[] = [];
   const extraImports: string[] = [];
   const extraPlugins: string[] = [];
   let excludeGlobs: string[] = [];
+  // Jest's `roots`, relative to the project root, and `modulePathIgnorePatterns`, when
+  // the config sets them.
+  let jestRoots: string[] | null = null;
+  let jestIgnorePatterns: string[] | null = null;
+  // The project's directories, walked once and only when something needs them.
+  let directories: string[] | undefined;
   let needsUrlImport = false;
   // Options for the reactNative() call, besides `transform`.
   const pluginOptions: string[] = [];
@@ -334,6 +362,55 @@ export function analyzeJestConfig(root: string): MigrationReport {
   const jestPreset = resolvedPreset?.name;
   const fromJestExpo = /^jest-expo(\/(ios|android|universal))?$/.test(jestPreset ?? "");
 
+  // A project file a Jest setting names (`<rootDir>/x`, `./x`, `x`), or null.
+  const projectSource = (file: string): string | null => {
+    if (/^(?:<rootDir>\/|\.\/)?node_modules\//.test(file)) return null;
+    const rel = file.replace(/^<rootDir>\/?/, "");
+    const base = path.resolve(root, rel);
+    const found = [base, `${base}.js`, `${base}.ts`].find((candidate) =>
+      fs.statSync(candidate, { throwIfNoEntry: false })?.isFile(),
+    );
+    return found === undefined ? null : fs.readFileSync(found, "utf8");
+  };
+  // Reanimated has two Jest modes, and a suite is written against one: its mock
+  // (`jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'))`)
+  // or the real library with `setUpTests()`. A suite whose setup runs setUpTests() and
+  // mocks Reanimated nowhere ran the real library; under the native engine that is
+  // `presets: { reanimated: false }` (through Reanimated's own Jest resolver, from 4.7),
+  // and its setup file stays. Without it the preset would serve the mock, and Reanimated's
+  // readers (getAnimatedStyle) would find nothing (#834).
+  const setupSources = (["setupFiles", "setupFilesAfterEnv"] as const)
+    .flatMap((key) => (Array.isArray(config?.[key]) ? (config[key] as unknown[]) : []))
+    .filter((f): f is string => typeof f === "string")
+    .map((f) => ({ file: f, code: projectSource(f) }))
+    .filter((f): f is { file: string; code: string } => f.code !== null);
+  const realReanimatedSetup = setupSources.find(({ code }) => callsReanimatedSetUpTests(code));
+  const reanimatedMocked =
+    setupSources.some(({ code }) => mocksReanimated(code)) ||
+    // A root manual mock, which Jest applied to the package by itself.
+    ["", ".js", ".ts", ".tsx"].some((ext) =>
+      fs.existsSync(path.join(root, "__mocks__", `react-native-reanimated${ext}`)),
+    ) ||
+    Object.keys((config?.moduleNameMapper as Record<string, unknown> | undefined) ?? {}).some(
+      (pattern) => {
+        try {
+          return new RegExp(pattern).test("react-native-reanimated");
+        } catch {
+          return false;
+        }
+      },
+    );
+  const ranRealReanimated =
+    realReanimatedSetup !== undefined &&
+    !reanimatedMocked &&
+    activePresets(root).includes("reanimated") &&
+    libraryMockUsable(root);
+  // The engine runs a package as itself only when the project declares it: an
+  // undeclared one is compiled by Vite, where Reanimated's own Jest resolver does not
+  // apply (#688). Such a suite keeps its setup and the preset, with a note.
+  const reanimatedReal =
+    ranRealReanimated && declaredDependencies(root).includes("react-native-reanimated");
+
   // jest-expo mocks Expo's native modules but not React Navigation, so its suites
   // render real navigators. The navigation preset would mock them, so it is switched
   // off — unless the project mocked React Navigation itself (Jest applied a root
@@ -346,7 +423,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
   // (installed, not testing itself, not switched off) — and the packages the engine
   // detects and compiles by itself under them. A `transform` entry for one of those
   // would take precedence over detection and externalize it instead.
-  const active: PresetName[] = activePresets(root, navigationOff ? ["navigation"] : []);
+  const presetsOff = [
+    ...(navigationOff ? ["navigation"] : []),
+    ...(reanimatedReal ? ["reanimated"] : []),
+  ];
+  const active: PresetName[] = activePresets(root, presetsOff);
   // A preset that steps aside under the native engine for a library that runs as itself
   // with the Jest setup file it ships (LIBRARY_SETUP_FILES).
   const runsWithOwnSetup = (preset: PresetName): boolean =>
@@ -357,17 +438,67 @@ export function analyzeJestConfig(root: string): MigrationReport {
     if (aliasKeys.has(key)) return false;
     aliasKeys.add(key);
     aliasEntries.push(`${JSON.stringify(key)}: ${value}`);
+    aliasArray.push(`{ find: ${JSON.stringify(key)}, replacement: ${value} }`);
     return true;
   };
-  // A project file a Jest setting names (`<rootDir>/x`, `./x`, `x`), or null.
-  const projectSource = (file: string): string | null => {
-    if (/^(?:<rootDir>\/|\.\/)?node_modules\//.test(file)) return null;
-    const rel = file.replace(/^<rootDir>\/?/, "");
-    const base = path.resolve(root, rel);
-    const found = [base, `${base}.js`, `${base}.ts`].find((candidate) =>
-      fs.statSync(candidate, { throwIfNoEntry: false })?.isFile(),
-    );
-    return found === undefined ? null : fs.readFileSync(found, "utf8");
+  // The lines of a project setup file that mock or set up a library a preset covers:
+  // `jest.mock('react-native-reanimated', …)`, a `require()` or `import` of a library's own
+  // Jest setup. Read with the project's own Babel parser, top-level statements only, so a
+  // `require()` inside a mock's factory is part of that mock and nothing in a comment or a
+  // string counts. A file that does not parse lists nothing. A file named in both
+  // setupFiles and setupFilesAfterEnv is read once.
+  const scannedSetupFiles = new Set<string>();
+  let parseSetup: Parse | null | undefined;
+  const coveredSetupLines = (file: string): string[] => {
+    const resolved = path.resolve(root, file.replace(/^<rootDir>\/?/, ""));
+    if (scannedSetupFiles.has(resolved)) return [];
+    scannedSetupFiles.add(resolved);
+    const code = projectSource(file);
+    if (code === null) return [];
+    parseSetup ??= babelParser(root);
+    const statements = parseSetup ? setupStatements(parseSetup, code) : [];
+    const lines: string[] = [];
+    for (const { mocked, request, imported, factory } of statements) {
+      const pkg = /^(@[^/]+\/[^/]+|[^@./][^/]*)/.exec(mocked ?? request ?? "")?.[1];
+      // A mock replaces the module it names, and a preset only the ids it provides: a deep
+      // `jest.mock('react-native-reanimated/lib/…')` is not covered. A setup module is
+      // matched by its package.
+      const preset = mocked !== undefined ? presetShadowing(mocked) : pkg && presetShadowing(pkg);
+      if (!pkg || !preset) continue;
+      if (!active.includes(preset) && !runsWithOwnSetup(preset)) continue;
+      const shown = mocked
+        ? `jest.mock('${mocked}')`
+        : imported
+          ? `import '${request}'`
+          : `require('${request}')`;
+      // A factory that keeps part of the library (`jest.requireActual`, a spread) and
+      // changes the rest is more than the preset gives: the reader decides what stays.
+      if (factory && keepsPartOfModule(factory)) {
+        attention.push(
+          `${file}: ${shown} — the ${preset} preset provides ${pkg}, but this mock changes ` +
+            `part of it (jest.requireActual or a spread); keep only the changes the tests ` +
+            `rely on.`,
+        );
+        continue;
+      }
+      const ownSetup = LIBRARY_SETUP_FILES[preset];
+      if (active.includes(preset)) {
+        lines.push(
+          `${file}: ${shown} — the auto-detected ${preset} preset shadows ${pkg}; delete the line.`,
+        );
+      } else {
+        const isOwnSetup =
+          request !== undefined && request.replace(/\.js$/, "") === ownSetup?.replace(/\.js$/, "");
+        lines.push(
+          isOwnSetup
+            ? `${file}: ${shown} — ${pkg}'s own test setup, which the native engine runs before ` +
+                `the setup files; delete the line.`
+            : `${file}: ${shown} — the native engine runs ${pkg} with its own Jest setup ` +
+                `(${ownSetup}), which replaces its native layer; delete the line.`,
+        );
+      }
+    }
+    return lines;
   };
   const reanimatedActive = active.includes("reanimated");
   const absolutePath = (relative: string) => {
@@ -465,7 +596,11 @@ export function analyzeJestConfig(root: string): MigrationReport {
             `${key}: '${f}' — ${setupPackage}'s own test setup, which the native engine runs ` +
               `before the setup files (${LIBRARY_SETUP_FILES[setupPreset]}); delete.`,
           );
-        } else if (reanimatedActive && onlyCallsSetUpTests(projectSource(f) ?? "")) {
+        } else if (
+          reanimatedActive &&
+          !ranRealReanimated &&
+          onlyCallsSetUpTests(projectSource(f) ?? "")
+        ) {
           presetCovered.push(
             `${key}: '${f}' — only calls Reanimated's setUpTests(), whose matchers cannot see the ` +
               `rendered style here; vitest-native registers toHaveAnimatedStyle and ` +
@@ -483,11 +618,13 @@ export function analyzeJestConfig(root: string): MigrationReport {
           automatic.push(
             `${key}: '${f}' → test.setupFiles (its jest.* calls run under the jest-compat shim).`,
           );
+          presetCovered.push(...coveredSetupLines(f));
         } else {
           setupFiles.push(JSON.stringify(f));
           automatic.push(
             `${key}: '${f}' → test.setupFiles (its jest.* calls run under the jest-compat shim).`,
           );
+          presetCovered.push(...coveredSetupLines(f));
         }
       }
     }
@@ -524,9 +661,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
           // package. The directory is absolute: Vite resolves a substituted alias
           // relative to the importer.
           const find = `${regexLiteral(plainPrefix.key).slice(0, -2)}\\/(${plainPrefix.rest})$/`;
-          regexAliases.push(
-            `{ find: ${find}, replacement: ${absolutePath(plainPrefix.dir)} + "/$1" }`,
-          );
+          addRegexAlias(`{ find: ${find}, replacement: ${absolutePath(plainPrefix.dir)} + "/$1" }`);
           automatic.push(
             `moduleNameMapper '${pattern}' → resolve.alias { find: ${find} } (absolute path).`,
           );
@@ -573,7 +708,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
               : target.startsWith(".")
                 ? absolutePath(target)
                 : JSON.stringify(target);
-            regexAliases.push(`{ find: ${regexLiteral(literal)}, replacement: ${replacement} }`);
+            addRegexAlias(`{ find: ${regexLiteral(literal)}, replacement: ${replacement} }`);
             automatic.push(
               `moduleNameMapper '${pattern}' → resolve.alias { find: ${regexLiteral(literal)} } ` +
                 `(anchored: a string find would also catch '${literal}/…').`,
@@ -607,11 +742,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
             `packages shipping untranspiled source go in reactNative({ transform: [...] }).`,
         );
       } else {
-        classifyAllowlist(root, entries, active, autoInlined, {
-          automatic,
-          presetCovered,
-          transformPkgs,
-        });
+        classifyAllowlist(root, entries, active, autoInlined, { automatic, transformPkgs });
       }
     }
 
@@ -746,7 +877,16 @@ export function analyzeJestConfig(root: string): MigrationReport {
       const value = take<never>(key);
       if (value !== undefined) discoveryOptions[key] = value;
     }
-    let directories: string[] | undefined;
+    if (Array.isArray(discoveryOptions.modulePathIgnorePatterns)) {
+      jestIgnorePatterns = (discoveryOptions.modulePathIgnorePatterns as unknown[]).filter(
+        (p): p is string => typeof p === "string",
+      );
+    }
+    if (Array.isArray(discoveryOptions.roots)) {
+      jestRoots = (discoveryOptions.roots as unknown[])
+        .filter((r): r is string => typeof r === "string")
+        .map((r) => path.posix.normalize(r.replace(/^<rootDir>/, ".")).replace(/\/$/, "") || ".");
+    }
     const discovery = translateDiscovery(
       discoveryOptions,
       presetConfig,
@@ -826,7 +966,8 @@ export function analyzeJestConfig(root: string): MigrationReport {
           if (rest.length || !serializers.length) {
             attention.push(
               `snapshotSerializers${rest.length ? ` ${rest.map((r) => `'${r}'`).join(", ")}` : ""} — ` +
-                `Vitest uses expect.addSnapshotSerializer; vitest-native ships one for RN trees.`,
+                `Vitest has no such key: register each with expect.addSnapshotSerializer() in a ` +
+                `setup file. React trees need none: they print as under Jest.`,
             );
           }
         } else if (key === "watchPathIgnorePatterns") {
@@ -875,43 +1016,123 @@ export function analyzeJestConfig(root: string): MigrationReport {
     }
   }
 
-  // Manual __mocks__ that a preset replaces: only where a preset actually shadows the
-  // module (PRESET_MODULES, checked against the presets by tests/presets.test.ts) and
-  // the plugin will detect that preset in this project.
-  const mocksDir = path.join(root, "__mocks__");
-  if (fs.existsSync(mocksDir)) {
-    for (const entry of fs.readdirSync(mocksDir)) {
-      const name = entry.replace(/\.(js|cjs|mjs|ts|tsx)$/, "");
-      const scoped = fs.statSync(path.join(mocksDir, entry)).isDirectory();
-      const candidates = scoped
-        ? fs
-            .readdirSync(path.join(mocksDir, entry))
-            .map((f) => `${name}/${f.replace(/\.(js|cjs|mjs|ts|tsx)$/, "")}`)
-        : [name];
-      for (const candidate of candidates) {
-        const preset = presetShadowing(candidate);
-        if (preset && active.includes(preset)) {
-          presetCovered.push(
-            `__mocks__/${candidate} — the auto-detected ${preset} preset shadows ${candidate}; delete the manual mock.`,
-          );
-        } else if (preset && runsWithOwnSetup(preset) && installedManifest(root, candidate)) {
-          presetCovered.push(
-            `__mocks__/${candidate} — the native engine runs ${candidate} with its own Jest setup ` +
-              `(${LIBRARY_SETUP_FILES[preset]}), which replaces its native layer; delete the manual mock.`,
-          );
-        } else if (installedManifest(root, candidate) && installedTestsItself(root, candidate)) {
-          attention.push(
-            `__mocks__/${candidate} — ${candidate} ${installedMajor(root, candidate)} runs its own test ` +
-              `mode under Vitest, so no preset replaces it, and Vitest applies a root __mocks__ file ` +
-              `only through vi.mock; the library's test mode stands in for this mock.`,
-          );
-        }
+  // Snapshots Jest wrote of React Native components were recorded against the component
+  // stand-ins of React Native's Jest preset: a host named View or Text, with the props as
+  // the component was given them. vitest-native renders React Native's own host
+  // components (RCTView, RCTText) with the props React Native passes them, so those
+  // snapshots differ even where the component renders the same. They are in the same
+  // format, so the diff shows exactly that.
+  const snapshotFiles = (directories ??= projectDirectories(root))
+    .filter((dir) => path.posix.basename(dir) === "__snapshots__")
+    .reduce((count, dir) => {
+      let names: string[] = [];
+      try {
+        names = fs.readdirSync(path.join(root, dir));
+      } catch {
+        names = [];
       }
-    }
+      return count + names.filter((name) => name.endsWith(".snap")).length;
+    }, 0);
+  if (snapshotFiles > 0) {
+    attention.push(
+      `${snapshotFiles} Jest snapshot file${snapshotFiles === 1 ? "" : "s"} (__snapshots__/*.snap) — ` +
+        `most entries need one re-record. Vitest names a snapshot inside a describe ` +
+        `'group > test 1' where Jest wrote 'group test 1', and a snapshot of React Native ` +
+        `components differs: Jest's preset renders stand-ins named View and Text with the props ` +
+        `as given, and vitest-native renders React Native's own host components (RCTView, ` +
+        `RCTText) with the props React Native passes them. Once the rest of the suite passes, ` +
+        `re-record them once with \`vitest -u\` and review the diff. Vitest also rewrites each ` +
+        `file's first line to its own header when it runs it.`,
+    );
   }
 
+  // Jest's manual mocks of node_modules packages: a file in a __mocks__ folder anywhere
+  // under its roots applies with no jest.mock() call. jestMockTransform() applies it the
+  // same way (jest-compat/root-mocks.ts) unless the plugin already stands in for the
+  // package: a preset shadows it (PRESET_MODULES, checked against the presets by
+  // tests/presets.test.ts), or the library runs with its own Jest setup.
+  const mockRoots = jestRoots ?? ["."];
+  const ignored = (jestIgnorePatterns ?? []).flatMap((pattern) => {
+    const regex = ignorePattern(pattern, root);
+    return regex ? [regex] : [];
+  });
+  const manualMocks = findNodeModuleMocks(
+    mockRoots.map((r) => path.resolve(root, r)),
+    root,
+    ignored,
+  );
+  const relative = (file: string) => path.relative(root, file).split(path.sep).join("/");
+  // One line per file: `__mocks__/pkg/index` answers both `pkg/index` and `pkg`.
+  const byFile = new Map<string, string[]>();
+  for (const mock of manualMocks.mocks) {
+    byFile.set(mock.file, [...(byFile.get(mock.file) ?? []), mock.spec]);
+  }
+  for (const [file, specs] of byFile) {
+    const shown = relative(file).replace(/\.[^./]+$/, "");
+    // The package the file is named for: `pkg`, not `pkg/index`.
+    const candidate = specs[specs.length - 1];
+    const preset = presetShadowing(candidate);
+    const applied =
+      `${shown} → applied to ${specs.slice().reverse().join(" and ")} in every test by ` +
+      `jestMockTransform(), with no jest.mock() call, as Jest applies it.`;
+    if (preset && active.includes(preset)) {
+      presetCovered.push(
+        `${shown} — the auto-detected ${preset} preset shadows ${candidate}; delete the manual mock.`,
+      );
+    } else if (preset && runsWithOwnSetup(preset)) {
+      presetCovered.push(
+        `${shown} — the native engine runs ${candidate} with its own Jest setup ` +
+          `(${LIBRARY_SETUP_FILES[preset]}), which replaces its native layer; delete the manual mock.`,
+      );
+    } else if (installedTestsItself(root, candidate)) {
+      automatic.push(
+        `${applied} ${candidate} ${installedMajor(root, candidate)} also runs its own test mode ` +
+          `under Vitest, which can stand in for this mock.`,
+      );
+    } else {
+      automatic.push(applied);
+    }
+  }
+  for (const duplicate of manualMocks.duplicates) {
+    attention.push(
+      `duplicate manual mock ${duplicate.name}: ${duplicate.files.map(relative).join(", ")} — ` +
+        `Jest warns and uses one; jestMockTransform() uses the last listed. Delete the others.`,
+    );
+  }
+  // Jest's roots and ignore patterns decide which __mocks__ files count.
+  const transformOptions = [
+    ...(jestRoots && jestRoots.some((r) => r !== ".")
+      ? [`roots: [${jestRoots.map((r) => JSON.stringify(r)).join(", ")}]`]
+      : []),
+    ...(manualMocks.mocks.length > 0 && jestIgnorePatterns?.length
+      ? [
+          `modulePathIgnorePatterns: [${jestIgnorePatterns.map((p) => JSON.stringify(p)).join(", ")}]`,
+        ]
+      : []),
+  ];
+  const transformCall = transformOptions.length
+    ? `jestMockTransform({ ${transformOptions.join(", ")} })`
+    : "jestMockTransform()";
+
+  if (presetsOff.length) {
+    pluginOptions.push(`presets: { ${presetsOff.map((p) => `${p}: false`).join(", ")} }`);
+  }
+  if (ranRealReanimated && !reanimatedReal) {
+    attention.push(
+      `${realReanimatedSetup!.file} runs Reanimated's setUpTests() and the suite mocks Reanimated ` +
+        `nowhere, so under Jest it ran the real library; here the reanimated preset serves its ` +
+        `mock. To run the real library, declare react-native-reanimated in package.json and add ` +
+        `presets: { reanimated: false }.`,
+    );
+  }
+  if (reanimatedReal) {
+    automatic.push(
+      `${realReanimatedSetup!.file} runs Reanimated's setUpTests() and the suite mocks Reanimated ` +
+        `nowhere: it ran the real library under Jest → presets: { reanimated: false }, so ` +
+        `Reanimated runs as itself (through its own Jest resolver), and the setup file stays.`,
+    );
+  }
   if (navigationOff) {
-    pluginOptions.push(`presets: { navigation: false }`);
     automatic.push(
       `jest-expo renders the real React Navigation → presets: { navigation: false }, so screens keep ` +
         `running in real navigators.`,
@@ -919,10 +1140,65 @@ export function analyzeJestConfig(root: string): MigrationReport {
   }
 
   // The project's Babel config ran on every file under babel-jest and does not here.
+  // jest.mock factories that read a module-level const/let/class while they run.
+  const factoryReads = mockFactoryForwardReads(root);
+  if (factoryReads.length) {
+    const shown = factoryReads
+      .slice(0, 5)
+      .map((r) => `${r.file}:${r.line} (jest.mock('${r.module}') reads ${r.names.join(", ")})`);
+    attention.push(
+      `${factoryReads.length} jest.mock() ${factoryReads.length === 1 ? "factory reads" : "factories read"} a ` +
+        `const, let or class from the test file's module body while it runs: ${shown.join("; ")}` +
+        `${factoryReads.length > 5 ? `; and ${factoryReads.length - 5} more` : ""}. Mock factories run before ` +
+        `the module body, so when the mocked module is imported at the top of the test file (the usual case) ` +
+        `this throws "Cannot access '…' before initialization" under Vitest. Under babel-jest with React ` +
+        `Native's preset it read undefined instead, because the preset compiles const to var. Move the value ` +
+        `into the factory, or create it with vi.hoisted().`,
+    );
+  }
   const babel = readBabelConfig(root);
   if (babel.source) {
     const classified = classifyBabelPlugins(babel, root, active);
-    const required = classified.filter((p) => p.verdict === "required");
+    // What the engine applies itself to the project source that needs it (projectBabel
+    // 'auto', the generated config's default): one mechanism, so nothing is wired twice.
+    const engineApplied = new Map<string, string>();
+    for (const p of classified) {
+      const reason = projectBabelTrigger(
+        { name: p.name, kind: "plugin", options: p.options },
+        root,
+        active,
+      );
+      if (reason) engineApplied.set(`plugin:${p.name}`, reason);
+    }
+    for (const p of babel.presetEntries ?? []) {
+      const reason = projectBabelTrigger(
+        { name: p.name, kind: "preset", options: p.options },
+        root,
+        active,
+      );
+      if (reason) engineApplied.set(`preset:${p.name}`, reason);
+    }
+    // projectBabel runs only where @babel/core resolves from the project (createProjectBabel);
+    // without it the engine applies nothing, so say so instead of "nothing to add".
+    const babelCore = installed(root, "@babel/core");
+    if (engineApplied.size && !babelCore) {
+      const names = [...engineApplied.keys()].map((k) => k.slice(k.indexOf(":") + 1));
+      attention.push(
+        `${babel.source}: ${list(names)} must reach your own source, and the engine applies ` +
+          `${names.length === 1 ? "it" : "them"} with your Babel config (projectBabel 'auto'), which needs ` +
+          `@babel/core installed in the project. It does not resolve from here (often it came only with ` +
+          `babel-jest). Add @babel/core as a devDependency.`,
+      );
+    }
+    for (const [key, reason] of babelCore ? engineApplied : new Map<string, string>()) {
+      const [kind, name] = [key.slice(0, key.indexOf(":")), key.slice(key.indexOf(":") + 1)];
+      automatic.push(
+        `${babel.source}: ${kind} ${name} → applied by the engine to the project source that needs it ` +
+          `(projectBabel 'auto'; ${reason}); nothing to add.`,
+      );
+    }
+    const byEngine = (p: { name: string }) => engineApplied.has(`plugin:${p.name}`);
+    const required = classified.filter((p) => p.verdict === "required" && !byEngine(p));
     if (required.length) {
       // Emitted only when it can be done exactly: @rolldown/plugin-babel and @babel/core
       // installed, and plugin options that are plain data. Otherwise a config that
@@ -975,7 +1251,7 @@ export function analyzeJestConfig(root: string): MigrationReport {
     for (const p of classified.filter((c) => c.verdict === "unneeded")) {
       dropped.push(`${babel.source}: ${p.written} — ${p.reason}`);
     }
-    for (const p of classified.filter((c) => c.verdict === "unknown")) {
+    for (const p of classified.filter((c) => c.verdict === "unknown" && !byEngine(c))) {
       attention.push(`${babel.source}: ${p.reason}`);
     }
     if (babel.lazyImports.length) {
@@ -1007,15 +1283,9 @@ export function analyzeJestConfig(root: string): MigrationReport {
     );
   }
   // Vite's object form takes string keys only; a RegExp `find` needs the array form.
-  const aliasSource = regexAliases.length
+  const aliasSource = regexAlias
     ? `[\n      ...Object.entries(jestCompatAliases()).map(([find, replacement]) => ({ find, replacement })),\n` +
-      aliasEntries
-        .map((e) => {
-          const at = e.indexOf(": ");
-          return `      { find: ${e.slice(0, at)}, replacement: ${e.slice(at + 2)} },\n`;
-        })
-        .join("") +
-      regexAliases.map((e) => `      ${e},\n`).join("") +
+      aliasArray.map((e) => `      ${e},\n`).join("") +
       `    ]`
     : `{ ${["...jestCompatAliases()", ...aliasEntries].join(", ")} }`;
   // Under Vite+ the config is vite.config.ts with defineConfig from 'vite-plus', and
@@ -1028,9 +1298,9 @@ export function analyzeJestConfig(root: string): MigrationReport {
 import { jestCompatAliases, jestCompatSetup, jestMockTransform } from 'vitest-native/jest-compat'
 ${needsUrlImport ? "import { fileURLToPath } from 'node:url'\n" : ""}${extraImports.map((i) => `${i}\n`).join("")}
 export default defineConfig({
-  plugins: [${[transformLine, ...extraPlugins, "jestMockTransform()"].join(", ")}],
+  plugins: [${[transformLine, ...extraPlugins, transformCall].join(", ")}],
   resolve: {
-    dedupe: ['react', 'react-test-renderer', 'react-is'],
+    dedupe: [${DEDUPE_SOURCE}],
     alias: ${aliasSource},
   },
   test: {
@@ -1052,6 +1322,96 @@ export default defineConfig({
   };
 }
 
+type AstNode = { type: string; [key: string]: unknown };
+const isAstNode = (v: unknown): v is AstNode =>
+  !!v && typeof v === "object" && typeof (v as AstNode).type === "string";
+const stringValue = (n: unknown): string | undefined =>
+  isAstNode(n) && n.type === "StringLiteral" ? (n.value as string) : undefined;
+
+interface SetupStatement {
+  /** `jest.mock('<id>', …)` */
+  mocked?: string;
+  /** `require('<id>')` or `import '<id>'` */
+  request?: string;
+  imported?: boolean;
+  /** The mock's factory, when it has one. */
+  factory?: AstNode;
+}
+
+/**
+ * A setup file's top-level `jest.mock('<id>', …)`, `require('<id>')` and `import '<id>'`
+ * statements. Nothing when the file does not parse.
+ */
+function setupStatements(parse: Parse, code: string): SetupStatement[] {
+  let ast: AstNode;
+  try {
+    ast = parse(code, {
+      sourceType: "unambiguous",
+      plugins: ["typescript", "jsx"],
+      allowReturnOutsideFunction: true,
+      allowAwaitOutsideFunction: true,
+    }) as AstNode;
+  } catch {
+    return [];
+  }
+  const body = ((ast.program as AstNode | undefined)?.body ?? []) as AstNode[];
+  return body.flatMap((statement): SetupStatement[] => {
+    if (statement.type === "ImportDeclaration") {
+      const request = stringValue(statement.source);
+      const named = (statement.specifiers as unknown[] | undefined)?.length ?? 0;
+      return request !== undefined && named === 0 ? [{ request, imported: true }] : [];
+    }
+    if (statement.type !== "ExpressionStatement") return [];
+    const call = statement.expression;
+    if (!isAstNode(call) || call.type !== "CallExpression") return [];
+    const callee = call.callee as AstNode;
+    const args = call.arguments as AstNode[];
+    const id = stringValue(args[0]);
+    if (id === undefined) return [];
+    if (
+      callee.type === "MemberExpression" &&
+      !callee.computed &&
+      (callee.object as AstNode).type === "Identifier" &&
+      (callee.object as AstNode).name === "jest" &&
+      (callee.property as AstNode).name === "mock"
+    ) {
+      return [{ mocked: id, factory: args[1] }];
+    }
+    if (callee.type === "Identifier" && callee.name === "require" && args.length === 1) {
+      return [{ request: id }];
+    }
+    return [];
+  });
+}
+
+/** Whether a mock factory keeps part of the real module: `jest.requireActual`, a spread. */
+function keepsPartOfModule(node: unknown): boolean {
+  if (Array.isArray(node)) return node.some(keepsPartOfModule);
+  if (!isAstNode(node)) return false;
+  if (node.type === "SpreadElement") return true;
+  if (
+    node.type === "MemberExpression" &&
+    !node.computed &&
+    (node.property as AstNode).name === "requireActual"
+  ) {
+    return true;
+  }
+  return Object.entries(node).some(
+    ([key, value]) =>
+      ![
+        "loc",
+        "start",
+        "end",
+        "leadingComments",
+        "trailingComments",
+        "innerComments",
+        "extra",
+      ].includes(key) &&
+      typeof value === "object" &&
+      keepsPartOfModule(value),
+  );
+}
+
 /**
  * What each package a transformIgnorePatterns allowlist lets through needs here.
  * Jest compiles nothing in node_modules unless allowed, so its allowlists mix React
@@ -1067,12 +1427,18 @@ function classifyAllowlist(
   entries: AllowlistEntry[],
   active: readonly PresetName[],
   autoInlined: Set<string>,
-  out: { automatic: string[]; presetCovered: string[]; transformPkgs: string[] },
+  out: { automatic: string[]; transformPkgs: string[] },
 ): void {
+  const declared = new Set(declaredDependencies(root));
   const candidates = new Set([
-    ...declaredDependencies(root),
+    ...declared,
     ...entries.filter((e) => e.kind === "exact").map((e) => e.name),
   ]);
+  // A name only an optional group produces (`jest-react-native` from React Native's own
+  // `(jest-)?react-native`) is not the project's: absent, it is not worth a line.
+  const spelled = new Set(
+    entries.filter((e) => e.kind === "exact" && !e.expanded).map((e) => e.name),
+  );
   const groups = { rn: [] as string[], detected: [] as string[], absent: [] as string[] };
   const shadowed = new Map<string, string[]>();
   for (const pkg of [...candidates].sort()) {
@@ -1085,7 +1451,7 @@ function classifyAllowlist(
     } else if (autoInlined.has(pkg)) {
       groups.detected.push(pkg);
     } else if (!installedManifest(root, pkg)) {
-      groups.absent.push(pkg);
+      if (declared.has(pkg) || spelled.has(pkg)) groups.absent.push(pkg);
     } else {
       const evidence = untranspiledFile(root, pkg);
       if (evidence) {
@@ -1102,8 +1468,9 @@ function classifyAllowlist(
       `transformIgnorePatterns allows ${list(groups.rn)} — the native engine transforms React Native itself; nothing to do.`,
     );
   }
+  // Nothing to delete: the allowlist is not carried into the Vitest config at all.
   for (const [preset, pkgs] of shadowed) {
-    out.presetCovered.push(
+    out.automatic.push(
       `transformIgnorePatterns allows ${list(pkgs)} — shadowed by the auto-detected ${preset} preset; nothing to do.`,
     );
   }

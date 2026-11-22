@@ -1,8 +1,9 @@
-import React from "react";
+import { hosts } from "../host-classes.js";
 
-export function createViewMock() {
+export function createViewMock(React: typeof import("react")) {
+  const { hostComponent } = hosts(React);
   const View = React.forwardRef((props: any, ref: any) => {
-    return React.createElement("View", { ...props, ref });
+    return React.createElement(hostComponent("View"), { ...props, ref });
   });
   View.displayName = "View";
   return View;

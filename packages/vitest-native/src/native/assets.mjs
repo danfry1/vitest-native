@@ -26,6 +26,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
+import { relativeToRoot } from "./root-spelling.mjs";
 
 // metro-config/src/defaults/defaults.js `assetExts` (0.87): the extensions Metro
 // resolves as assets when a project's Metro config adds none. One list for the plugin
@@ -299,7 +300,8 @@ export function metroAssetDescriptor(file, { projectRoot, platform }) {
   // project root, under publicPath; a path escaping the root keeps its `..`.
   const expo = expoBundlesAssets(projectRoot);
   const publicPath = expo ? EXPO_PUBLIC_PATH : PUBLIC_PATH;
-  const localDir = path.dirname(path.relative(projectRoot, file));
+  // In whichever spelling of the root the file is under (root-spelling.mjs).
+  const localDir = path.dirname(relativeToRoot(projectRoot, file));
   let urlPath = (
     localDir.startsWith("..")
       ? `${publicPath.replace(/\/$/, "")}/${localDir}`

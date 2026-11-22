@@ -1,5 +1,9 @@
 # How It Works
 
+Under the native engine, React Native runs as it ships down to its native side, which is mocked, along with libraries' native code. Here it is beside Jest's React Native preset and the mock engine:
+
+<BoundaryDiagram />
+
 The `reactNative()` plugin does three things automatically, so you don't write any setup yourself.
 
 ## 1. Module resolution
@@ -42,6 +46,8 @@ You do **not** add anything to `setupFiles` yourself, and you do **not** manuall
 ## 4. Transform cache
 
 The plugin turns on Vitest's persistent transform cache (`fsModuleCache`), so warm runs reuse compiled modules from disk the way Jest reuses its transform cache. Vitest keys each entry on the module's source, the config file and its own version; the plugin adds its own version, its resolved options and a digest of the project's lockfile, so upgrading vitest-native or any dependency invalidates the cache. Set `test.fsModuleCache: false` to turn it off. The cache lives in `node_modules`, so a clean install clears it too.
+
+The plugin turns the cache on only in projects that use `reactNative()`. From Vitest 5.0.4, Vitest turns it on in every project by default. On Vitest 5.0.0 to 5.0.3 the cache is off unless a project sets it, so node or web projects in the same run transform every module again on each run. To cache them too on those versions, set `test.fsModuleCache: true` in each of those projects. With the cache on, Vitest 5 can keep a stale transform for an import that did not resolve ([vitest-dev/vitest#11789](https://github.com/vitest-dev/vitest/issues/11789)); [troubleshooting](/guide/troubleshooting#cannot-find-module-keeps-failing-after-the-missing-file-exists) says when it happens and how to recover.
 
 ## The native engine, specifically
 

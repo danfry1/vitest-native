@@ -1,8 +1,9 @@
+import { placeSetupFiles, runSetupFilesInOrder } from "./setup-files.js";
 import type { Plugin, ResolvedConfig, UserConfig } from "vite";
 import type { PoolRunnerInitializer } from "vitest/node";
-import type { VitestNativeOptions, ResolvedOptions, Preset } from "./types.js";
+import type { VitestNativeOptions, ResolvedOptions, Preset, PresetModule } from "./types.js";
 import { getConfiguredPlatformExtensions, getPlatformExtensions } from "./resolve.js";
-import { firstExact } from "./native/resolve.mjs";
+import { firstExact, platformSubpathFile } from "./native/resolve.mjs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -14,10 +15,12 @@ import {
   installedExpoVersion,
   isBelowSupportedReactNative,
   PEER_REQUIREMENTS,
+  belowRecommendedMessage,
   SUPPORTED_EXPO_SDKS,
   unsupportedExpoSdkMessage,
   unsupportedReactNativeMessage,
 } from "./peer-requirements.js";
+import { docsUrl } from "./docs-url.mjs";
 import { VitestNativeError, VitestNativeTypeError } from "./errors.mjs";
 import { assertSupportedNode } from "./node-range.js";
 import { presetFromModule } from "./preset-modules.mjs";
@@ -42,7 +45,21 @@ import {
 import { fsModuleCacheKey, shouldDefaultFsModuleCache } from "./fs-module-cache.js";
 import { knownNativeModulesFor, nativeModuleSpecsFor } from "./native/native-modules.mjs";
 import { JSX_TRANSFORM, nativeEngineConfig } from "./native/apply.js";
-import { isProjectJsFile, loadProjectJsx, projectJsxOptions } from "./project-jsx.js";
+import { REACT_DEDUPE } from "./native/react-dedupe.mjs";
+import {
+  isPackageJsFile,
+  isProjectJsFile,
+  loadPackageJsx,
+  loadProjectJsx,
+  projectJsxOptions,
+} from "./project-jsx.js";
+import {
+  createProjectBabel,
+  isProjectSourceFile,
+  missingBabelCoreNotice,
+} from "./project-babel.js";
+import { installedManifest } from "./installed-manifest.js";
+import type { ProjectBabel } from "./project-babel.js";
 import type { LoadChain } from "./project-jsx.js";
 import { detectEngine } from "./native/detect.js";
 import { aliasReachedPaths, detectEcosystemPackages } from "./native/ecosystem.js";
@@ -54,10 +71,15 @@ import {
   packageDirOf,
 } from "./native/match.mjs";
 type AssetModules = typeof import("./native/assets.mjs");
-import type { HotMemoryPlan } from "./native/memory.mjs";
+import { memoryLoweredWorkers, type HotMemoryPlan } from "./native/memory.mjs";
 import type { NativePoolOptions } from "./native/pool.js";
 import { workerVitestMismatch } from "./native/worker-vitest.js";
-import { OWNERSHIP_META_KEY, viteMarkerFor } from "./native/ownership-ledger.mjs";
+import {
+  OWNERSHIP_META_KEY,
+  OWNERSHIP_ROUTES,
+  OWNERSHIP_VIA,
+  viteMarkerFor,
+} from "./native/ownership-ledger.mjs";
 import {
   assertHostResolvesRunningVitest,
   assertHotWorkerLoadsRunningVitest,
@@ -71,6 +93,9 @@ import {
   type ProjectContextFields,
 } from "./context.mjs";
 import { cacheRootFor } from "./native/transform.mjs";
+import { HangWatch, debugging, hangTimeoutFor } from "./hang-watch.mjs";
+import inspector from "node:inspector";
+
 import type { NativeOwnershipPolicy } from "./native/ownership.mjs";
 import {
   createNativeOwnershipPolicy,
@@ -207,7 +232,9 @@ export function setupEntryFiles(setupFiles: unknown, projectRoot: string): strin
     // canonicalDir use) and the OS's (`realpathSync.native`), which differ on Windows
     // for 8.3 short names (#399).
     if (fs.existsSync(file)) {
+      // Node's spelling (fs.realpathSync), the one Module._cache and canonicalDir use.
       files.add(fs.realpathSync(file));
+      // The OS's spelling (realpathSync.native), which differs on Windows for 8.3 short names.
       files.add(fs.realpathSync.native(file));
     }
   }
@@ -666,6 +693,9 @@ async function startRegistryFor(options: RegistryOptions): Promise<StartedRegist
     return {};
   }
 }
+
+/** Recommended-floor warnings already printed in this process. */
+const warnedRecommended = new Set<string>();
 
 /** Vitest instances whose close already settles the background registry builds. */
 const registrySettlers = new WeakSet<object>();
@@ -1501,25 +1531,23 @@ export function pinInlineProjectRoots(test: unknown, declaringRoot: string): num
 }
 
 /**
- * Run React Native's setup before the user's own setup files.
- *
- * Vite merges a config hook's returned arrays AFTER the user's (`mergeConfig`
- * concatenates left to right), so returning `setupFiles: [ours]` ran every user setup
- * file first. A user setup that imports `@testing-library/react-native` or
- * `react-native` then reached Node before the require hooks existed and failed on
- * React Native's Flow source ("Unexpected token 'typeof'"). The hot runtime hid this
- * by installing the hooks at worker boot; every other run broke. Jest has the same
- * ordering contract: a preset's `setupFiles` run before the project's
- * `setupFilesAfterEnv`. Moving the entries into the user's list (and out of the merged
- * result) keeps a single copy of each at the front, in order.
+ * Run React Native's setup before the user's own setup files (placeSetupFiles). A user
+ * setup that imports `@testing-library/react-native` or `react-native` otherwise reached
+ * Node before the require hooks existed and failed on React Native's Flow source
+ * ("Unexpected token 'typeof'"). The hot runtime hid this by installing the hooks at
+ * worker boot; every other run broke. Jest has the same ordering contract: a preset's
+ * `setupFiles` run before the project's `setupFilesAfterEnv`. The entries move into the
+ * user's list and out of the merged result, so a single copy of each runs, first.
  */
 function prependSetupFile(userConfig: UserConfig, contributed: { setupFiles?: unknown }): void {
-  const ours = contributed.setupFiles as string[];
-  const userTest = ((userConfig as { test?: { setupFiles?: unknown } }).test ??= {});
+  const userTest = ((userConfig as { test?: Parameters<typeof placeSetupFiles>[0] }).test ??= {});
   const existing = userTest.setupFiles;
-  const userFiles = Array.isArray(existing) ? existing : existing == null ? [] : [existing];
-  if (userFiles.length === 0) return;
-  userTest.setupFiles = [...ours, ...userFiles.filter((f) => !ours.includes(f))];
+  if (existing == null || (Array.isArray(existing) && existing.length === 0)) {
+    // Nothing of the project's to run first: the merge lists ours alone, in order.
+    runSetupFilesInOrder(userTest);
+    return;
+  }
+  placeSetupFiles(userTest, contributed.setupFiles as string[]);
   contributed.setupFiles = [];
 }
 
@@ -1535,17 +1563,13 @@ function sameDirectory(a: string, b: string): boolean {
 // resolver's identityKey, the spelling Vite gives ids.
 const directoryKey = identityKey;
 
+// Compared by identityKey (the OS's spelling), which unifies a Windows 8.3 short name with
+// its long form, as two JS real paths do not.
 function hasSetupFile(setupFiles: unknown, file: string): boolean {
-  const real = (f: string) => {
-    try {
-      return fs.realpathSync(f);
-    } catch {
-      return path.resolve(f);
-    }
-  };
-  const wanted = real(file);
+  const wanted = identityKey(file);
   return (
-    Array.isArray(setupFiles) && setupFiles.some((f) => typeof f === "string" && real(f) === wanted)
+    Array.isArray(setupFiles) &&
+    setupFiles.some((f) => typeof f === "string" && identityKey(f) === wanted)
   );
 }
 
@@ -1569,12 +1593,21 @@ type GroupedProject = {
  * so a native project next to a mock or non-React-Native project failed on any machine
  * with more than five cores. Mirrors Vitest's resolveMaxWorkers and its grouping,
  * including the exemption for a single-worker isolated project in the default group.
+ *
+ * The remedy it names first is one worker count for the whole group: a separate
+ * groupOrder also avoids the clash, but Vitest runs groups one after another (#911).
+ * `lowered` is set when the hot project's memory plan held its count below the one
+ * requested, which is how projects given the same count (or none) differ on a machine
+ * with less memory; the message then names the admitted count. A count from
+ * `--maxWorkers` or `VITEST_MAX_WORKERS` (`flag`) reaches every project already, so
+ * there the remedy is a smaller value.
  */
 export function sharedGroupConflict(
   self: GroupedProject,
   others: readonly GroupedProject[],
   root: { maxWorkers?: unknown; watch?: boolean },
   cpus?: number,
+  lowered?: { admitted: number; requested: number; flag: boolean },
 ): string | null {
   const order = (p: GroupedProject) => Number(p.config.sequence?.groupOrder ?? 0);
   const workers = (p: GroupedProject) =>
@@ -1587,10 +1620,23 @@ export function sharedGroupConflict(
     if (other === self || ownGroup(other) || order(other) !== order(self)) continue;
     if (workers(other) !== workers(self)) {
       const name = String(other.name ?? other.config.name ?? "another project");
+      const admits =
+        lowered &&
+        `the memory plan admits ${lowered.admitted} of the ${lowered.requested} workers ` +
+          `requested on this machine; `;
+      const remedy = !lowered
+        ? `give every project in the group the same test.maxWorkers`
+        : lowered.flag
+          ? `${admits}every project takes the --maxWorkers or VITEST_MAX_WORKERS count, ` +
+            `so pass ${lowered.admitted} or fewer here`
+          : `${admits}give every project in the group the same test.maxWorkers, one the ` +
+            `smallest machine you run on admits`;
       return (
         `the project '${name}' is in the same sequence.groupOrder (${order(self)}) with ` +
         `${workers(other)} workers to this project's ${workers(self)}, which Vitest rejects ` +
-        `(a distinct test.sequence.groupOrder runs them as separate groups)`
+        `(${remedy}. A distinct test.sequence.groupOrder also works, but Vitest runs the ` +
+        `groups one after another. See ` +
+        `${docsUrl("/guide/hot-runtime#react-native-and-other-projects-in-one-run")})`
       );
     }
   }
@@ -1608,6 +1654,14 @@ function vmPoolUnsupported(pool: string): VitestNativeError {
       `Node's module hooks, which a VM pool's context does not use — React Native fails to ` +
       `resolve its platform files there. Use 'threads' (the default) or 'forks', or switch ` +
       `to engine:'mock', which needs no hooks.`,
+  );
+}
+
+/** hotRuntime: true beside a project in its group with another worker count. */
+function hotRuntimeGroupConflict(conflict: string): VitestNativeError {
+  return new VitestNativeError(
+    "HOT_RUNTIME_OVERRIDDEN",
+    `hotRuntime was requested, but ${conflict}.`,
   );
 }
 
@@ -1793,6 +1847,38 @@ export function ownershipGuardConfig(
   return { mode, allow };
 }
 
+/** One cause of the guard's: where Node's load began, and how. */
+interface OwnershipCause {
+  route: string;
+  origin: string;
+  files: Set<string>;
+  tests: Set<string>;
+  // How Node reached each file: its own route and Node's loader (diagnostics lists them).
+  reached: Map<string, { route: string; via?: string }>;
+}
+
+interface InstalledPackage {
+  name: string;
+  dir: string;
+}
+
+/**
+ * The installed package a file belongs to: the directory after its LAST `node_modules`
+ * (pnpm's store nests the real one under node_modules/.pnpm/<id>/node_modules/), with a
+ * scope when it has one. Null for a file outside node_modules (project or workspace source).
+ */
+export function installedPackageOf(file: string): InstalledPackage | null {
+  const parts = file.split(/[\\/]/);
+  const at = parts.lastIndexOf("node_modules");
+  if (at < 0 || at + 1 >= parts.length) return null;
+  const scoped = parts[at + 1].startsWith("@");
+  const end = at + (scoped ? 3 : 2);
+  if (end > parts.length - 1) return null; // the package directory itself, not a file in it
+  const name = parts.slice(at + 1, end).join("/");
+  const sep = file.includes("\\") && !file.includes("/") ? "\\" : "/";
+  return { name, dir: parts.slice(0, end).join(sep) };
+}
+
 /**
  * Prints the ownership guard's findings at the end of the run, whatever the reporter:
  * worker console output is dropped by `silent`, by reporters that print only failures,
@@ -1801,12 +1887,16 @@ export function ownershipGuardConfig(
  * `ownership.allow` entries that exempted nothing during the run.
  */
 export class OwnershipSummaryReporter {
-  private readonly found = new Map<string, Set<string>>();
+  // One entry per cause (where Node's load began, and how): the files it put in both
+  // module graphs and the test files it happened in.
+  private readonly found = new Map<string, OwnershipCause>();
   private readonly used = new Set<string>();
   private mode = "warn";
   constructor(
     private readonly allow: () => { path: string; reason: string }[],
     private readonly write: (text: string) => void = (text) => process.stderr.write(text),
+    // reactNative({ diagnostics: true }) in any project of the run: list every file.
+    private readonly diagnostics: () => boolean = () => false,
   ) {}
   // Watch mode re-runs in one process: each run reports what that run found.
   onTestRunStart(): void {
@@ -1814,17 +1904,39 @@ export class OwnershipSummaryReporter {
     this.used.clear();
     this.mode = "warn";
   }
+  private add(
+    route: string,
+    origin: string,
+    file: string,
+    test: string,
+    reached: { route: string; via?: string } = { route },
+  ): void {
+    const key = `${route}\0${origin}`;
+    let cause = this.found.get(key);
+    if (cause === undefined) {
+      cause = { route, origin, files: new Set(), tests: new Set(), reached: new Map() };
+      this.found.set(key, cause);
+    }
+    cause.files.add(file);
+    cause.tests.add(test);
+    if (!cause.reached.has(file)) cause.reached.set(file, reached);
+  }
   onTestModuleEnd(testModule: {
     moduleId: string;
     meta(): Record<string, unknown>;
     errors?(): readonly { message?: string }[];
   }): void {
-    const where = (route: string) =>
-      `${path.relative(process.cwd(), testModule.moduleId)} (${route})`;
+    const test = path.relative(process.cwd(), testModule.moduleId).split(path.sep).join("/");
     const data = testModule.meta()?.[OWNERSHIP_META_KEY] as
       | {
           mode: string;
-          conflicts: { file: string; second: string; route: string }[];
+          conflicts: {
+            file: string;
+            second: string;
+            route: string;
+            via?: string;
+            cause?: { route: string; file: string };
+          }[];
           allowUsed: string[];
         }
       | undefined;
@@ -1835,36 +1947,109 @@ export class OwnershipSummaryReporter {
         const match = /\[vitest-native\] (.+?) was evaluated by both Node and Vite/.exec(
           error.message ?? "",
         );
-        const route = /route\s+-> (.+)/.exec(error.message ?? "")?.[1] ?? "while collecting";
         if (!match) continue;
+        // Grouped by the cause, as in warn mode: the origin and its route when the message
+        // names one, else the file and its own route.
+        const origin = /origin\s+-> (.+?), which Node loaded through (.+?), and which loaded/.exec(
+          error.message ?? "",
+        );
+        const label =
+          origin?.[2] ?? /route\s+-> (.+)/.exec(error.message ?? "")?.[1] ?? "while collecting";
+        const route =
+          Object.entries(OWNERSHIP_ROUTES).find(([, r]) => r.label === label)?.[0] ?? label;
         this.mode = "error";
-        const at = this.found.get(match[1]) ?? new Set<string>();
-        at.add(where(route));
-        this.found.set(match[1], at);
+        this.add(route, origin?.[1] ?? match[1], match[1], test);
       }
       return;
     }
     if (data.mode === "error") this.mode = "error";
     for (const used of data.allowUsed) this.used.add(used);
     for (const conflict of data.conflicts) {
-      const at = this.found.get(conflict.file) ?? new Set<string>();
-      at.add(where(conflict.route));
-      this.found.set(conflict.file, at);
+      const cause = conflict.cause ?? { route: conflict.route, file: conflict.file };
+      this.add(cause.route, cause.file, conflict.file, test, {
+        route: conflict.route,
+        via: conflict.via,
+      });
     }
   }
   onTestRunEnd(): void {
     const lines: string[] = [];
     if (this.found.size > 0) {
-      lines.push(
-        `[vitest-native] ownership: ${this.found.size} file(s) were evaluated by both Node ` +
-          `and Vite (${this.mode === "error" ? "failed: ownership 'error'" : "warning; reactNative({ ownership: 'error' }) fails on it"}):`,
-      );
-      for (const [file, where] of this.found) {
-        lines.push(`  ${file}`, ...[...where].map((w) => `    in ${w}`));
+      const files = new Set([...this.found.values()].flatMap((cause) => [...cause.files]));
+      // Forward slashes on every platform, as the guard's other messages print paths.
+      const rel = (file: string, from = process.cwd()) =>
+        (path.relative(from, file) || file).split(path.sep).join("/");
+      const some = (items: Iterable<string>, size: number) =>
+        [...items].slice(0, 3).join(", ") + (size > 3 ? `, +${size - 3} more` : "");
+      const listAll = this.diagnostics();
+      // Causes that start in one installed package by one route are one problem with one
+      // fix: an installed package's TypeScript source is a cause per file (no file of it
+      // has a parent outside node_modules), so 14 files of one package read as 14 causes.
+      // They print as one line naming the package; project causes stay one line each.
+      const groups = new Map<
+        string,
+        { route: string; pkg: InstalledPackage | null; causes: OwnershipCause[] }
+      >();
+      for (const [key, cause] of this.found) {
+        const pkg = installedPackageOf(cause.origin);
+        const groupKey = pkg ? `${cause.route}\0package\0${pkg.dir}` : key;
+        let group = groups.get(groupKey);
+        if (!group) {
+          group = { route: cause.route, pkg, causes: [] };
+          groups.set(groupKey, group);
+        }
+        group.causes.push(cause);
       }
       lines.push(
-        "  See https://danfry1.github.io/vitest-native/guide/errors#SOURCE_EVALUATED_TWICE.",
+        `[vitest-native] ownership: ${files.size} file(s) were evaluated by both Node ` +
+          `and Vite (${this.mode === "error" ? "failed: ownership 'error'" : "warning; reactNative({ ownership: 'error' }) fails on it"}), ` +
+          `from ${this.found.size} cause(s)` +
+          (groups.size < this.found.size
+            ? `, ${groups.size} after grouping by installed package:`
+            : ":"),
       );
+      for (const group of groups.values()) {
+        const known = OWNERSHIP_ROUTES[group.route as keyof typeof OWNERSHIP_ROUTES];
+        const via = known?.label ?? group.route;
+        const reached = new Map(group.causes.flatMap((cause) => [...cause.reached]));
+        const tests = new Set(group.causes.flatMap((cause) => [...cause.tests]));
+        if (group.pkg && group.causes.length > 1) {
+          lines.push(
+            `  ${group.pkg.name} (installed package, ${rel(group.pkg.dir)}), loaded by Node ` +
+              `through ${via}: ${group.causes.length} cause(s), ${reached.size} file(s), ` +
+              `in ${some(tests, tests.size)}`,
+          );
+          if (!listAll) {
+            const names = [...reached.keys()].map((file) => rel(file, group.pkg!.dir));
+            lines.push(
+              `    files: ${some(names, names.length)}` +
+                (names.length > 3 ? " (reactNative({ diagnostics: true }) lists them all)" : ""),
+            );
+          }
+        } else {
+          const cause = group.causes[0];
+          const first = [...cause.files][0];
+          lines.push(
+            `  ${rel(cause.origin)}, loaded by Node through ${via}: ` +
+              `${cause.files.size} file(s), in ${some(cause.tests, cause.tests.size)}`,
+            // A file of the cause's when its origin is not itself one of them.
+            ...(cause.files.has(cause.origin) || listAll ? [] : [`    first: ${rel(first)}`]),
+          );
+        }
+        if (listAll) {
+          // Every file, with how Node reached it (#638): its own route, and Node's loader.
+          for (const [file, how] of reached) {
+            const label =
+              OWNERSHIP_ROUTES[how.route as keyof typeof OWNERSHIP_ROUTES]?.label ?? how.route;
+            const loader = how.via
+              ? (OWNERSHIP_VIA[how.via as keyof typeof OWNERSHIP_VIA] ?? how.via)
+              : null;
+            lines.push(`    file: ${rel(file)}, through ${label}${loader ? ` (${loader})` : ""}`);
+          }
+        }
+        if (known) lines.push(`    fix: ${known.fix}`);
+      }
+      lines.push(`  See ${docsUrl("/guide/errors#SOURCE_EVALUATED_TWICE")}.`);
     }
     const unused = this.allow().filter((entry) => !this.used.has(entry.path));
     if (unused.length > 0) {
@@ -1916,8 +2101,25 @@ export function withOwnershipMarker(
 /** The ownership summary of each running Vitest, and the exemption lists it reports on. */
 const ownershipSummaries = new WeakMap<
   object,
-  { sources: Set<Map<string, { path: string; reason: string }[]>> }
+  { sources: Set<Map<string, { path: string; reason: string }[]>>; diagnostics: boolean }
 >();
+
+/** The parts of a resolved Vitest config the hang watch reads (watchForHangs). */
+interface HangWatchConfig {
+  reporters?: unknown[];
+  testTimeout?: number;
+  hookTimeout?: number;
+  inspect?: unknown;
+  inspectBrk?: unknown;
+  execArgv?: readonly string[];
+}
+
+/**
+ * The key of the setter `vitest-native compare --hot` calls on every vitest-native plugin
+ * in a config (false | 'auto'), before any hook runs. Registered, so the CLI's wrapper finds
+ * it without importing this module; not an option.
+ */
+export const COMPARE_HOT_RUNTIME = Symbol.for("vitest-native.compare-hot-runtime");
 
 export function reactNative(options?: VitestNativeOptions): Plugin {
   // Before anything else: on an unsupported Node the loader hooks below are unreliable,
@@ -1936,6 +2138,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     {
       pool: unknown;
       userPool: unknown;
+      userRunner: unknown;
       userMaxWorkers: unknown;
       singleWorkerAccepted: boolean;
       // The enforced memory plan and what it was built from, so configureVitest can
@@ -2008,7 +2211,17 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // The resolved Vite config and its Oxc options for project `.js` files (project-jsx.ts).
   let viteConfig: ResolvedConfig | undefined;
   let projectJsx: ReturnType<typeof projectJsxOptions>;
-  const presetModules = new Map<string, () => Record<string, any>>();
+  // The project's Babel route per project root (project-babel.ts).
+  const projectBabels = new Map<string, ProjectBabel>();
+  // Keyed by path.resolve's spelling: Vite's config.root is `C:/…` on Windows, the root
+  // configureProject has is `C:\…`, and both must find the same route.
+  const projectBabelFor = (root: string | undefined): ProjectBabel | undefined =>
+    root === undefined ? undefined : projectBabels.get(path.resolve(root));
+  const presetModules = new Map<string, PresetModule["factory"]>();
+  // The preset that shadows each module (configResolved), and the Jest setup files of
+  // the libraries that run as themselves under the native engine (config()).
+  const presetNameByModule = new Map<string, string>();
+  let ownJestSetupFiles: readonly string[] = [];
   // Preset export names discovered by calling factories at config time.
   const presetExportNames = new Map<string, string[]>();
   let assetPattern: RegExp;
@@ -2065,6 +2278,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Vite and Node must land on the same file for a package, or it exists twice with
   // separate module-level state. Cached: resolveId runs for every import.
   const alignedCache = new Map<string, string | null>();
+  // An extensionless React Native subpath, the only kind platformSubpathFile changes
+  // here. Another package's `exports` map may send a subpath to an ESM or CommonJS
+  // build by condition, which a platform variant beside it must not replace.
+  const mayHavePlatformSubpath = (source: string): boolean =>
+    source.startsWith("react-native/") && !source.includes("?") && path.extname(source) === "";
   // Extensionless relative imports, shared by both engines (see the comment inside).
   const resolveExtensionless = (source: string, importer?: string): string | undefined => {
     // Extensionless relative imports, resolved as Metro does: platform extensions in
@@ -2215,6 +2433,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Native-engine setup file (shipped verbatim as dist/native/setup.mjs; the src
   // tree mirrors that layout so both built and source resolution find it here).
   const nativeSetupPath = path.resolve(thisDir, "native/setup.mjs");
+  const HANG_SETUP = path.resolve(thisDir, "hang-watch-setup.mjs");
   const EXPORT_RECOVERY_ARGV = [
     "--import",
     pathToFileURL(path.resolve(thisDir, "native/export-condition-recovery-preload.mjs")).href,
@@ -2222,6 +2441,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // Hot-runtime worker entry + runner (shipped verbatim alongside the setup file).
   const nativeWorkerPath = path.resolve(thisDir, "native/worker.mjs");
   const nativeRunnerPath = path.resolve(thisDir, "native/runner.mjs");
+  // Vitest's runner with compile locations on import failures (native/test-runner.mjs),
+  // for both engines, unless the project sets its own runner.
+  const testRunnerPath = path.resolve(thisDir, "native/test-runner.mjs");
+  const userRunnerOf = (config: UserConfig): unknown =>
+    (config as { test?: { runner?: unknown } }).test?.runner;
 
   // Seeded with bare React Native defaults, then replaced project-by-project by
   // the bounded Metro profile loader during config().
@@ -2242,13 +2466,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   // runtime's known per-file differences are detected and recovered (troubleshooting
   // guide). 'auto' opts in: the bounded hot runtime where config-time evidence shows
   // it is safe, per-file isolation otherwise, with the reason for any decline printed.
-  const hotRuntimeExplicit = options?.hotRuntime !== undefined;
-  const hotRuntimeOpt = options?.hotRuntime ?? false;
-  const hotRuntimeRequested = hotRuntimeOpt !== false;
-  const hotRecycle = typeof hotRuntimeOpt === "object" ? hotRuntimeOpt : {};
+  // `let`: `vitest-native compare --hot` sets the mode on every instance before any hook
+  // runs (COMPARE_HOT_RUNTIME below).
+  let hotRuntimeExplicit = options?.hotRuntime !== undefined;
+  let hotRuntimeOpt = options?.hotRuntime ?? false;
+  let hotRuntimeRequested = hotRuntimeOpt !== false;
+  let hotRecycle = typeof hotRuntimeOpt === "object" ? hotRuntimeOpt : {};
   // `{ mode: 'auto', … }` selects as 'auto' does and applies the object's recycling
   // options when hot runs.
-  const hotRuntimeAuto = hotRuntimeOpt === "auto" || hotRecycle.mode === "auto";
+  let hotRuntimeAuto = hotRuntimeOpt === "auto" || hotRecycle.mode === "auto";
   // Resolved at config() time, once the consumer project root is known. Seeded to a
   // safe default so the hooks (resolveId/load/transform), which run after config(),
   // never read undefined.
@@ -2293,6 +2519,23 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     return leaf !== null && (presetExportNames.get(pkg) ?? []).includes(leaf) ? null : pkg;
   };
 
+  /**
+   * `compare --hot` only (cli/compare-run.ts wrapper): run this config per file (false) or
+   * with hotRuntime 'auto', whatever the project set, so one config is compared in both
+   * modes. Keyed by a registered symbol and non-enumerable: not an option anyone writes.
+   */
+  // 'auto' keeps the project's own recycling options, so the runtime compared is the one it
+  // would ship (allowUnboundedMemory does not combine with 'auto').
+  const { allowUnboundedMemory: _unbounded, mode: _mode, ...userRecycle } = hotRecycle;
+  const setCompareHotRuntime = (value: false | "auto") => {
+    const auto = { ...userRecycle, mode: "auto" as const };
+    hotRuntimeExplicit = true;
+    hotRuntimeOpt = value === "auto" ? auto : false;
+    hotRuntimeRequested = value !== false;
+    hotRecycle = value === "auto" ? auto : {};
+    hotRuntimeAuto = value === "auto";
+  };
+
   const pluginDefinition = {
     name: "vitest-native",
     enforce: "pre",
@@ -2309,6 +2552,15 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         if (engine !== "native" || nativeOwnership === null) return null;
         if (nativeOwnership.decideFile(file).owner !== "node") return null;
         return { root: alignRoot, platform };
+      },
+      // For jestMockTransform(): what this plugin already stands in for a package with,
+      // whose manual mock in a __mocks__ folder it then leaves alone, or null. A preset
+      // shadows it, or the library runs with its own Jest setup.
+      packageCoveredBy: (spec: string): string | null => {
+        const preset = presetNameByModule.get(spec);
+        if (preset) return `the ${preset} preset`;
+        const setup = ownJestSetupFiles.find((file) => packageNameOf(file) === spec);
+        return setup ? `its own Jest setup (${setup})` : null;
       },
     },
 
@@ -2427,6 +2679,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       // What workers get: the project context's fields, and `env` for the few
       // variables read back from the config in this process (the memory plan).
       const fields: ProjectContextFields = { platform, diagnostics, projectRoot: resolvedRoot };
+      // jest-compat restores jest.replaceProperty() replacements before each test where the
+      // project sets restoreMocks, as Jest's restoreMocks does: Vitest's own setting restores
+      // only Vitest's mocks (jest-compat/setup.mjs).
+      if ((userConfig as { test?: { restoreMocks?: unknown } }).test?.restoreMocks === true) {
+        fields.restoreMocks = true;
+      }
       const env: Record<string, string> = {};
       // jest.requireActual resolves through Node, which does not apply resolve.alias.
       // Hand the serializable entries to the compat setup so an aliased specifier
@@ -2523,6 +2781,10 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       if (hotRuntimeRequested && hotRecycle.esmGeneration === false) {
         fields.hotEsmGeneration = false;
       }
+      // Only the opt-in is recorded: React and its renderer stay resident by default.
+      if (hotRuntimeRequested && hotRecycle.freshRuntime === true) {
+        fields.hotFreshRuntime = true;
+      }
       // A released module generation is safe to read only through Vitest's interop proxy,
       // which falls back to the module's default export (loader.mjs, releaseGenerations).
       // Without it a test file's late callback would read a cleared binding, so nothing is
@@ -2579,8 +2841,11 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // run ahead of the project's own.
         let ownJestSupport: string[] = [];
         if (!selection.listed) {
+          // Kept with the preset turned off (`presets: { gestureHandler: false }`): under
+          // this engine the library runs as itself either way, and its own Jest support
+          // is what replaces the native layer Node cannot load (#351).
           const librarySetupFiles = autoDetectPresetNames(resolvedRoot, diagnostics)
-            .filter((n) => !disabledNative.has(n) && !nativePresetNames.includes(n))
+            .filter((n) => !nativePresetNames.includes(n))
             .map((n) => LIBRARY_SETUP_FILES[n as PresetName])
             .filter((file): file is string => typeof file === "string");
           if (librarySetupFiles.length > 0) {
@@ -2590,6 +2855,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           // Jest support, so both module systems resolve them as Jest does, to `main`
           // (decision (d)): one file, the one their Jest setup and test utilities load.
           ownJestSupport = librarySetupFiles.map((request) => packageNameOf(request));
+          ownJestSetupFiles = librarySetupFiles;
           const pending = pendingResolverInputs.get(directoryKey(resolvedRoot));
           if (pending && ownJestSupport.length > 0) pending.ownJestSupport = ownJestSupport;
         }
@@ -2647,6 +2913,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // Workspace source the project imports through aliases (resolve.alias, and
         // tsconfig `paths` where Vite resolves them): a workspace member reached that way
         // has its dependencies walked like a declared one's.
+        // Dependencies of installed packages the run does not declare, which are not
+        // compiled: Node names them when a file of one cannot run (#883).
+        const scanFoundDependencies: [string, string, string][] = [];
         const ecosystem = detectEcosystemPackages(
           [resolvedRoot, ...includeRoots],
           transformPkgs,
@@ -2667,6 +2936,31 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
                     `(resolve.alias or tsconfig paths) but is not a dependency of this ` +
                     `package. Its installed React Native dependencies are compiled as if it ` +
                     `were declared; declaring it makes the dependency explicit.`,
+                );
+              }
+            },
+            onImportedUndeclared: (importer, name, dir, listed) => {
+              if (diagnostics) {
+                const how =
+                  listed === "devDependency"
+                    ? `lists it only in devDependencies`
+                    : `does not list it in its dependencies`;
+                console.log(
+                  `[vitest-native] ${importer} imports ${name} (${dir}) and ${how}. Node ` +
+                    `loads ${name} with ${importer}, so it is compiled for Node and the tests' ` +
+                    `imports share that copy; listing it in dependencies makes that explicit.`,
+                );
+              }
+            },
+            onScanFoundDependency: (dir, name, parent) => {
+              scanFoundDependencies.push([dir, name, parent]);
+            },
+            onImportScanTruncated: (pkg, limit) => {
+              if (diagnostics) {
+                console.log(
+                  `[vitest-native] ${pkg}: its imports were read from its first ${limit} ` +
+                    `files only. Workspace packages it imports from files past that, without ` +
+                    `listing them, are not compiled for Node.`,
                 );
               }
             },
@@ -2698,6 +2992,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         ].filter((dir) => !linkedDetectedDirs.some((detected) => containsPath(dir, detected)));
         if (projectDirs.length > 0) {
           fields.projectDirs = projectDirs;
+        }
+        if (scanFoundDependencies.length > 0) {
+          fields.scanFoundDependencies = scanFoundDependencies;
         }
         nativeOwnership = createNativeOwnershipPolicy({
           projectRoot: resolvedRoot,
@@ -2852,18 +3149,21 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         // from Vitest's worker arguments). It is built there, before any worker starts,
         // and waited for.
         //
-        // Otherwise, on a cache miss the registry compiles in the background and this run
-        // loads React Native file by file, which is the same React Native; a test file
-        // that starts after the registry lands uses it (startRegistryBuild records why,
-        // and the options rejected). It waits instead under the hot runtime (a hot worker
-        // keeps React Native resident from its first file), on CI (only total time counts
-        // there, and per-file loading costs more than the build on a large suite), and
-        // with `registryBuild: 'wait'` (or its test seam, registryWaitForced).
+        // Otherwise a cache miss is built before the run (`registryBuild: 'wait'`, the
+        // default). Files that start before a background build lands load React Native
+        // file by file, and compile it inside their tests: every worker the same files at
+        // once, since none is in the transform cache yet. On a cold run that is several
+        // times the build's own work, counted against the test timeout (#873). With
+        // `registryBuild: 'background'` the registry compiles beside the run and later
+        // files use it (startRegistryBuild records why, and the options rejected); it
+        // still waits under the hot runtime (a hot worker keeps React Native resident from
+        // its first file), on CI (only total time counts there), and under the test seam
+        // registryWaitForced.
         if (fields.ownershipModel) {
           pendingRegistries.set(directoryKey(resolvedRoot), registryOptions);
         } else if (
           hotMemory !== undefined ||
-          options?.registryBuild === "wait" ||
+          options?.registryBuild !== "background" ||
           (await loadRegistryProcess().then((rp) => rp.registryWaitForced() || rp.isCI()))
         ) {
           useRegistries(await buildRegistryFor(registryOptions));
@@ -2913,6 +3213,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           hotSelections.set(vitestRootOf(userConfig), {
             pool: hot.pool,
             userPool,
+            userRunner: userRunnerOf(userConfig),
             userMaxWorkers: userTest?.maxWorkers,
             singleWorkerAccepted: hotMemory?.allowUnboundedMemory === true,
             memory:
@@ -2946,6 +3247,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           nativeOwnership,
         );
         nativeConfig.test.env = withProjectContext(fields, env, resolvedRoot);
+        if (!hot && userRunnerOf(userConfig) == null) {
+          (nativeConfig.test as { runner?: string }).runner = testRunnerPath;
+        }
         return asCompatibleViteConfig(nativeConfig);
       }
 
@@ -3016,11 +3320,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           // Single React instance across test code, the mock, and the renderer —
           // avoids a null hooks dispatcher from duplicate react copies in some
           // consumer projects (e.g. mock FlatList's useImperativeHandle).
-          dedupe: ["react", "react-test-renderer", "test-renderer", "react-is"],
+          dedupe: [...REACT_DEDUPE],
         },
         test: {
           setupFiles: [setupFilePath, presetReadyPath],
           env: withProjectContext(fields, env, resolvedRoot),
+          ...(userRunnerOf(userConfig) == null ? { runner: testRunnerPath } : {}),
         },
       });
     },
@@ -3169,6 +3474,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           if (names === null) continue;
           shadows = true;
           presetModules.set(moduleName, presetModule.factory);
+          presetNameByModule.set(moduleName, preset.name);
           presetExportNames.set(moduleName, names);
         }
         // A preset listed by hand that finds none of its packages would shadow nothing,
@@ -3186,6 +3492,41 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
       }
       presetExportsByRoot.set(vitestRootOf(config), exportsByModule);
+
+      // projectBabel: the project's Babel config for the project source that needs a
+      // plugin Oxc does not cover (project-babel.ts). A Babel Vite plugin in the config
+      // (a babel() entry) runs its own plugin list on the output, which repeats an
+      // entry the engine already applied without effect, so this does not step aside.
+      const babelRoute = createProjectBabel(
+        config.root,
+        options?.projectBabel ?? "auto",
+        {
+          active: resolved.presets.map((preset) => preset.name as PresetName),
+          hasExpo: installedManifest(config.root, "expo") !== null,
+          platform: resolved.platform,
+          onCompile: diagnostics
+            ? (file, reasons) =>
+                console.log(`[vitest-native] projectBabel: ${file} (${reasons.join(", ")})`)
+            : undefined,
+        },
+        // Once per reason: at startup for the project root, then the first time a file
+        // compiles for a reason the root does not have (`overrides`, Flow).
+        (reasons) =>
+          console.log(
+            `[vitest-native] projectBabel: project source that needs it compiles with the ` +
+              `project's Babel config, for ${reasons.join(", ")}. ` +
+              `Set projectBabel: 'never' to compile it with Oxc only.`,
+          ),
+      );
+      if (babelRoute) projectBabels.set(path.resolve(config.root), babelRoute);
+      else projectBabels.delete(path.resolve(config.root));
+      // The native engine requires @babel/core; the mock engine does not, and without it
+      // the project's Babel config cannot be read (missingBabelCoreNotice).
+      if (!babelRoute) {
+        const notice = missingBabelCoreNotice(config.root, options?.projectBabel ?? "auto");
+        if (notice) console.warn(notice);
+      }
+      babelRoute?.announceRoot();
 
       // Read the facade's export list from React Native's own index.
       if (engine === "native") {
@@ -3248,7 +3589,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           ) ??
           alignedResolution(source, importer);
         const entryOf = assetPattern ? unexportedPresetSubpath(source) : null;
-        if (entryOf === null) return resolveReal();
+        if (entryOf === null) {
+          const real = resolveReal();
+          if (real !== undefined || !mayHavePlatformSubpath(source)) return real;
+          // A package's extensionless subpath lands on its platform file, as React
+          // Native's own require of it does (platformSubpathFile, #573).
+          return this.resolve(source, importer, { skipSelf: true }).then((hit) => {
+            if (!hit || hit.external) return hit;
+            const file = stripFsPrefix(hit.id.split("?")[0]);
+            const variant = platformSubpathFile(source, file, platform, sourceExts);
+            return variant === null ? hit : { ...hit, id: variant };
+          });
+        }
         // A subpath that resolves to the package's own entry (pkg/src) is the package,
         // and gets the root mock on every route (isPackageEntryFile).
         return this.resolve(source, importer, { skipSelf: true }).then((hit) =>
@@ -3289,15 +3641,34 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     load(id) {
-      // JSX in a project .js file, as Metro and babel-jest compile it (project-jsx.ts).
-      if (projectJsx && isProjectJsFile(id)) {
-        // Only a dev environment (Vitest's) has a plugin container to ask.
-        const env = this.environment as { pluginContainer?: LoadChain } | undefined;
-        return loadProjectJsx(
+      // Project source: with the project's Babel config where it needs a plugin Oxc does
+      // not cover (project-babel.ts), else JSX in a .js file as Metro and babel-jest
+      // compile it (project-jsx.ts). Only a dev environment (Vitest's) has a plugin
+      // container to ask first.
+      const chain = (this.environment as { pluginContainer?: LoadChain } | undefined)
+        ?.pluginContainer;
+      const jsx = () =>
+        loadProjectJsx(id, projectJsx, viteConfig, chain, diagnostics ? console.log : undefined);
+      const projectBabel = projectBabelFor(
+        (this.environment as { config?: { root?: string } } | undefined)?.config?.root,
+      );
+      if (projectBabel && isProjectSourceFile(id)) {
+        return projectBabel
+          .load(id, chain)
+          .then((compiled) =>
+            compiled == null && projectJsx && isProjectJsFile(id) ? jsx() : compiled,
+          );
+      }
+      if (projectJsx && isProjectJsFile(id)) return jsx();
+      // A package's .js file that Vite serves uncompiled and cannot parse: JSX in a
+      // package the native engine does not detect (#763). Native only: the mock engine
+      // compiles the packages it inlines through its own path.
+      if (engine === "native" && projectJsx && isPackageJsFile(id)) {
+        return loadPackageJsx(
           id,
           projectJsx,
           viteConfig,
-          env?.pluginContainer,
+          chain,
           diagnostics ? console.log : undefined,
         );
       }
@@ -3449,6 +3820,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     },
 
     transform(code, id) {
+      // A module loaded for a worker is progress the hang watch's events cannot show.
+      hangActivity?.();
       warnIfJestMockUnhoisted(code, id);
       // This hook is an ACTUAL observation that Vite claimed the file. A Node-owned
       // package reaching it is therefore not a hypothetical resolver disagreement:
@@ -3513,7 +3886,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     project,
     defineCacheKeyGenerator,
   }: {
-    defineCacheKeyGenerator?: (generator: () => string) => void;
+    defineCacheKeyGenerator?: (
+      generator: (context?: { id?: string; sourceCode?: string }) => string,
+    ) => void;
     vitest: {
       version?: string;
       distPath?: string;
@@ -3557,10 +3932,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       let summary = ownershipSummaries.get(vitest);
       if (!summary) {
         const sources = new Set<Map<string, { path: string; reason: string }[]>>();
-        const reporter = new OwnershipSummaryReporter(() =>
-          [...sources].flatMap((source) => [...source.values()].flat()),
+        const state = { sources, diagnostics: false };
+        const reporter = new OwnershipSummaryReporter(
+          () => [...sources].flatMap((source) => [...source.values()].flat()),
+          undefined,
+          () => state.diagnostics,
         );
-        summary = { sources };
+        summary = state;
         ownershipSummaries.set(vitest, summary);
         if (Array.isArray(vitest.reporters) && vitest.reporters.length > 0) {
           vitest.reporters.push(reporter);
@@ -3569,6 +3947,8 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
         }
       }
       summary.sources.add(ownershipAllow);
+      // Any project with diagnostics on lists every file of every cause (#638).
+      if (diagnostics) summary.diagnostics = true;
     }
     // The running Vitest, as Vitest states it, rather than the package a lookup from the
     // project root finds (host.ts).
@@ -3588,6 +3968,13 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           "UNSUPPORTED_PEER",
           `Unsupported peer dependencies:\n- ${error}`,
         );
+      // Below the recommended floor: it runs, with an upstream bug users would meet. Once
+      // per process, as each project of a run reaches this hook.
+      const advice = belowRecommendedMessage("vitest", vitest.version);
+      if (advice && !warnedRecommended.has(advice)) {
+        warnedRecommended.add(advice);
+        console.warn(`[vitest-native] ${advice}`);
+      }
     }
     if (backgroundRegistryRoots.has(directoryKey(root)) && !registrySettlers.has(vitest)) {
       registrySettlers.add(vitest);
@@ -3615,7 +4002,18 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       });
     }
     const cacheKey = cacheKeys.get(root);
-    if (cacheKey) defineCacheKeyGenerator?.(() => cacheKey);
+    // A project file compiled with the project's Babel config also depends on what that
+    // config loads for it: its plugins' versions and options, and the environment
+    // they may inline (projectBabel's cacheKey).
+    if (cacheKey) {
+      defineCacheKeyGenerator?.(
+        (context?: { id?: string; sourceCode?: string }) =>
+          cacheKey +
+          (context?.id
+            ? (projectBabelFor(root)?.cacheKey(context.id, context.sourceCode) ?? "")
+            : ""),
+      );
+    }
     // A project that shares a Vite server without this plugin's test config would
     // run without React Native's setup; say so instead of failing per file.
     const setupFile = contributedSetup.get(root);
@@ -3771,12 +4169,26 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
       override === null && selection.memory
         ? replanForVitestWorkers(selection.memory, projectConfig)
         : undefined;
-    const reason =
-      override ??
-      sharedGroupConflict(project, vitest.projects ?? [], {
-        maxWorkers: vitest.config?.maxWorkers,
-        watch: vitest.config?.watch,
-      });
+    // The plan that set this count: rebuilt for Vitest's count, or config()'s.
+    const plan = replanned ?? selection.memory?.plan;
+    const admitted = plan ? memoryLoweredWorkers(plan) : null;
+    const conflict =
+      override === null
+        ? sharedGroupConflict(
+            project,
+            vitest.projects ?? [],
+            { maxWorkers: vitest.config?.maxWorkers, watch: vitest.config?.watch },
+            undefined,
+            plan && admitted !== null
+              ? {
+                  admitted,
+                  requested: plan.requestedWorkers,
+                  flag: cli.maxWorkers !== undefined || Boolean(process.env.VITEST_MAX_WORKERS),
+                }
+              : undefined,
+          )
+        : null;
+    const reason = override ?? conflict;
     if (reason === null) {
       if (replanned && selection.memory) {
         applyHotMemoryPlan(selection.memory, replanned, projectConfig, diagnostics);
@@ -3793,10 +4205,12 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     }
     // Hot is off, so the count Vitest resolved applies as it stood.
     projectConfig.maxWorkers = vitestWorkers;
-    if (!hotRuntimeAuto) throw hotRuntimeOverridden(reason);
+    if (!hotRuntimeAuto) {
+      throw conflict !== null ? hotRuntimeGroupConflict(conflict) : hotRuntimeOverridden(reason);
+    }
     projectConfig.pool = cli.pool ?? selection.userPool ?? "threads";
     projectConfig.isolate = cli.isolate ?? true;
-    projectConfig.runner = undefined;
+    projectConfig.runner = (selection.userRunner as string | undefined) ?? testRunnerPath;
     // The memory plan may have capped the worker count; give back Vitest's own.
     if (cli.maxWorkers === undefined && !process.env.VITEST_MAX_WORKERS) {
       projectConfig.maxWorkers =
@@ -3819,6 +4233,67 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     hotSelections.delete(root);
     // The engine banner already said "hot runtime"; keep the log truthful.
     console.error(`[vitest-native] hot runtime off: ${reason}; Vitest's settings apply.`);
+  }
+
+  /** Tells this run's hang watch a module was loaded (HangWatch.activity). */
+  let hangActivity: (() => void) | undefined;
+
+  // hangTimeout (src/hang-watch.mjs): a reporter in the main process that fails a run
+  // whose tests stop making progress. Vitest builds its reporters after every
+  // configureVitest hook has returned, so one added here is in the run. One watch per
+  // resolved config (a watch-mode restart resolves a new one), to which each project's
+  // plugin contributes: on by default only where the hot runtime runs, or wherever a
+  // limit is set; `false` turns it off; the limit allows for every project's timeouts.
+  function watchForHangs(
+    context: {
+      vitest: { config?: HangWatchConfig; projects?: readonly { config?: unknown }[] };
+      project?: { config?: unknown };
+    },
+    hotActive: boolean,
+  ) {
+    const config = context.vitest.config;
+    if (!config?.reporters) return;
+    const projectConfig = context.project?.config as
+      | (HangWatchConfig & { setupFiles?: string[] })
+      | undefined;
+    const configs = [
+      config,
+      projectConfig,
+      ...(context.vitest.projects ?? []).map((p) => p.config as HangWatchConfig | undefined),
+    ];
+    const option = options?.hangTimeout;
+    const limit = hangTimeoutFor(typeof option === "number" ? option : undefined, {
+      testTimeout: Math.max(...configs.map((c) => c?.testTimeout ?? 0)),
+      hookTimeout: Math.max(...configs.map((c) => c?.hookTimeout ?? 0)),
+    });
+    const off = option === false || debugging(configs, process.execArgv, inspector.url());
+    const active = typeof option === "number" || hotActive;
+    let watch = config.reporters.find((r): r is HangWatch => r instanceof HangWatch);
+    if (!watch) {
+      const recordsDir = fs.mkdtempSync(path.join(os.tmpdir(), "vitest-native-hang-"));
+      process.once("exit", () => fs.rmSync(recordsDir, { recursive: true, force: true }));
+      watch = new HangWatch({ timeoutMs: null, recordsDir });
+      config.reporters.push(watch);
+    }
+    watch.contribute({ off, active, limit });
+    const current = watch;
+    hangActivity = () => current.activity();
+    // The worker side records each test's start (src/hang-watch-setup.mjs), for this
+    // project's workers, only while the watch can fire.
+    if (
+      active &&
+      !off &&
+      projectConfig?.setupFiles &&
+      !projectConfig.setupFiles.includes(HANG_SETUP)
+    ) {
+      // Through Vitest's provide/inject: worker settings never travel as environment.
+      const project = context.project as { provide?: (key: string, value: unknown) => void };
+      project.provide?.("vitestNativeHangWatch", {
+        dir: watch.recordsDir,
+        hookTimeout: projectConfig.hookTimeout ?? 10_000,
+      });
+      projectConfig.setupFiles.unshift(HANG_SETUP);
+    }
   }
 
   /**
@@ -3845,7 +4320,7 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
   const configHandler = pluginDefinition.config;
   const transformHandler = pluginDefinition.transform;
   // Vite's Plugin type does not declare Vitest's configureVitest hook.
-  return {
+  const plugin = {
     ...pluginDefinition,
     // Under the native engine the transform only checks ownership and inserts the
     // ownership guard's marker (withOwnershipMarker), which has to run after esbuild/oxc:
@@ -3902,6 +4377,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
               // by the worker at run time and never change a transform: kept out of the
               // key, so neither switching the mode or `allow` nor a cold cache
               // re-transforms anything.
+              // The worker context includes the ownership policy, so the packages Node
+              // compiles are in the key: source can change them without the lockfile (a
+              // workspace package importing a library it does not list, #692).
               withoutOwnershipGuard(
                 options,
                 (test as { env?: Record<string, string> }).env,
@@ -3932,10 +4410,20 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
     configureVitest(context: Parameters<typeof configureProject>[0]) {
       ownershipReady = undefined;
       configureProject(context);
+      // After configureProject, which settles whether this project runs on the hot runtime.
+      const projectRoot = context.project?.config?.root
+        ? path.resolve(context.project.config.root)
+        : process.cwd();
+      watchForHangs(context, hotSelections.has(projectRoot));
       // Under experimental.ownershipModel, the context is published once the registry
       // is built (configureProject); Vitest awaits this before starting any worker.
       const ready = ownershipReady as Promise<void> | undefined;
       return ready ? ready.then(() => verifyRunningVitest(context)) : verifyRunningVitest(context);
     },
   } as Plugin;
+  Object.defineProperty(plugin, COMPARE_HOT_RUNTIME, {
+    value: setCompareHotRuntime,
+    enumerable: false,
+  });
+  return plugin;
 }

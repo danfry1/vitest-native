@@ -1,0 +1,50 @@
+name: Upstream review
+
+# Opens the monthly upstream review issue (docs/upstream-policy.md, section 6) from
+# .github/upstream-review.md, once a month and on manual runs. One open review at a time:
+# if last month's is still open, nothing new is opened.
+on:
+  schedule:
+    - cron: '0 9 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  open-review:
+    name: Open the monthly upstream review
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/upstream-review.md
+          sparse-checkout-cone-mode: false
+
+      - name: Open the issue
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v7
+        with:
+          script: |
+            const fs = require('fs');
+            const month = new Date().toISOString().slice(0, 7);
+            const { data: open } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'upstream-review',
+            });
+            if (open.length > 0) {
+              core.notice(`An upstream review is still open (#${open[0].number}); not opening another.`);
+              return;
+            }
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Upstream review ${month}`,
+              body: fs.readFileSync('.github/upstream-review.md', 'utf8'),
+              labels: ['upstream-review'],
+            });
+            core.notice(`Opened #${issue.number}`);

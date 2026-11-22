@@ -100,6 +100,7 @@ To test Android-specific behavior, set the platform in config — `reactNative({
 
 ## Next steps
 
+- [Writing Tests](/guide/writing-tests) — queries, user events, async work and timers.
 - [Choosing an Engine](/guide/engines) — when to use `native` vs `mock`.
 - [Third-Party Presets](/guide/presets) — Reanimated, Navigation, and friends, auto-detected.
 - [Test Helpers](/guide/helpers) — the full helper API.

@@ -138,8 +138,6 @@ const CASES: Record<string, Case> = {
       "startScreenTransition",
       "steps",
       "stopMapper",
-      "useAnimatedSensor",
-      "useTimestamp",
       "withClamp",
       "withReanimatedTimer",
     ],

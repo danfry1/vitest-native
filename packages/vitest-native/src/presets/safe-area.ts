@@ -1,6 +1,6 @@
 import type { Preset } from "../types.js";
 import { vi } from "vitest";
-import React from "react";
+import { hosts } from "../mocks/host-classes.js";
 import { builtInPreset } from "./built-in.js";
 import { libraryMockModule, type LibraryMock } from "./library-mock.js";
 
@@ -37,7 +37,8 @@ export function safeAreaContext(): Preset {
           // there is no runtime binding to import. Declaring them made a value
           // import of a type resolve here and fail under Metro.
         ],
-        factory: () => {
+        factory: ({ React }) => {
+          const { hostComponent: hostClass, asHost } = hosts(React);
           const defaultInsets = { top: 47, right: 0, bottom: 34, left: 0 };
           const defaultFrame = { x: 0, y: 0, width: 390, height: 844 };
 
@@ -54,7 +55,11 @@ export function safeAreaContext(): Preset {
 
           // `initialMetrics` reaches the hooks through context, as in the library's mock.
           const SafeAreaProvider = React.forwardRef((props: any, ref: any) => {
-            const host = React.createElement("SafeAreaProvider", { ...props, ref }, props.children);
+            const host = React.createElement(
+              hostClass("SafeAreaProvider"),
+              { ...props, ref },
+              props.children,
+            );
             const metrics = props.initialMetrics;
             if (!metrics) return host;
             return React.createElement(
@@ -70,7 +75,7 @@ export function safeAreaContext(): Preset {
           SafeAreaProvider.displayName = "SafeAreaProvider";
 
           const SafeAreaView = React.forwardRef((props: any, ref: any) =>
-            React.createElement("SafeAreaView", { ...props, ref }, props.children),
+            React.createElement(hostClass("SafeAreaView"), { ...props, ref }, props.children),
           );
           SafeAreaView.displayName = "SafeAreaView";
 
@@ -102,7 +107,7 @@ export function safeAreaContext(): Preset {
 
           function withSafeAreaInsets(WrappedComponent: any) {
             const WithSafeAreaInsets = React.forwardRef((props: any, ref: any) =>
-              React.createElement(WrappedComponent, {
+              React.createElement(asHost(WrappedComponent), {
                 ...props,
                 ref,
                 insets: useSafeAreaInsets(),

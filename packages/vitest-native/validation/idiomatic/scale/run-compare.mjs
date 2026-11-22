@@ -3,6 +3,11 @@
 // fails under hot is a hot-specific correctness regression — the thing we're
 // hunting. Also reports wall-clock timing (the speedup).
 //
+// The negative control runs the same suite with `isolate: false` and no hot reset
+// (vitest.noisolate.mts), and must show regressions: if it does not, the probes no longer
+// see bleed, and a clean hot run would prove nothing. VN_FRESH=1 runs the hot side with
+// hotRuntime.freshRuntime.
+//
 // Usage: node run-compare.mjs [count]
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -18,7 +23,8 @@ console.log(`── generating ${count} files ──`);
 spawnSync(process.execPath, [path.join(here, "generate.mjs"), count], { stdio: "inherit" });
 
 function run(label, config) {
-  const out = path.join(here, `.${label}.json`);
+  // A file name from the label (it has spaces and punctuation; Windows refuses a colon).
+  const out = path.join(here, `.${label.replace(/[^A-Za-z0-9]+/g, "-")}.json`);
   fs.rmSync(out, { force: true });
   console.log(`\n── running ${label} ──`);
   const t0 = Date.now();
@@ -39,7 +45,9 @@ function run(label, config) {
 }
 
 const def = run("default", path.join(here, "vitest.default.mts"));
-const hot = run("hot", path.join(here, "vitest.hot.mts"));
+const hotLabel = process.env.VN_FRESH === "1" ? "hot (freshRuntime)" : "hot";
+const hot = run(hotLabel, path.join(here, "vitest.hot.mts"));
+const control = run("control (isolate: false, no reset)", path.join(here, "vitest.noisolate.mts"));
 
 // Diff: tests that regressed under hot (passed default, not-passed hot).
 const regressions = [];
@@ -66,5 +74,14 @@ if (hotOnlyPass.length) console.log(`(hot passed where default failed: ${hotOnly
 const cleanExits = def.exit === 0 && hot.exit === 0;
 const clean = regressions.length === 0 && def.total === hot.total && cleanExits;
 if (!cleanExits) console.log(`✗ non-zero vitest exit (default=${def.exit}, hot=${hot.exit})`);
+// The negative control: the probes must still see bleed where nothing resets it.
+const controlRegressions = [...def.status].filter(
+  ([name, status]) => status === "passed" && control.status.get(name) !== "passed",
+).length;
+const controlSees = controlRegressions > 0;
+console.log(
+  `control (isolate: false, no reset): ${control.passed}/${control.total} passed, ` +
+    `${controlRegressions} regression(s) against default ${controlSees ? "(the probes see bleed)" : "(NONE: the probes no longer see bleed, so a clean hot run proves nothing)"}`,
+);
 console.log(`\n${clean ? "✓ hot == default: ZERO correctness delta at scale" : "✗ correctness delta detected"}`);
-process.exit(clean ? 0 : 1);
+process.exit(clean && controlSees ? 0 : 1);

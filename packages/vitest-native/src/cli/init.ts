@@ -6,6 +6,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { usesVitePlus } from "../host.js";
+import { docsUrl } from "../docs-url.mjs";
+import { REACT_DEDUPE } from "../native/react-dedupe.mjs";
+
+/** The engine's own dedupe list, as config source. */
+const DEDUPE_SOURCE = REACT_DEDUPE.map((name) => `'${name}'`).join(", ");
 
 /**
  * Printed after `init` and `migrate`: the hot runtime is off by default, so a user
@@ -15,7 +20,7 @@ export const HOT_RUNTIME_NOTE = [
   "Hot runtime: off by default. `hotRuntime: 'auto'` reuses workers across test files instead of",
   "starting a fresh one per file. Whether that is faster depends on the suite, so measure it on yours.",
   "It has known differences from per-file isolation:",
-  "  https://danfry1.github.io/vitest-native/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files",
+  `  ${docsUrl("/guide/troubleshooting#a-test-passes-on-its-own-but-fails-when-run-with-other-files")}`,
 ];
 
 export interface InitOptions {
@@ -58,7 +63,7 @@ export default defineConfig({
   // Vitest's own mock hoister. Its position relative to reactNative() does not matter.
   plugins: [reactNative(), jestMockTransform()],
   resolve: {
-    dedupe: ['react', 'react-test-renderer', 'react-is'],
+    dedupe: [${DEDUPE_SOURCE}],
     alias: { ...jestCompatAliases() },
   },
   test: {

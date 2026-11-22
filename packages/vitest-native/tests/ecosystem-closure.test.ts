@@ -204,6 +204,156 @@ describe("ecosystem detection: dependency closure", () => {
  * the canonical React Native monorepo — the application's presence alone stopped the
  * library's tests from loading.
  */
+/**
+ * An installed React Native package the run does not declare (#688): a hoisted package an
+ * app imports without listing it. Node loads it through any require, and left undetected
+ * Vite evaluated it again for the test's imports: two copies of every file.
+ */
+describe("ecosystem detection: an installed React Native package nothing declares", () => {
+  const app = () =>
+    project(["react-native"], {
+      "react-native": {},
+      "rn-undeclared": { peerDeps: ["react-native"], deps: ["rn-undeclared-dep"] },
+      "rn-undeclared-dep": {},
+      "plain-undeclared": {},
+    });
+
+  it("is detected, and its own dependencies are not walked", () => {
+    const detected = detectEcosystemPackages(app());
+    expect(detected).toContain("rn-undeclared");
+    // Not seeded from: an unrelated sibling's package costs nothing until it loads.
+    expect(detected).not.toContain("rn-undeclared-dep");
+    expect(detected).not.toContain("plain-undeclared");
+  });
+
+  it("is not detected when transform.exclude names it, or a preset shadows it", () => {
+    // Each held package is undeclared React Native reachable only through the package
+    // the project excluded or a preset shadows: neither's real source loads, so nothing
+    // loads it. The scan finds it on its own, so it must be held back by that closure.
+    const root = project(["react-native"], {
+      "react-native": {},
+      "rn-excluded": { peerDeps: ["react-native"], deps: ["rn-held-by-exclude"] },
+      "rn-held-by-exclude": { peerDeps: ["react-native"] },
+      "react-native-screens": { peerDeps: ["react-native"], deps: ["rn-held-by-preset"] },
+      "rn-held-by-preset": { peerDeps: ["react-native"] },
+    });
+    const excludedAndShadowed = detectEcosystemPackages(root, [], [], ["rn-excluded"], ["screens"]);
+    expect(excludedAndShadowed).not.toContain("rn-excluded");
+    expect(excludedAndShadowed).not.toContain("rn-held-by-exclude");
+    expect(excludedAndShadowed).not.toContain("react-native-screens");
+    expect(excludedAndShadowed).not.toContain("rn-held-by-preset");
+    // With no exclusion and the preset off, the same packages are detected: the
+    // exclusion and the shadowing are what held them back.
+    const neither = detectEcosystemPackages(root, [], [], [], []);
+    expect(neither).toContain("rn-held-by-exclude");
+    expect(neither).toContain("rn-held-by-preset");
+  });
+
+  it("answers from the cache on the next detection, and rescans after an install", () => {
+    const root = app();
+    expect(detectEcosystemPackages(root)).toContain("rn-undeclared");
+    const cache = path.join(root, "node_modules", ".cache", "vitest-native");
+    const written = fs.readdirSync(cache).filter((f) => f.startsWith("installed-rn-"));
+    expect(written).toHaveLength(1);
+    // A hit: the next detection reads that file instead of every manifest, and writes none.
+    const before = fs.statSync(path.join(cache, written[0])).mtimeMs;
+    expect(detectEcosystemPackages(root)).toContain("rn-undeclared");
+    expect(fs.readdirSync(cache).filter((f) => f.startsWith("installed-rn-"))).toEqual(written);
+    expect(fs.statSync(path.join(cache, written[0])).mtimeMs).toBe(before);
+    // An install adds a package: node_modules changes, and the scan runs again.
+    const added = path.join(root, "node_modules", "rn-added");
+    fs.mkdirSync(added);
+    fs.writeFileSync(
+      path.join(added, "package.json"),
+      JSON.stringify({ name: "rn-added", peerDependencies: { "react-native": "*" } }),
+    );
+    expect(detectEcosystemPackages(root)).toContain("rn-added");
+  });
+});
+
+/**
+ * Two installed copies of one package (#883): hoisted, and nested under the package that
+ * needs another version. Each copy's own dependencies load with it, so both are walked.
+ * The walk was keyed by name, so whichever copy it reached first was the only one walked.
+ */
+describe("ecosystem detection: a nested copy of a dependency", () => {
+  /** Write `node_modules/<parent>/node_modules/<name>` with its own dependencies. */
+  function nested(root: string, parent: string, name: string, deps: string[]) {
+    const dir = path.join(root, "node_modules", parent, "node_modules", name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "package.json"),
+      JSON.stringify({
+        name,
+        version: "2.0.0",
+        main: "index.js",
+        dependencies: Object.fromEntries(deps.map((d) => [d, "*"])),
+      }),
+    );
+    fs.writeFileSync(path.join(dir, "index.js"), "module.exports = {};");
+  }
+
+  it.each([
+    ["hoisted user first", ["rn-hoisted-user", "rn-nested-user"]],
+    ["nested user first", ["rn-nested-user", "rn-hoisted-user"]],
+  ])("walks the dependencies of each copy (%s)", (_order, declares) => {
+    const root = project(declares, {
+      "react-native": {},
+      "rn-hoisted-user": { peerDeps: ["react-native"], deps: ["shared-lib"] },
+      "rn-nested-user": { peerDeps: ["react-native"], deps: ["shared-lib"] },
+      "shared-lib": { deps: ["only-hoisted-needs"] },
+      "only-hoisted-needs": {},
+      "only-nested-needs": {},
+    });
+    nested(root, "rn-nested-user", "shared-lib", ["only-nested-needs"]);
+    const detected = detectEcosystemPackages(root);
+    expect(detected).toContain("shared-lib");
+    expect(detected).toContain("only-hoisted-needs");
+    expect(detected).toContain("only-nested-needs");
+  });
+});
+
+/**
+ * One rule for peers (#883): a peer edge never follows an optional peer, however the peer
+ * was detected. The installed scan detects an installed React Native optional peer on its
+ * own, and the edge into a detected package then walked its whole closure.
+ */
+describe("ecosystem detection: an optional peer", () => {
+  function withPeer(optional: boolean) {
+    const root = project(["rn-lib"], {
+      "react-native": {},
+      "rn-lib": { peerDeps: ["react-native", "rn-peer"] },
+      "rn-peer": { peerDeps: ["react-native"], deps: ["peer-only-dep"] },
+      "peer-only-dep": {},
+    });
+    const manifest = path.join(root, "node_modules", "rn-lib", "package.json");
+    const lib = JSON.parse(fs.readFileSync(manifest, "utf8"));
+    if (optional) lib.peerDependenciesMeta = { "rn-peer": { optional: true } };
+    fs.writeFileSync(manifest, JSON.stringify(lib));
+    return root;
+  }
+
+  it("is detected when installed, and its dependencies are not walked", () => {
+    const detected = detectEcosystemPackages(withPeer(true));
+    expect(detected).toContain("rn-peer");
+    expect(detected).not.toContain("peer-only-dep");
+  });
+
+  it("is walked when the project declares it", () => {
+    const root = withPeer(true);
+    const manifest = path.join(root, "package.json");
+    fs.writeFileSync(
+      manifest,
+      JSON.stringify({ name: "app", dependencies: { "rn-lib": "*", "rn-peer": "*" } }),
+    );
+    expect(detectEcosystemPackages(root)).toContain("peer-only-dep");
+  });
+
+  it("is walked through a required peer edge into a detected package", () => {
+    expect(detectEcosystemPackages(withPeer(false))).toContain("peer-only-dep");
+  });
+});
+
 describe("ecosystem detection: an ESM-only closure member", () => {
   /** `project()` cannot express `type`/`exports`, so this writes the manifests. */
   function withEsmDependency(extra: Record<string, unknown>): string {
@@ -306,6 +456,23 @@ describe("ecosystem detection: whose closure gets walked", () => {
     expect(detected).not.toContain("toolchain-helpers");
   });
 
+  it("reports the dependencies of a package only a sibling declares, with that package (#883)", () => {
+    const found: [string, string, string][] = [];
+    detectEcosystemPackages(
+      path.join(workspaceWithSibling(), "packages", "lib"),
+      [],
+      [],
+      [],
+      undefined,
+      undefined,
+      { onScanFoundDependency: (dir, name, parent) => found.push([dir, name, parent]) },
+    );
+    expect(found.map(([, name, parent]) => [name, parent])).toContainEqual([
+      "toolchain-helpers",
+      "heavy-app",
+    ]);
+  });
+
   it("still walks the closure of a package the project declares", () => {
     // The discriminating half: this is what the closure walk exists for, and the
     // filter must not cost it.
@@ -330,6 +497,209 @@ describe("ecosystem detection: whose closure gets walked", () => {
     );
     const detected = detectEcosystemPackages(path.join(root, "packages", "lib"));
     expect(detected).toContain("toolchain-helpers");
+  });
+});
+
+/**
+ * A React Native workspace package that imports a workspace library without declaring
+ * it (#692). Node loads the library through the package's source, so it belongs to the
+ * closure (ADR-0004 rule 7) as a declared one does; left out, Vite evaluated it for the
+ * test's own import and the two copies kept separate state. Only unconditional,
+ * top-level imports count, read with the project's Babel parser.
+ */
+describe("ecosystem detection: a workspace member imported but not declared", () => {
+  type Options = {
+    /** packages/feature's own files, by path below it; src/index.ts is its entry. */
+    files: Record<string, string>;
+    feature?: Record<string, unknown>;
+    lib?: Record<string, unknown>;
+    /** Where the workspace links live: hoisted (node_modules) or per member (pnpm). */
+    layout?: "hoisted" | "pnpm";
+  };
+  function workspace({ files, feature = {}, lib = {}, layout = "hoisted" }: Options): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-undeclared-"));
+    roots.push(root);
+    const write = (rel: string, value: unknown) => {
+      const file = path.join(root, rel);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, typeof value === "string" ? value : JSON.stringify(value));
+    };
+    write("package.json", { name: "w", private: true, workspaces: ["packages/*", "apps/*"] });
+    write("apps/app/package.json", { name: "@w/app", dependencies: { "@w/feature": "*" } });
+    write("packages/feature/package.json", {
+      name: "@w/feature",
+      main: "src/index.ts",
+      peerDependencies: { "react-native": "*" },
+      ...feature,
+    });
+    for (const [rel, code] of Object.entries(files)) write(`packages/feature/${rel}`, code);
+    write("packages/lib/package.json", { name: "@w/lib", main: "src/index.ts", ...lib });
+    write("packages/lib/src/index.ts", "export const store = { value: null };\n");
+    write("packages/unused/package.json", { name: "@w/unused", main: "index.js" });
+    write("node_modules/plain-installed/package.json", { name: "plain-installed" });
+    // The workspace's links, as an install makes them: hoisted to the root, or (pnpm)
+    // only into the package that declares each one, here the app.
+    const linksAt = layout === "hoisted" ? "node_modules" : "apps/app/node_modules";
+    const links =
+      layout === "hoisted"
+        ? [
+            ["@w/feature", "packages/feature"],
+            ["@w/lib", "packages/lib"],
+            ["@w/unused", "packages/unused"],
+          ]
+        : [
+            ["@w/feature", "packages/feature"],
+            ["@w/lib", "packages/lib"],
+          ];
+    for (const [name, dir] of links) {
+      const link = path.join(root, linksAt, ...name.split("/"));
+      fs.mkdirSync(path.dirname(link), { recursive: true });
+      fs.symlinkSync(path.join(root, dir), link, "dir");
+    }
+    return path.join(root, "apps", "app");
+  }
+  const detect = (
+    app: string,
+    reported: string[] = [],
+    truncated: string[] = [],
+    importScanLimit?: number,
+  ) =>
+    detectEcosystemPackages(app, [], [], [], undefined, dependencyDirOf, {
+      importScanLimit,
+      onImportedUndeclared: (importer, name, _dir, listed) =>
+        reported.push(`${importer} imports ${name} (${listed})`),
+      onImportScanTruncated: (pkg, limit) => truncated.push(`${pkg} ${limit}`),
+    });
+
+  it("joins the closure of the package that imports it, and is reported", () => {
+    const reported: string[] = [];
+    const detected = detect(
+      workspace({
+        files: {
+          "src/index.ts":
+            'import { store } from "@w/lib";\nimport "plain-installed";\nexport { store };\n',
+        },
+      }),
+      reported,
+    );
+    expect(detected).toContain("@w/feature");
+    expect(detected).toContain("@w/lib");
+    expect(reported).toEqual(["@w/feature imports @w/lib (undeclared)"]);
+    // An installed package's undeclared import is not this edge's business, and a member
+    // nothing imports stays out.
+    expect(detected).not.toContain("plain-installed");
+    expect(detected).not.toContain("@w/unused");
+  });
+
+  it("counts a top-level require and a re-export, and follows relative imports", () => {
+    for (const files of [
+      { "src/index.ts": 'const { store } = require("@w/lib");\nexport { store };\n' },
+      { "src/index.ts": 'export { store } from "@w/lib";\n' },
+      { "src/index.ts": 'export * from "./inner";\n', "src/inner.ts": 'export * from "@w/lib";\n' },
+    ]) {
+      expect(detect(workspace({ files })), JSON.stringify(files)).toContain("@w/lib");
+    }
+  });
+
+  it("does not count a conditional require, a string, a comment or a type-only import", () => {
+    // Each would have joined the closure under a text scan; a parse sees none of them as
+    // an unconditional import. The control above is the same workspace with a real one.
+    for (const code of [
+      'declare const __DEV__: boolean;\nif (__DEV__) require("@w/lib");\nexport {};\n',
+      'export const sample = `import { store } from "@w/lib"`;\n',
+      '// import { store } from "@w/lib";\nexport {};\n',
+      'export function load() {\n  return require("@w/lib");\n}\n',
+      'import type { Store } from "@w/lib";\nexport type { Store };\n',
+      'import { type Store } from "@w/lib";\nexport type { Store };\n',
+    ]) {
+      const detected = detect(workspace({ files: { "src/index.ts": code } }));
+      expect(detected, code).toContain("@w/feature");
+      expect(detected, code).not.toContain("@w/lib");
+    }
+  });
+
+  it("reads every exports subpath, not only the root", () => {
+    const detected = detect(
+      workspace({
+        feature: {
+          exports: {
+            ".": "./src/index.ts",
+            "./native": "./src/native.ts",
+            // A workspace member is found through its manifest request (dependencyDirOf).
+            "./package.json": "./package.json",
+          },
+        },
+        files: {
+          "src/index.ts": "export const root = 1;\n",
+          "src/native.ts": 'export { store } from "@w/lib";\n',
+        },
+      }),
+    );
+    expect(detected).toContain("@w/lib");
+  });
+
+  it("applies the gate a declared dependency passes: an ES-module-only member stays out", () => {
+    // Declaring the dependency must not change the member's owner, so both edges agree.
+    const esmOnly = {
+      type: "module",
+      main: "src/index.js",
+      exports: { ".": "./src/index.js", "./package.json": "./package.json" },
+    };
+    const files = { "src/index.ts": 'import { store } from "@w/lib";\nexport { store };\n' };
+    const undeclared = detect(workspace({ files, lib: esmOnly }));
+    const declared = detect(
+      workspace({ files, lib: esmOnly, feature: { dependencies: { "@w/lib": "*" } } }),
+    );
+    expect(undeclared.includes("@w/lib")).toBe(declared.includes("@w/lib"));
+    expect(undeclared).not.toContain("@w/lib");
+  });
+
+  it("says when the library is listed only in devDependencies", () => {
+    const reported: string[] = [];
+    detect(
+      workspace({
+        feature: { devDependencies: { "@w/lib": "*" } },
+        files: { "src/index.ts": 'export { store } from "@w/lib";\n' },
+      }),
+      reported,
+    );
+    expect(reported).toEqual(["@w/feature imports @w/lib (devDependency)"]);
+  });
+
+  it("names a scan the file limit cut short", () => {
+    const files: Record<string, string> = {};
+    const imports: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      files[`src/f${i}.ts`] = "export {};\n";
+      imports.push(`import "./f${i}";`);
+    }
+    files["src/index.ts"] = `${imports.join("\n")}\n`;
+    const truncated: string[] = [];
+    detect(workspace({ files }), [], truncated, 3);
+    expect(truncated).toEqual(["@w/feature 3"]);
+    // Under the limit, nothing to report.
+    const whole: string[] = [];
+    detect(workspace({ files }), [], whole, 10);
+    expect(whole).toEqual([]);
+  });
+
+  it("does nothing under pnpm's layout, where Node cannot resolve the member from the package either", () => {
+    // pnpm links a workspace member only into the packages that declare it. @w/feature
+    // does not, so `@w/lib` resolves from neither the scan nor Node's require from
+    // feature's source: Node fails to load it there, so there is no second copy to avoid.
+    // Out of scope for this edge; the require's own error names the missing package.
+    const app = workspace({
+      layout: "pnpm",
+      files: { "src/index.ts": 'export { store } from "@w/lib";\n' },
+    });
+    const detected = detect(app);
+    expect(detected).toContain("@w/feature");
+    expect(detected).not.toContain("@w/lib");
+    expect(() =>
+      createRequire(path.join(app, "..", "..", "packages", "feature", "src", "index.ts")).resolve(
+        "@w/lib",
+      ),
+    ).toThrow();
   });
 });
 

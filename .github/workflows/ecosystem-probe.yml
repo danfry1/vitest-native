@@ -45,7 +45,7 @@ jobs:
       # the latest release: "Cannot read properties of null (reading 'edgesOut')". npm 11
       # resolves it. The probe measures library compatibility, not npm's resolver.
       - name: Use npm 11
-        run: npm install --global npm@11.20.0
+        run: node .github/scripts/install-global.mjs npm 11.20.0
 
       - name: Install and build the package
         run: |

@@ -1,0 +1,308 @@
+[
+  {
+    "export": "drawAsPicture",
+    "path": "drawAsPicture()",
+    "reason": "Skia's mock returns undefined, not a Promise",
+    "issue": "#709"
+  },
+  {
+    "export": "drawAsImage",
+    "path": "drawAsImage()",
+    "reason": "Skia's mock returns undefined, not a Promise",
+    "issue": "#709"
+  },
+  {
+    "export": "useClock",
+    "path": "useClock().get",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useClock",
+    "path": "useClock().set",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useClock",
+    "path": "useClock().addListener",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useClock",
+    "path": "useClock().removeListener",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useClock",
+    "path": "useClock().modify",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePathInterpolation",
+    "path": "usePathInterpolation().value",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePathInterpolation",
+    "path": "usePathInterpolation().get",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePathInterpolation",
+    "path": "usePathInterpolation().set",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePathInterpolation",
+    "path": "usePathInterpolation().addListener",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePathInterpolation",
+    "path": "usePathInterpolation().removeListener",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePathInterpolation",
+    "path": "usePathInterpolation().modify",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRectBuffer",
+    "path": "useRectBuffer()._isReanimatedSharedValue",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRectBuffer",
+    "path": "useRectBuffer()._value",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRectBuffer",
+    "path": "useRectBuffer().setDirtyFlag",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRectBuffer",
+    "path": "useRectBuffer().value",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRectBuffer",
+    "path": "useRectBuffer().get",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRectBuffer",
+    "path": "useRectBuffer().set",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRectBuffer",
+    "path": "useRectBuffer().addListener",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRectBuffer",
+    "path": "useRectBuffer().removeListener",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRectBuffer",
+    "path": "useRectBuffer().modify",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRSXformBuffer",
+    "path": "useRSXformBuffer()._isReanimatedSharedValue",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRSXformBuffer",
+    "path": "useRSXformBuffer()._value",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRSXformBuffer",
+    "path": "useRSXformBuffer().setDirtyFlag",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRSXformBuffer",
+    "path": "useRSXformBuffer().value",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRSXformBuffer",
+    "path": "useRSXformBuffer().get",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRSXformBuffer",
+    "path": "useRSXformBuffer().set",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRSXformBuffer",
+    "path": "useRSXformBuffer().addListener",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRSXformBuffer",
+    "path": "useRSXformBuffer().removeListener",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useRSXformBuffer",
+    "path": "useRSXformBuffer().modify",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePointBuffer",
+    "path": "usePointBuffer()._isReanimatedSharedValue",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePointBuffer",
+    "path": "usePointBuffer()._value",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePointBuffer",
+    "path": "usePointBuffer().setDirtyFlag",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePointBuffer",
+    "path": "usePointBuffer().value",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePointBuffer",
+    "path": "usePointBuffer().get",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePointBuffer",
+    "path": "usePointBuffer().set",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePointBuffer",
+    "path": "usePointBuffer().addListener",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePointBuffer",
+    "path": "usePointBuffer().removeListener",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "usePointBuffer",
+    "path": "usePointBuffer().modify",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useColorBuffer",
+    "path": "useColorBuffer()._isReanimatedSharedValue",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useColorBuffer",
+    "path": "useColorBuffer()._value",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useColorBuffer",
+    "path": "useColorBuffer().setDirtyFlag",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useColorBuffer",
+    "path": "useColorBuffer().value",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useColorBuffer",
+    "path": "useColorBuffer().get",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useColorBuffer",
+    "path": "useColorBuffer().set",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useColorBuffer",
+    "path": "useColorBuffer().addListener",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useColorBuffer",
+    "path": "useColorBuffer().removeListener",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useColorBuffer",
+    "path": "useColorBuffer().modify",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  },
+  {
+    "export": "useVideo",
+    "path": "useVideo()",
+    "reason": "Skia's mock returns null, not the video's shared values",
+    "issue": "#709"
+  },
+  {
+    "export": "useImageAsTexture",
+    "path": "useImageAsTexture()",
+    "reason": "Skia's mock gives { value } where a Reanimated shared value is declared",
+    "issue": "#709"
+  }
+]

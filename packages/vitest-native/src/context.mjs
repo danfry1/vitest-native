@@ -34,6 +34,7 @@ const SCHEMA = {
   assetExts: { valid: strings },
   hotPreserveGlobals: { valid: strings },
   hotEsmGeneration: { valid: (v) => typeof v === "boolean" },
+  hotFreshRuntime: { valid: (v) => v === true },
   sourceMaps: { valid: (v) => typeof v === "boolean" },
   hotReleaseGenerations: { valid: (v) => typeof v === "boolean" },
   registry: { valid: absolute },
@@ -42,8 +43,20 @@ const SCHEMA = {
   },
   libraryRegistry: { valid: absolute },
   ownership: { valid: object },
+  packageDirs: {
+    valid: (v) =>
+      object(v) &&
+      absolute(v.root) &&
+      object(v.dirs) &&
+      Object.values(v.dirs).every((dir) => dir === null || absolute(dir)),
+  },
   ownershipGuard: { valid: object },
   projectDirs: { valid: strings },
+  scanFoundDependencies: {
+    valid: (v) =>
+      Array.isArray(v) &&
+      v.every((e) => Array.isArray(e) && e.length === 3 && strings(e) && absolute(e[0])),
+  },
   requireAliases: {
     valid: (v) =>
       Array.isArray(v) && v.every((e) => Array.isArray(e) && e.length === 2 && strings(e)),
@@ -51,6 +64,7 @@ const SCHEMA = {
   requireAliasesSkipped: { valid: strings },
   presetNames: { valid: strings },
   nodeMocks: { valid: (v) => v === true },
+  restoreMocks: { valid: (v) => v === true },
   presetConfig: { valid: object },
   presetExports: { valid: object },
   presetModules: { valid: strings },

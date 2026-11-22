@@ -2,8 +2,13 @@ node_modules/
 dist/
 *.tgz
 .tmp/
+# Vitest reporter output (--reporter=json writes .vitest/json/output.json by default).
+.vitest/
 .turbo
 .DS_Store
+
+# Vercel's local link to the project (vercel link). Machine-local; never committed.
+.vercel/
 
 # VitePress build artifacts
 website/.vitepress/cache/

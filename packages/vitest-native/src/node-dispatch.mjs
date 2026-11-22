@@ -23,6 +23,8 @@ import { VitestNativeTypeError } from "./errors.mjs";
 export const LOAD_STEPS = Object.freeze({
   /** A library's own test support: its `@jest/globals` (native/library-jest.mjs). */
   librarySupport: 5,
+  /** jest-compat's shims for Jest-only packages, such as `@jest/globals` (jest-compat/setup.mjs). */
+  jestCompatShims: 7,
   /** jest-compat's per-file `jest.mock` registry (jest-compat/node-registry.mjs). */
   mocks: 10,
   /** A preset's module shadowing a package (native/hooks.mjs). */
@@ -35,6 +37,8 @@ export const LOAD_STEPS = Object.freeze({
 export const RESOLVE_STEPS = Object.freeze({
   /** The hot runtime's record of each resolution, for its per-file reset (module-reset.mjs). */
   tracker: 10,
+  /** One React for both module systems: Vite's dedupe list, from the renderer's anchor (native/react-dedupe.mjs). */
+  dedupe: 15,
   /** Metro platform resolution, aliases and the resolution memo (native/hooks.mjs). */
   hooks: 20,
   /** A missing `react-native` export target, resolved without it (export-condition-recovery.mjs). */

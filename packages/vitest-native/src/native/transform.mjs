@@ -14,6 +14,7 @@
 // resolving versions — pure waste when every file is served from disk. App source asks
 // it for its cache key, since only Babel can say which project configuration applies
 // (projectBabelOptions).
+import { projectBabelCaller } from "./babel-caller.mjs";
 import nodeModule, { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,7 @@ import crypto from "node:crypto";
 import vm from "node:vm";
 import { MessageChannel, receiveMessageOnPort, SHARE_ENV, Worker } from "node:worker_threads";
 import { decorateTransformError } from "./explain.mjs";
+import { relativeToRoot, rootSpellingOf } from "./root-spelling.mjs";
 import {
   handleToolchainRequest,
   IMPORT_META_LOWERING,
@@ -53,6 +55,7 @@ function canonicalRoot(projectRoot) {
   if (hit) return hit;
   let root;
   try {
+    // Node's spelling (fs.realpathSync): the transform cache's key, so it must stay stable.
     root = fs.realpathSync(projectRoot);
   } catch {
     root = path.resolve(projectRoot);
@@ -216,22 +219,9 @@ function ctxFor(projectRoot) {
 // as does app source in a project with no Babel config of its own.
 const NODE_MODULES = /[\\/]node_modules[\\/]/;
 
-/** The caller babel-jest passes (build/index.js:196-237), or jest-expo's for Expo. */
+/** The caller for Node's require of project source: CommonJS out (babel-caller.mjs). */
 function babelJestCaller(ctx, platform) {
-  const flags = {
-    // Jest's defaults for a CommonJS module without --experimental-vm-modules
-    // (jest-runtime 29.7, build/index.js:173-179).
-    supportsDynamicImport: false,
-    supportsExportNamespaceFrom: false,
-    supportsStaticESM: false,
-    supportsTopLevelAwait: false,
-  };
-  // jest-expo's platform presets configure babel-jest with a Metro caller carrying the
-  // platform (jest-expo 57, config/getPlatformPreset.js:48-66), which babel-preset-expo
-  // reads to inline Platform.OS and process.env.EXPO_OS (build/common.js, getPlatform).
-  // The engine runs one platform, so a project with Expo gets that preset's caller.
-  if (ctx.hasExpo) return { name: "metro", bundler: "metro", platform, ...flags };
-  return { name: "babel-jest", ...flags };
+  return projectBabelCaller({ hasExpo: ctx.hasExpo, platform, esm: false });
 }
 
 /**
@@ -241,12 +231,17 @@ function babelJestCaller(ctx, platform) {
  * (p95 0.3 ms), after a first call that loads the config's presets and plugins.
  */
 function projectBabelOptions(ctx, file, platform) {
-  if (!file.startsWith(ctx.root + path.sep) || NODE_MODULES.test(file)) return null;
+  if (NODE_MODULES.test(file)) return null;
+  // In whichever spelling of the root the file is under (root-spelling.mjs), which is
+  // also the one Babel gets as its root, so it finds the .babelrc files above the file.
+  const babelRoot = rootSpellingOf(ctx.root, file);
+  if (babelRoot === null || babelRoot === file) return null;
   let partial;
   try {
     partial = callToolchain({
       kind: "config",
       root: ctx.root,
+      babelRoot,
       file,
       caller: babelJestCaller(ctx, platform),
     });
@@ -259,7 +254,7 @@ function projectBabelOptions(ctx, file, platform) {
     // compiles that way.
     throw new VitestNativeError(
       "BABEL_IGNORES_FILE",
-      `Babel ignores ${path.relative(ctx.root, file).split(path.sep).join("/")}: the ` +
+      `Babel ignores ${relativeToRoot(ctx.root, file).split(path.sep).join("/")}: the ` +
         `project's Babel config excludes it through \`ignore\` or \`only\`, so it cannot ` +
         `be compiled for Node's require(). babel-jest fails the same way under Jest. ` +
         `Remove it from the config's \`ignore\`, or add it to \`only\`.`,
@@ -267,6 +262,7 @@ function projectBabelOptions(ctx, file, platform) {
   }
   if (partial.kind === "none") return null;
   return {
+    babelRoot,
     // babel-jest keys its cache on the loaded options (getCacheKeyFromConfig,
     // build/index.js:135-165): a function config's output can depend on the
     // environment or the caller, which no file's bytes show. The config files' own
@@ -338,6 +334,117 @@ export function transformCacheDir(projectRoot) {
   return contexts.get(canonicalRoot(projectRoot))?.cacheDir ?? null;
 }
 
+/** The specifier of `require("x")`, or null. */
+function requiredSpecifier(node) {
+  return node?.type === "CallExpression" &&
+    node.callee.type === "Identifier" &&
+    node.callee.name === "require" &&
+    node.arguments.length === 1 &&
+    node.arguments[0].type === "StringLiteral"
+    ? node.arguments[0].value
+    : null;
+}
+
+// Helpers that copy every export of a required module: TypeScript's (`__exportStar`,
+// `__export`) and esbuild's (`__reExport`).
+const REEXPORT_HELPERS = new Set(["__exportStar", "__export", "__reExport"]);
+
+/**
+ * The specifiers a CommonJS module re-exports whole, read from its AST: the forms
+ * cjs-module-lexer follows as re-exports.
+ *
+ * - `module.exports = require("x")`;
+ * - a spread in an object assigned to `module.exports`, as in esbuild's
+ *   `0 && (module.exports = { ...require("x") })` hint;
+ * - TypeScript's `__exportStar(require("x"), exports)` and esbuild's
+ *   `__reExport(target, require("x"), module.exports)`;
+ * - Babel's `var _x = require("x"); Object.keys(_x).forEach(…)`.
+ *
+ * Node reads a re-exported file from disk to find its names, past the module loader's
+ * hooks, so the names of a file the engine compiles are lost there (compiledReexports
+ * in loader.mjs). Returns [] for code that does not parse.
+ */
+export function cjsReexports(code) {
+  if (!/\brequire\s*\(/.test(code)) return [];
+  const ctx = anyContext();
+  if (!ctx) return [];
+  if (!ctx.babel) ctx.babel = ctx.req("@babel/core");
+  let ast;
+  try {
+    ast = ctx.babel.parseSync(code, { babelrc: false, configFile: false, sourceType: "script" });
+  } catch {
+    return [];
+  }
+  const found = new Set();
+  const required = new Map(); // `var _x = require("x")`: _x → "x"
+  const isModuleExports = (node) =>
+    node?.type === "MemberExpression" &&
+    !node.computed &&
+    node.object.type === "Identifier" &&
+    node.object.name === "module" &&
+    node.property.type === "Identifier" &&
+    node.property.name === "exports";
+  const visitExpression = (node) => {
+    if (!node) return;
+    if (node.type === "LogicalExpression" || node.type === "SequenceExpression") {
+      for (const part of node.type === "LogicalExpression"
+        ? [node.left, node.right]
+        : node.expressions)
+        visitExpression(part);
+      return;
+    }
+    if (node.type === "AssignmentExpression" && isModuleExports(node.left)) {
+      const direct = requiredSpecifier(node.right);
+      if (direct) found.add(direct);
+      if (node.right.type === "ObjectExpression") {
+        for (const property of node.right.properties) {
+          const spread =
+            property.type === "SpreadElement" ? requiredSpecifier(property.argument) : null;
+          if (spread) found.add(spread);
+        }
+      }
+      return;
+    }
+    if (node.type !== "CallExpression") return;
+    if (node.callee.type === "Identifier" && REEXPORT_HELPERS.has(node.callee.name)) {
+      for (const argument of node.arguments) {
+        const specifier = requiredSpecifier(argument) ?? required.get(argument.name);
+        if (specifier) found.add(specifier);
+      }
+      return;
+    }
+    // Object.keys(_x).forEach(…)
+    const callee = node.callee;
+    if (
+      callee.type === "MemberExpression" &&
+      callee.property.type === "Identifier" &&
+      callee.property.name === "forEach" &&
+      callee.object.type === "CallExpression" &&
+      callee.object.callee.type === "MemberExpression" &&
+      callee.object.callee.object.type === "Identifier" &&
+      callee.object.callee.object.name === "Object" &&
+      callee.object.callee.property.name === "keys" &&
+      callee.object.arguments[0]?.type === "Identifier"
+    ) {
+      const specifier = required.get(callee.object.arguments[0].name);
+      if (specifier) found.add(specifier);
+    }
+  };
+  for (const statement of ast.program.body) {
+    if (statement.type === "VariableDeclaration") {
+      for (const declaration of statement.declarations) {
+        const specifier = requiredSpecifier(declaration.init);
+        if (specifier && declaration.id.type === "Identifier") {
+          required.set(declaration.id.name, specifier);
+        }
+      }
+    } else if (statement.type === "ExpressionStatement") {
+      visitExpression(statement.expression);
+    }
+  }
+  return [...found];
+}
+
 /** Returns true if the source contains RN Flow syntax that must be transformed. */
 /** A valid identifier, so a name can appear in the shorthand export hint. */
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
@@ -392,7 +499,17 @@ export function cjsExportNames(code) {
   };
   for (const statement of ast.program.body) {
     if (statement.type !== "ExpressionStatement") continue;
-    const expression = statement.expression;
+    let expression = statement.expression;
+    // esbuild's dead hint for Node, `0 && (module.exports = { a, b })`, is the one place
+    // its CommonJS output names its exports: they are otherwise getters set up through
+    // `__export(target, { a: () => a })` and `module.exports = __toCommonJS(target)`.
+    if (
+      expression.type === "LogicalExpression" &&
+      expression.operator === "&&" &&
+      expression.right.type === "AssignmentExpression"
+    ) {
+      expression = expression.right;
+    }
     if (expression.type !== "AssignmentExpression" || expression.operator !== "=") continue;
     const target = expression.left;
     // `module.exports = { … }` / `exports = { … }` — take the literal's own keys.
@@ -675,8 +792,9 @@ function startToolchain() {
   const workerUrl = String(toolchainOptions.workerUrl ?? BABEL_WORKER);
   const worker = new Worker(TOOLCHAIN_BOOTSTRAP, {
     eval: true,
-    // Node's compile cache as the calling thread has it (compile-cache.mjs decides per
-    // thread, and leaves it off where it would only grow), so Babel loads from it too.
+    // Node's compile cache as the calling thread has it (vitest-native leaves it off; it is
+    // on when the developer sets NODE_COMPILE_CACHE or other code calls
+    // module.enableCompileCache), so Babel loads from it too.
     workerData: {
       port: port2,
       signal,
@@ -947,6 +1065,7 @@ export function transformRN(file, src, projectRoot, platform = "ios") {
         ? {
             kind: "transform",
             root: ctx.root,
+            babelRoot: projectConfig.babelRoot,
             file,
             src,
             project: true,

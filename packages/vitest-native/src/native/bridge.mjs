@@ -42,6 +42,7 @@ import { projectContext } from "../context.mjs";
 import { nodeDispatch } from "../node-dispatch.mjs";
 import { fetchSync } from "./bridge-client.mjs";
 import { BRIDGE_PROVIDE_KEY } from "./bridge-server.mjs";
+import { rootSpellings, under } from "./root-spelling.mjs";
 import { createNativeOwnershipPolicy, parseNativeOwnershipManifest } from "./ownership.mjs";
 
 const worker = () => globalThis.__vitest_worker__;
@@ -70,13 +71,17 @@ const DONE = "__vnBridgeDone";
 
 let policy = null;
 let roots = null;
-/** Inside the directories Vite serves project files from (the main process sends them). */
+/**
+ * Inside the directories Vite serves project files from (the main process sends them), in
+ * any spelling of them (root-spelling.mjs): Node's file name keeps the spelling its path
+ * was reached by, a Windows 8.3 short name too, while the roots may be long. Spelled once
+ * per worker, so each require is a string comparison.
+ */
 function inViteRoots(file) {
-  roots ??= worker()?.providedContext?.[BRIDGE_PROVIDE_KEY]?.roots ?? [];
-  return roots.some((root) => {
-    const relative = path.relative(root, file);
-    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-  });
+  roots ??= (worker()?.providedContext?.[BRIDGE_PROVIDE_KEY]?.roots ?? []).flatMap((root) =>
+    rootSpellings(root),
+  );
+  return roots.some((root) => under(file, root));
 }
 /**
  * Whether `file` is Vite's to evaluate: inside the directories Vite serves project files

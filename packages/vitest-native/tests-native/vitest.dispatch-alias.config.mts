@@ -1,6 +1,7 @@
 // An alias keyed on a preset package's name, the shape a Jest `moduleNameMapper` entry
 // for react-native-safe-area-context migrates to. Its own config: the alias would apply
 // to every file of the shared suite that imports the package.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";

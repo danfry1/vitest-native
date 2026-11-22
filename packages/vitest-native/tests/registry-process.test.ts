@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -5,6 +7,9 @@ import path from "node:path";
 import { afterAll, describe, expect, it, vi } from "vitest";
 // @ts-expect-error — internal runtime .mjs, intentionally not public API
 import {
+  COLD_WAIT_NOTICE_MS,
+  _resetColdWaitNotice,
+  _resetFailedRegistries,
   _setRegistryBuildOptions,
   buildRegistryFor,
   compileRegistryInChild,
@@ -17,7 +22,7 @@ import { reactNative } from "../src/index.js";
 import { runPluginConfig } from "./plugin-config.js";
 import { contextOf } from "./project-context-helpers.js";
 // @ts-expect-error — internal runtime .mjs, intentionally not public API
-import { lowerPriority } from "../src/native/bounded-process.mjs";
+import { lowerPriority, runBoundedProcess } from "../src/native/bounded-process.mjs";
 // @ts-expect-error — internal runtime .mjs, intentionally not public API
 import { registryKey } from "../src/native/registry.mjs";
 
@@ -32,7 +37,7 @@ function compiler(name: string, source: string): string {
 
 const respond = `
   import fs from "node:fs";
-  const options = JSON.parse(fs.readFileSync(0, "utf8"));
+  const options = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
   fs.writeSync(3, JSON.stringify({
     ok: true,
     registryFile: options.registryFile,
@@ -107,7 +112,7 @@ describe("bounded registry compiler process", () => {
       "ordinary-failure",
       `
         import fs from "node:fs";
-        fs.readFileSync(0, "utf8");
+        fs.readFileSync(process.argv[2], "utf8");
         fs.writeSync(3, JSON.stringify({ ok: false, error: "bad transform" }));
         process.exitCode = 1;
       `,
@@ -128,7 +133,7 @@ describe("bounded registry compiler process", () => {
       "oom-then-success",
       `
         import fs from "node:fs";
-        fs.readFileSync(0, "utf8");
+        fs.readFileSync(process.argv[2], "utf8");
         const heap = Number(process.execArgv[0].split("=")[1]);
         if (heap < 64) {
           process.stderr.write("FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\\n");
@@ -148,12 +153,134 @@ describe("bounded registry compiler process", () => {
     });
   });
 
+  it("gives a helper its input in a file and no stdin, so nothing to it can hold this process open", async () => {
+    // A pending stdin.end() to a helper held the event loop open; on Windows until the
+    // system had torn a stopped helper down, seconds on a loaded machine.
+    const dir = fs.mkdtempSync(path.join(fixtureRoot, "input-"));
+    const file = compiler("echo-input", `${respond}`);
+    let child: ReturnType<typeof spawn> | undefined;
+    const result = await runBoundedProcess(
+      file,
+      { registryFile: "x.cjs", projectRoot: "/p" },
+      {
+        initialHeapMb: 64,
+        retryHeapMb: 64,
+        inputDir: dir,
+        spawnProcess: (...args: Parameters<typeof spawn>) => (child = spawn(...args)),
+      },
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      received: { registryFile: "x.cjs", projectRoot: "/p" },
+    });
+    expect(child!.stdin).toBeNull();
+    expect(fs.readdirSync(path.join(dir, "helper-input"))).toEqual([]);
+  });
+
+  it("removes the input file however the helper ends", async () => {
+    const dir = fs.mkdtempSync(path.join(fixtureRoot, "cleanup-"));
+    const left = () => fs.readdirSync(path.join(dir, "helper-input"));
+    const base = { initialHeapMb: 64, retryHeapMb: 64, inputDir: dir };
+    const idle = compiler("idle", `setInterval(() => {}, 1_000);`);
+
+    // Answered.
+    await runBoundedProcess(compiler("answers", respond), {}, base);
+    expect(left()).toEqual([]);
+    // Stopped.
+    const controller = new AbortController();
+    const stopped = runBoundedProcess(idle, {}, { ...base, signal: controller.signal });
+    await vi.waitFor(() => expect(left()).toHaveLength(1));
+    controller.abort();
+    expect(await stopped).toMatchObject({ cancelled: true });
+    expect(left()).toEqual([]);
+    // Timed out.
+    expect(await runBoundedProcess(idle, {}, { ...base, timeoutMs: 100 })).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("exceeded 100ms"),
+    });
+    expect(left()).toEqual([]);
+    // Could not start.
+    const failed = await runBoundedProcess(
+      idle,
+      {},
+      {
+        ...base,
+        spawnProcess: () => {
+          throw new Error("spawn unavailable");
+        },
+      },
+    );
+    expect(failed).toMatchObject({ ok: false, error: "spawn unavailable" });
+    expect(left()).toEqual([]);
+    // Threw: a priority os.setPriority rejects outright.
+    await expect(runBoundedProcess(idle, {}, { ...base, priority: 999 })).rejects.toThrow();
+    expect(left()).toEqual([]);
+  });
+
+  it("removes this host's old input files whose writer has died, and no others", async () => {
+    // A run killed outright cannot remove its helper's input; a later one does. Another
+    // host's process ids mean nothing here (a project directory shared by containers),
+    // and a recent file may still be about to be read.
+    const dir = fs.mkdtempSync(path.join(fixtureRoot, "orphans-"));
+    const inputs = path.join(dir, "helper-input");
+    fs.mkdirSync(inputs);
+    const ended = spawn(process.execPath, ["-e", ""]);
+    await new Promise((done) => ended.on("exit", done));
+    const host = os
+      .hostname()
+      .replace(/[^a-z0-9]+/gi, "-")
+      .toLowerCase();
+    const name = (onHost: string, pid: number) =>
+      ["compiler", onHost, pid, crypto.randomUUID(), "json"].join(".");
+    const old = new Date(Date.now() - 60 * 60_000);
+    const files = {
+      deadOld: name(host, ended.pid!),
+      deadFresh: name(host, ended.pid!),
+      liveOld: name(host, process.ppid),
+      otherHostOld: name(`${host}-elsewhere`, ended.pid!),
+    };
+    for (const [kind, file] of Object.entries(files)) {
+      fs.writeFileSync(path.join(inputs, file), "{}");
+      if (kind !== "deadFresh") fs.utimesSync(path.join(inputs, file), old, old);
+    }
+    await runBoundedProcess(
+      compiler("answers-again", respond),
+      {},
+      {
+        initialHeapMb: 64,
+        retryHeapMb: 64,
+        inputDir: dir,
+      },
+    );
+    expect(fs.readdirSync(inputs).sort()).toEqual(
+      [files.deadFresh, files.liveOld, files.otherHostOld].sort(),
+    );
+  });
+
+  it("gives concurrent helpers input files of their own", async () => {
+    const dir = fs.mkdtempSync(path.join(fixtureRoot, "concurrent-"));
+    const file = compiler(
+      "names-input",
+      `import fs from "node:fs";
+       fs.writeSync(3, JSON.stringify({ ok: true, file: process.argv[2], input: JSON.parse(fs.readFileSync(process.argv[2], "utf8")) }));`,
+    );
+    const results = await Promise.all(
+      [1, 2, 3, 4].map((n) =>
+        runBoundedProcess(file, { n }, { initialHeapMb: 64, retryHeapMb: 64, inputDir: dir }),
+      ),
+    );
+    expect(results.map((r) => r.input.n)).toEqual([1, 2, 3, 4]);
+    expect(new Set(results.map((r) => r.file)).size).toBe(4);
+    for (const r of results) expect(path.dirname(r.file)).toBe(path.join(dir, "helper-input"));
+    expect(fs.readdirSync(path.join(dir, "helper-input"))).toEqual([]);
+  });
+
   it("kills and reports a compiler that exceeds its deadline", async () => {
     const file = compiler(
       "timeout",
       `
         import fs from "node:fs";
-        fs.readFileSync(0, "utf8");
+        fs.readFileSync(process.argv[2], "utf8");
         setInterval(() => {}, 1_000);
       `,
     );
@@ -193,22 +320,372 @@ describe("background registry build", () => {
   }
 
   /** A compiler that runs until it is aborted, or until `finish` is called. */
-  function heldCompiler() {
+  function heldCompiler(error = "finished without a registry") {
     const calls: { signal?: AbortSignal; priority?: number }[] = [];
-    let finish = () => {};
+    const finishers: (() => void)[] = [];
     const run = (
       _file: string,
       _options: unknown,
-      control: { signal?: AbortSignal; priority?: number },
+      // buildRegistryFor passes no control: it waits, and is never cancelled.
+      control: { signal?: AbortSignal; priority?: number } = {},
     ) => {
       calls.push(control);
       return new Promise<{ ok: boolean; cancelled?: boolean; error?: string }>((resolve) => {
-        finish = () => resolve({ ok: false, error: "finished without a registry" });
+        finishers.push(() => resolve({ ok: false, error }));
         control.signal?.addEventListener("abort", () => resolve({ ok: false, cancelled: true }));
       });
     };
-    return { compiler: run, calls, finish: () => finish() };
+    // Ends every compile started so far.
+    return { compiler: run, calls, finish: () => finishers.splice(0).forEach((end) => end()) };
   }
+
+  describe("notice while a cold run waits (#913)", () => {
+    const NOTICE = /building the precompiled module registry/;
+    /** The notices printed so far, and the spy to restore. */
+    function watchNotices() {
+      _resetColdWaitNotice();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      return {
+        notices: () => warn.mock.calls.filter(([line]) => NOTICE.test(String(line))),
+        restore: () => warn.mockRestore(),
+      };
+    }
+
+    it("prints one line to stderr once a held compile outlasts the threshold", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const watch = watchNotices();
+      try {
+        const held = heldCompiler();
+        const waiting = buildRegistryFor(coldOptions("slow-wait"), held.compiler);
+        await vi.advanceTimersByTimeAsync(COLD_WAIT_NOTICE_MS - 1);
+        expect(held.calls).toHaveLength(1);
+        expect(watch.notices()).toHaveLength(0);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(watch.notices()).toHaveLength(1);
+        // Still waiting, still one line.
+        await vi.advanceTimersByTimeAsync(COLD_WAIT_NOTICE_MS * 10);
+        expect(watch.notices()).toHaveLength(1);
+        // The wait then ends as before: here a failed compile, so per-file loading.
+        held.finish();
+        await vi.runAllTimersAsync();
+        expect(await waiting).toBeNull();
+        expect(watch.notices()).toHaveLength(1);
+      } finally {
+        watch.restore();
+        vi.useRealTimers();
+      }
+    });
+
+    it("prints one line for the run when several projects wait at once", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const watch = watchNotices();
+      try {
+        // ios and android on a cold cache: two entries, two compiles, one line.
+        const ios = heldCompiler();
+        const android = heldCompiler();
+        const waits = [
+          buildRegistryFor(coldOptions("both-ios"), ios.compiler),
+          buildRegistryFor(
+            { ...coldOptions("both-android"), platform: "android" },
+            android.compiler,
+          ),
+        ];
+        await vi.advanceTimersByTimeAsync(COLD_WAIT_NOTICE_MS * 2);
+        expect(ios.calls).toHaveLength(1);
+        expect(android.calls).toHaveLength(1);
+        expect(watch.notices()).toHaveLength(1);
+        ios.finish();
+        android.finish();
+        await vi.runAllTimersAsync();
+        await Promise.all(waits);
+        expect(watch.notices()).toHaveLength(1);
+      } finally {
+        watch.restore();
+        vi.useRealTimers();
+      }
+    });
+
+    it("never keeps the process alive with its timer", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const fakeSetTimeout = globalThis.setTimeout;
+      const unrefs: ReturnType<typeof vi.fn>[] = [];
+      // Wrap each handle's unref as it is created, before the caller can call it.
+      const spy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+        fn: () => void,
+        ms?: number,
+      ) => {
+        const handle = fakeSetTimeout(fn, ms) as unknown as { unref: () => unknown };
+        const unref = vi.fn(handle.unref.bind(handle));
+        handle.unref = unref;
+        unrefs.push(unref);
+        return handle;
+      }) as typeof setTimeout);
+      const watch = watchNotices();
+      try {
+        const held = heldCompiler();
+        const waiting = buildRegistryFor(coldOptions("unref-wait"), held.compiler);
+        expect(spy).toHaveBeenCalledWith(expect.any(Function), COLD_WAIT_NOTICE_MS);
+        const noticeTimer = spy.mock.calls.findIndex(([, ms]) => ms === COLD_WAIT_NOTICE_MS);
+        expect(unrefs[noticeTimer]).toHaveBeenCalledTimes(1);
+        held.finish();
+        await vi.runAllTimersAsync();
+        await waiting;
+      } finally {
+        watch.restore();
+        spy.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+
+    it("prints it too while a wait joins a held background build", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const watch = watchNotices();
+      try {
+        const options = coldOptions("slow-join");
+        const held = heldCompiler();
+        startRegistryBuild(options, held.compiler);
+        const waiting = buildRegistryFor(options, async () => ({ ok: false, error: "unused" }));
+        await vi.advanceTimersByTimeAsync(COLD_WAIT_NOTICE_MS);
+        expect(watch.notices()).toHaveLength(1);
+        held.finish();
+        await vi.runAllTimersAsync();
+        await waiting;
+        expect(watch.notices()).toHaveLength(1);
+      } finally {
+        watch.restore();
+        vi.useRealTimers();
+      }
+    });
+
+    it("prints nothing for a compile that ends before the threshold, and does not delay it", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const watch = watchNotices();
+      try {
+        const held = heldCompiler();
+        const waiting = buildRegistryFor(coldOptions("fast-wait"), held.compiler);
+        await vi.advanceTimersByTimeAsync(COLD_WAIT_NOTICE_MS - 1_000);
+        held.finish();
+        // Only the retry delays after a failed compile (150 ms in all) stand between
+        // the compiler and the result: no wait for the threshold.
+        await vi.advanceTimersByTimeAsync(150);
+        expect(await waiting).toBeNull();
+        await vi.advanceTimersByTimeAsync(COLD_WAIT_NOTICE_MS * 10);
+        expect(watch.notices()).toHaveLength(0);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        watch.restore();
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  describe("concurrent waits (#920)", () => {
+    /** Publish a registry for `options`, as a compiler that succeeded does. */
+    function publish(options: ReturnType<typeof coldOptions>) {
+      const key = registryKey(options) as string;
+      const registryDir = path.join(
+        options.projectRoot,
+        "node_modules",
+        ".cache",
+        "vitest-native",
+        "registry",
+      );
+      fs.mkdirSync(registryDir, { recursive: true });
+      const registryFile = path.join(registryDir, `rn-${options.platform}-${key}.cjs`);
+      fs.writeFileSync(registryFile, "module.exports = {};\n");
+      const manifestFile = path.join(options.projectRoot, "package.json");
+      const stat = fs.statSync(manifestFile);
+      fs.writeFileSync(
+        `${registryFile}.json`,
+        JSON.stringify({ key, count: 1, manifest: [[manifestFile, stat.mtimeMs, stat.size]] }),
+      );
+      return registryFile;
+    }
+
+    it("shares one build between waits for the same registry", async () => {
+      const options = coldOptions("joined-waits");
+      const held = heldCompiler();
+      const first = buildRegistryFor(options, held.compiler);
+      const second = buildRegistryFor({ ...options }, held.compiler);
+      await Promise.resolve();
+      expect(held.calls).toHaveLength(1);
+      const registryFile = publish(options);
+      held.finish();
+      const expected = { registry: registryFile, libraryRegistry: null };
+      expect(await first).toEqual(expected);
+      expect(await second).toEqual(expected);
+      expect(held.calls).toHaveLength(1);
+    });
+
+    it("still builds separately for each platform", async () => {
+      const ios = coldOptions("platform-waits");
+      const android = { ...ios, platform: "android" };
+      const held = heldCompiler();
+      const waits = [
+        buildRegistryFor(ios, held.compiler),
+        buildRegistryFor(android, held.compiler),
+      ];
+      await Promise.resolve();
+      expect(held.calls).toHaveLength(2);
+      const files = [publish(ios), publish(android)];
+      held.finish();
+      expect(await Promise.all(waits)).toEqual(
+        files.map((registry) => ({ registry, libraryRegistry: null })),
+      );
+    });
+
+    it("fails every waiter of a failed shared build the same way, without a retry", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const options = coldOptions("failed-waits");
+        // A reason of its own: each reason is reported once per process.
+        const held = heldCompiler("shared wait failed (#920)");
+        const waits = [
+          buildRegistryFor(options, held.compiler),
+          buildRegistryFor({ ...options }, held.compiler),
+        ];
+        await Promise.resolve();
+        held.finish();
+        expect(await Promise.all(waits)).toEqual([null, null]);
+        expect(held.calls).toHaveLength(1);
+        const reasons = warn.mock.calls.filter(([line]) =>
+          String(line).includes("shared wait failed (#920)"),
+        );
+        expect(reasons).toHaveLength(1);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("records a shared build whose compiler throws, so no waiter compiles again", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const options = coldOptions("thrown-waits");
+        let fail = (_error: Error) => {};
+        const throwing = vi.fn(
+          () =>
+            new Promise<never>((_resolve, reject) => {
+              fail = reject;
+            }),
+        );
+        const waits = [
+          buildRegistryFor(options, throwing),
+          buildRegistryFor({ ...options }, throwing),
+        ];
+        await Promise.resolve();
+        fail(new Error("compiler threw (#920)"));
+        expect(await Promise.all(waits)).toEqual([null, null]);
+        expect(await buildRegistryFor(options, throwing)).toBeNull();
+        expect(throwing).toHaveBeenCalledTimes(1);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    /** A project whose library entry resolves, so the library registry can be missing. */
+    function withLibrary(name: string) {
+      const options = coldOptions(name);
+      const library = path.join(options.projectRoot, "node_modules", `vn-${name}`);
+      fs.mkdirSync(library);
+      fs.writeFileSync(path.join(library, "package.json"), JSON.stringify({ name: `vn-${name}` }));
+      fs.writeFileSync(path.join(library, "index.js"), "module.exports = 1;\n");
+      return { options, libraryEntries: [`vn-${name}`] };
+    }
+
+    it("gives a wait for the same libraries the shared result, even without the library registry", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const { options, libraryEntries } = withLibrary("shared-library");
+        const held = heldCompiler();
+        const waits = [
+          buildRegistryFor({ ...options, libraryEntries }, held.compiler),
+          buildRegistryFor({ ...options, libraryEntries }, held.compiler),
+        ];
+        await Promise.resolve();
+        // React Native's registry only: the library registry did not build.
+        const registryFile = publish(options);
+        held.finish();
+        const expected = { registry: registryFile, libraryRegistry: null };
+        expect(await Promise.all(waits)).toEqual([expected, expected]);
+        expect(held.calls).toHaveLength(1);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("compiles the libraries a joined wait did not build for", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const { options, libraryEntries } = withLibrary("other-library");
+        const held = heldCompiler();
+        const without = buildRegistryFor(options, held.compiler);
+        const withLibraries = buildRegistryFor({ ...options, libraryEntries }, held.compiler);
+        await Promise.resolve();
+        expect(held.calls).toHaveLength(1);
+        publish(options);
+        held.finish();
+        await without;
+        // Joined, then compiled what the shared build left out.
+        await vi.waitFor(() => expect(held.calls).toHaveLength(2));
+        held.finish();
+        await withLibraries;
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("prints the cold-wait notice once when waits join", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      _resetColdWaitNotice();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const options = coldOptions("noticed-waits");
+        const held = heldCompiler();
+        const waits = [
+          buildRegistryFor(options, held.compiler),
+          buildRegistryFor({ ...options }, held.compiler),
+        ];
+        await vi.advanceTimersByTimeAsync(COLD_WAIT_NOTICE_MS * 2);
+        const notices = () =>
+          warn.mock.calls.filter(([line]) =>
+            String(line).includes("building the precompiled module registry"),
+          );
+        expect(notices()).toHaveLength(1);
+        publish(options);
+        held.finish();
+        await vi.runAllTimersAsync();
+        await Promise.all(waits);
+        expect(held.calls).toHaveLength(1);
+        expect(notices()).toHaveLength(1);
+      } finally {
+        warn.mockRestore();
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  it("falls back at once for an entry whose compile already failed in this process", async () => {
+    // #689: every later project or reload compiled again, each up to its timeout.
+    const options = coldOptions("failed-once");
+    const failing = vi.fn(async () => ({ ok: false, error: "compiler exceeded 120000ms" }));
+    expect(await buildRegistryFor(options, failing)).toBeNull();
+    expect(failing).toHaveBeenCalledTimes(1);
+    const again = vi.fn(async () => ({ ok: true, registryFile: "unused" }));
+    expect(await buildRegistryFor(options, again)).toBeNull();
+    expect(startRegistryBuild(options, again)).toEqual({});
+    expect(again).not.toHaveBeenCalled();
+  });
+
+  it("records a background failure too, so a later wait does not compile again", async () => {
+    const options = coldOptions("failed-background");
+    const held = heldCompiler();
+    startRegistryBuild(options, held.compiler);
+    held.finish();
+    await settleRegistryBuilds(1000);
+    const again = vi.fn(async () => ({ ok: true, registryFile: "unused" }));
+    expect(await buildRegistryFor(options, again)).toBeNull();
+    expect(again).not.toHaveBeenCalled();
+  });
 
   it("returns at once on a miss, at the lowest priority, and shares one compiler per entry", async () => {
     const options = coldOptions("shared");
@@ -417,6 +894,9 @@ describe("internal test seams", () => {
     try {
       _setRegistryBuildOptions({});
       await buildRegistryFor(options, record);
+      // The first compile failed, and a failed entry is not compiled again in this
+      // process: clear that, as this test is about what the compiler is handed.
+      _resetFailedRegistries();
       _setRegistryBuildOptions({ compilerDelayMs: 1234 });
       await buildRegistryFor(options, record);
     } finally {
@@ -489,25 +969,28 @@ describe("the plugin on a cold cache", () => {
   };
   const SERVE_ENV = { command: "serve", mode: "test" } as const;
 
-  it("waits for the build when a test forces it, and starts it in the background otherwise", async () => {
+  it("starts the build in the background only with registryBuild: 'background', and waits by default (#873)", async () => {
     const root = projectWithReactNative();
     try {
       vi.stubEnv("CI", "false");
       _setRegistryBuildOptions({});
       const background = contextOf(
-        await runPluginConfig(reactNative({ engine: "native" }) as any, { root }, SERVE_ENV),
+        await runPluginConfig(
+          reactNative({ engine: "native", registryBuild: "background" }) as any,
+          { root },
+          SERVE_ENV,
+        ),
       );
       expect(background.registryPending).toBeDefined();
       expect(background.registry).toBeUndefined();
       await settleRegistryBuilds(0, { cancelled: true });
-      _setRegistryBuildOptions({ wait: true });
-      const waited = contextOf(
-        await runPluginConfig(reactNative({ engine: "native" }) as any, { root }, SERVE_ENV),
-      );
       // Waited: no build left pending. (Whether this suite's workers can use the result is
       // another matter: their react-native is the mock engine's virtual module, see
       // tests/support/registry-wait.setup.ts, so the build is checked by mode, not by its file.)
-      expect(waited.registryPending).toBeUndefined();
+      const byDefault = contextOf(
+        await runPluginConfig(reactNative({ engine: "native" }) as any, { root }, SERVE_ENV),
+      );
+      expect(byDefault.registryPending).toBeUndefined();
     } finally {
       vi.unstubAllEnvs();
       _setRegistryBuildOptions({ wait: true });

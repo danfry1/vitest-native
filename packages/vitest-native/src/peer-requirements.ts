@@ -19,6 +19,15 @@ export interface PeerRequirement {
   optional?: boolean;
 }
 
+export interface RecommendedFloor {
+  /** The first release with the upstream fix. */
+  version: string;
+  /** The upstream issue, as `owner/repo#number`. */
+  issue: string;
+  /** What the bug does to a vitest-native user, in one clause. */
+  effect: string;
+}
+
 export const PEER_REQUIREMENTS: PeerRequirement[] = [
   // Vitest 5 and Vite 8 only (docs/versioning.md). Vitest 4 and Vite 6/7 are refused
   // with UNSUPPORTED_PEER rather than kept on compatibility paths. The ceiling stays one
@@ -179,4 +188,53 @@ export function unsupportedReactNativeMessage(version: string): string | null {
         `0.${minimumMinor} or later (Expo SDK ${SUPPORTED_EXPO_SDKS.minimum} or later).`
     : `react-native ${version} is newer than this release supports: ${supported}. ` +
         `Check for a newer vitest-native.`;
+}
+
+/**
+ * Recommended floors (docs/upstream-policy.md §2), by peer: releases below one have an
+ * upstream bug that reaches users but still run, so they get one startup warning and a
+ * doctor entry, never a refusal. The hard floor stays each peer's `minimum`.
+ */
+export const RECOMMENDED_FLOORS: Readonly<Record<string, RecommendedFloor>> = {
+  vitest: {
+    version: "5.1.0",
+    issue: "vitest-dev/vitest#11682",
+    effect:
+      'a startup error is hidden behind "No test files found" and a formatter crash, with Vite 8.3.5 or later',
+  },
+};
+
+/**
+ * The warning for a peer installed below its recommended floor, or null when it is at or
+ * above it (or has none). Shared by the plugin's startup warning and doctor.
+ */
+export function belowRecommendedMessage(name: string, version: string): string | null {
+  const floor = RECOMMENDED_FLOORS[name];
+  if (!floor || satisfiesMinimum(version, floor.version)) return null;
+  return (
+    `${name} ${version} is below the recommended ${floor.version}: ${floor.effect} ` +
+    `(${floor.issue}, fixed in ${floor.version}). It still runs; upgrade to ${floor.version} ` +
+    `or later to avoid it.`
+  );
+}
+
+/**
+ * Whether `version` is at least `minimum`. Prerelease and build metadata are stripped
+ * before splitting: "4.0.0-beta.3" split on "." put NaN in the patch slot, so a prerelease
+ * sharing the minimum's major.minor (vitest 4.0.0-beta.x against a 4.0.0 floor) failed the
+ * check. A prerelease of the minimum itself is accepted, deliberately: rejecting it broke
+ * early adopters, and vite and vitest do not publish patch-level prereleases.
+ */
+export function satisfiesMinimum(version: string, minimum: string): boolean {
+  const parse = (v: string) =>
+    v
+      .replace(/^[^0-9]*/, "")
+      .split(/[-+]/)[0]
+      .split(".")
+      .map(Number);
+  const [aMaj, aMin = 0, aPat = 0] = parse(version);
+  const [bMaj, bMin = 0, bPat = 0] = parse(minimum);
+  if (aMaj !== bMaj) return aMaj > bMaj;
+  if (aMin !== bMin) return aMin > bMin;
+  return aPat >= bPat;
 }

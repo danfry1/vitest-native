@@ -3,7 +3,7 @@
 //
 //   node validation/bug-museum/run.mjs [--only id,id] [--class ownership,...]
 //        [--build <vitest-native package dir>] [--json <file>] [--work <dir>] [--keep]
-//        [--ownership off|resolver]
+//        [--ownership off|resolver] [--hot off|auto]
 //
 //   --build   the package under test (default: this package). It must be built; its
 //             package.json + dist are copied into each exhibit's node_modules.
@@ -23,6 +23,20 @@
 //             build that does not read the flag records every exhibit N/A ("flag not
 //             supported by this build") and exits 0; an exhibit whose reactNative() never
 //             saw the flag fails. Verdicts record the model; status.mjs refuses them.
+//   --node-mocks on|off
+//             the nodeMocks axis (../config-axes/node-mocks.mjs): every reactNative() call
+//             gets experimental.nodeMocks true (on) or false (off); absent, the option is
+//             unset. With --ownership, both go in one experimental object. Unsupported
+//             builds are recorded N/A, as for --ownership; a combination the build rejects
+//             ('resolution' with nodeMocks off) is recorded N/A as not runnable, with the
+//             build's message. Verdicts record nodeMocks; status.mjs refuses them.
+//
+//   --hot off|auto
+//             the hotRuntime default axis (lib/materialise.mjs wrapForHot): every exhibit
+//             with hotRuntime false, or 'auto' (an exhibit written for the hot runtime keeps
+//             its own under 'auto'). Each verdict records `hot: { mode, source, engaged }`:
+//             whether the exhibit or the axis chose the mode, and whether the run's engine
+//             banner reports the hot runtime ('auto' declines with one worker, say).
 //
 // Every exhibit asserts the CORRECT behaviour, so it PASSes only on a build without the
 // bug. A run PASSes only when all three witnesses agree (lib/accounting.mjs): the process
@@ -43,17 +57,36 @@ import {
   findRntl,
   materialise,
   museumRoot,
-  OWNERSHIP_MARKER,
+  EXPERIMENTAL_MARKER,
+  HOT_MARKER,
   packageRoot,
 } from "./lib/materialise.mjs";
 import { ownershipModelArgument, ownershipSupport } from "../config-axes/ownership.mjs";
+import {
+  experimentalEntries,
+  nodeMocksArgument,
+  nodeMocksSupport,
+} from "../config-axes/node-mocks.mjs";
 import { classify, validateSignature } from "./lib/verdict.mjs";
+import { cliArguments, parseArguments } from "../../scripts/support/arguments.mjs";
 
-const argument = (name) => {
-  const index = process.argv.indexOf(`--${name}`);
-  return index === -1 ? undefined : process.argv[index + 1];
+const ARGUMENTS = {
+  script: "run.mjs",
+  valued: ["only", "class", "build", "work", "json", "ownership", "node-mocks", "hot"],
+  flags: ["keep", "control", "allow-na"],
 };
-const flag = (name) => process.argv.includes(`--${name}`);
+
+/** The runner's arguments; throws on one it does not read (scripts/support/arguments.mjs). */
+export function checkArguments(args) {
+  return parseArguments(args, ARGUMENTS).values;
+}
+
+/** `experimental.ownershipModel: resolver, experimental.nodeMocks: true`, for messages. */
+export function experimentalLabel(entries) {
+  return Object.entries(entries)
+    .map(([name, value]) => `experimental.${name}: ${value}`)
+    .join(", ");
+}
 
 export const CLASSES = [
   "ownership",
@@ -188,12 +221,34 @@ function runExhibit(original, context) {
     );
   }
   const seconds = Number(((Date.now() - started) / 1000).toFixed(1));
-  // The axis is evidence only where the flag reached the plugin: an exhibit whose config
-  // never called the wrapped reactNative() ran with the flag off.
-  if (context.ownershipModel !== "off" && !fs.existsSync(path.join(root, OWNERSHIP_MARKER)))
-    failures.push(
-      `museum: experimental.ownershipModel: ${context.ownershipModel} never reached reactNative()`,
-    );
+  // The axes are evidence only where the flags reached the plugin: an exhibit whose config
+  // never called the wrapped reactNative() ran with them unset.
+  if (
+    Object.keys(context.experimental).length > 0 &&
+    !fs.existsSync(path.join(root, EXPERIMENTAL_MARKER))
+  )
+    failures.push(`museum: ${experimentalLabel(context.experimental)} never reached reactNative()`);
+  let hot;
+  if (context.hotMode !== null) {
+    const marker = path.join(root, HOT_MARKER);
+    const calls = fs.existsSync(marker)
+      ? fs.readFileSync(marker, "utf8").split("\n").filter(Boolean)
+      : [];
+    if (calls.length === 0)
+      failures.push(`museum: --hot ${context.hotMode} never reached reactNative()`);
+    hot = {
+      mode: context.hotMode,
+      // "overrode": `off` turned off the hot runtime the exhibit asked for, so its
+      // verdict says nothing about the mode; compare such exhibits apart.
+      source: calls.includes("exhibit")
+        ? "exhibit"
+        : calls.includes("overrode")
+          ? "overrode"
+          : "axis",
+      // The engine banner names the hot runtime when it runs (plugin.ts).
+      engaged: /\(platform [^)]*, hot runtime[,)]/.test(output),
+    };
+  }
   const checkFile = path.join(root, "check.mjs");
   if (fs.existsSync(checkFile)) {
     // check.mjs gets the combined output on stdin and the exhibit root as its argument;
@@ -207,7 +262,8 @@ function runExhibit(original, context) {
   }
   if (!context.keep) fs.rmSync(root, { recursive: true, force: true });
   const debug = process.env.MUSEUM_DEBUG ? { output: output.slice(-4000) } : {};
-  if (failures.length === 0) return { verdict: "PASS", seconds, ...debug };
+  const axis = hot ? { hot } : {};
+  if (failures.length === 0) return { verdict: "PASS", seconds, ...axis, ...debug };
   const { matchesBug, why } = classify(exhibit, expected, failures);
   return {
     verdict: "FAIL",
@@ -215,24 +271,34 @@ function runExhibit(original, context) {
     failures: failures.map((line) => line.slice(0, 500)),
     matchesBug,
     ...(why ? { why: why.slice(0, 1000) } : {}),
+    ...axis,
     ...debug,
   };
 }
 
+/** The --hot value, validated: null when absent (exhibits run as written). */
+function hotModeArgument(value) {
+  if (value === undefined) return null;
+  if (value !== "off" && value !== "auto")
+    throw new Error(`--hot must be "off" or "auto", not "${value}"`);
+  return value;
+}
+
 function main() {
+  const options = cliArguments(ARGUMENTS).values;
   const exhibits = readExhibits();
-  const only = argument("only")?.split(",");
-  const classes = argument("class")?.split(",");
+  const only = options.only?.split(",");
+  const classes = options.class?.split(",");
   const selected = exhibits.filter(
     (e) => (!only || only.includes(e.id)) && (!classes || classes.includes(e.class)),
   );
   if (only)
     for (const id of only)
       if (!exhibits.some((e) => e.id === id)) throw new Error(`no exhibit ${id}`);
-  const build = path.resolve(argument("build") ?? packageRoot);
+  const build = path.resolve(options.build ?? packageRoot);
   const provenance = buildInfo(build);
-  const work = argument("work")
-    ? path.resolve(argument("work"))
+  const work = options.work
+    ? path.resolve(options.work)
     : fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vn-bug-museum-")));
   fs.mkdirSync(work, { recursive: true });
   // Exhibits link the build's own installed packages (lib/materialise.mjs): a build from
@@ -246,12 +312,18 @@ function main() {
     work: fs.realpathSync(work),
     build,
     deps,
-    keep: flag("keep"),
-    control: flag("control"),
-    ownershipModel: ownershipModelArgument(argument("ownership")),
+    keep: Boolean(options.keep),
+    control: Boolean(options.control),
+    ownershipModel: ownershipModelArgument(options.ownership),
+    nodeMocks: nodeMocksArgument(options["node-mocks"]),
+    hotMode: hotModeArgument(options.hot),
   };
-  // A build without the flag would ignore it: say so instead of measuring "off" twice.
-  const support = ownershipSupport(build, context.ownershipModel);
+  context.experimental = experimentalEntries(context);
+  // A build without a flag would ignore it: say so instead of measuring "off" twice. The
+  // ownership answer comes first; nodeMocks is asked only of a build that reads it.
+  let support = ownershipSupport(build, context.ownershipModel);
+  if (support.supported)
+    support = nodeMocksSupport(build, context.nodeMocks, context.ownershipModel);
 
   const verdicts = {};
   for (const exhibit of selected) {
@@ -274,6 +346,7 @@ function main() {
       deps: { sha: depsProvenance.sha },
       exhibit: exhibitHash(museumRoot, exhibit),
       ...(context.ownershipModel === "off" ? {} : { ownershipModel: context.ownershipModel }),
+      ...(context.nodeMocks === null ? {} : { nodeMocks: context.nodeMocks }),
     };
     const tag =
       verdict.verdict === "FAIL"
@@ -287,19 +360,25 @@ function main() {
         : verdict.verdict === "FAIL"
           ? verdict.failures[0]
           : "";
-    console.log(`${tag.padEnd(18)} ${exhibit.id.padEnd(40)} ${verdict.seconds ?? "-"}s  ${detail}`);
+    const hotTag = verdict.hot
+      ? ` [hot ${verdict.hot.source === "exhibit" ? "set by exhibit" : verdict.hot.source === "overrode" ? "off, exhibit asked for it" : verdict.hot.mode}${verdict.hot.engaged ? ", ran hot" : ""}]`
+      : "";
+    console.log(
+      `${tag.padEnd(18)} ${exhibit.id.padEnd(40)} ${verdict.seconds ?? "-"}s${hotTag}  ${detail}`,
+    );
     if (process.env.MUSEUM_DEBUG && verdict.output) console.log(verdict.output);
   }
   const count = (v) => Object.values(verdicts).filter((x) => x.verdict === v).length;
   const model =
-    context.ownershipModel === "off"
+    (Object.keys(context.experimental).length === 0
       ? ""
-      : `, experimental.ownershipModel: ${context.ownershipModel}`;
+      : `, ${experimentalLabel(context.experimental)}`) +
+    (context.hotMode === null ? "" : `, --hot ${context.hotMode}`);
   console.log(
     `\n${count("PASS")} pass, ${count("FAIL")} fail, ${count("N/A")} n/a (build: ${build}, ${provenance.sha}${provenance.ref ? ` = ${provenance.ref}` : ""}${model})`,
   );
-  if (argument("json")) {
-    const out = path.resolve(argument("json"));
+  if (options.json) {
+    const out = path.resolve(options.json);
     fs.mkdirSync(path.dirname(out), { recursive: true });
     const previous = fs.existsSync(out)
       ? JSON.parse(fs.readFileSync(out, "utf8"))
@@ -308,13 +387,14 @@ function main() {
     const merged = { verdicts: { ...previous.verdicts, ...verdicts } };
     fs.writeFileSync(out, `${JSON.stringify(merged, null, 2)}\n`);
   }
-  if (!argument("work") && !context.keep) fs.rmSync(work, { recursive: true, force: true });
+  if (!options.work && !context.keep) fs.rmSync(work, { recursive: true, force: true });
   // N/A is not a pass: an exhibit that could not run (a missing local copy, a hand-set
   // `na`) proves nothing, so it fails the run unless the caller says it may.
-  // A build without the ownership flag is recorded, not failed: there is nothing to judge.
+  // A build without the flag, or that rejects the combination, is recorded, not failed:
+  // there is nothing to judge.
   const unsupported = Object.values(verdicts).filter((v) => v.unsupported).length;
-  if (unsupported > 0) console.log(`experimental.ownershipModel: ${support.reason}`);
-  const na = count("N/A") > unsupported && !flag("allow-na");
+  if (unsupported > 0) console.log(`${experimentalLabel(context.experimental)}: ${support.reason}`);
+  const na = count("N/A") > unsupported && !options["allow-na"];
   if (na)
     console.log(
       `${count("N/A") - unsupported} exhibit(s) N/A: exiting 1 (pass --allow-na to accept)`,

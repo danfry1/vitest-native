@@ -84,10 +84,19 @@ const run = (label, command, args) => {
   return JSON.parse(fs.readFileSync(out, "utf8"));
 };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+/** A package's bin script in the fixture's node_modules (the process's working directory). */
+const installedBin = (name) => {
+  const pkgDir = path.resolve("node_modules", name);
+  const manifest = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8"));
+  const entry = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.[name];
+  return path.join(pkgDir, entry);
+};
 
 try {
-  const jest = run("jest", "npx", ["--no-install", "jest", "-c", "jest.config.json"]);
-  const vitest = run("vitest", "npx", ["--no-install", "vitest", "run"]);
+  // The fixture's own installed bins, never npx, which resolves a missing one from the
+  // registry.
+  const jest = run("jest", process.execPath, [installedBin("jest"), "-c", "jest.config.json"]);
+  const vitest = run("vitest", process.execPath, [installedBin("vitest"), "run"]);
   const failures = [];
   if (jest.engine !== "jest") failures.push(`jest recorded engine ${JSON.stringify(jest.engine)}`);
   if (vitest.engine !== "native") {

@@ -1,0 +1,34 @@
+name: PR text
+
+# The title and body a squash merge turns into the commit message. A closing keyword
+# (fix/close/resolve and their forms) before another pull request's number closed that
+# pull request, unmerged, when this one landed: this check fails such a reference. Runs
+# on edits too, since the message is taken from the text as it stands at merge.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  closing-keywords:
+    name: Closing keywords name only issues
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: packages/vitest-native/scripts/check-closing-keywords.mjs
+          sparse-checkout-cone-mode: false
+
+      - name: Check the title and body
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node packages/vitest-native/scripts/check-closing-keywords.mjs

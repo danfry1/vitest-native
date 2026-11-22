@@ -142,6 +142,11 @@ describe("every message this package throws is attributable", () => {
   //   Expo's uuidv5 for a namespace that is not a UUID string — mirrors the device's
   //     InvalidNamespaceException message (expo-modules-core's Uuidv5/Exceptions), so tests
   //     can assert it.
+  //   jest.replaceProperty's errors (jest-compat/setup.mjs) — jest-mock's own messages as
+  //     it throws them, a plain Error, for the same reason as isolateModules above.
+  //   The navigation preset's CommonActions.navigateDeprecated without a name —
+  //     @react-navigation/routers' own plain Error and message, so a test asserting on
+  //     it reads as with the library.
   //   jestMockTransform's setup accessor — generated code inside a user's test file,
   //     which cannot import errors.mjs; it builds the VitestNativeError shape (name and
   //     code) that isVitestNativeError recognises.
@@ -151,6 +156,8 @@ describe("every message this package throws is attributable", () => {
     'throw Object.assign(new Error("[vitest-native] jest.mock() factories need',
     'throw Object.assign(new Error(missing), { name: "Invariant Violation" });',
     "throw new Error(invalidNamespace);",
+    "throw new Error(missingName);",
+    "return new Error(jestMessage);",
   ];
 
   it("throws a vitest-native error class, or is an exemption with a stated reason", () => {

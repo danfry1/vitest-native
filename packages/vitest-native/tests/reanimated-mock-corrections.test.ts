@@ -4,10 +4,11 @@
  * does better keeps its own. The no-op mock here is shaped as 4.7.1's (src/mock.ts);
  * the native suite runs the installed one (tests-native/reanimated.test.tsx).
  */
+import React from "react";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { mockCorrections } from "../src/presets/reanimated.js";
+import { derivedValue, mockCorrections, sharedValue } from "../src/presets/reanimated.js";
 
 const dir = path.dirname(
   createRequire(import.meta.url).resolve("react-native-reanimated/package.json"),
@@ -24,6 +25,11 @@ function noOpMock() {
     useComposedEventHandler: () => NOOP,
     useScrollOffset: () => ({ value: 0 }),
     useScrollViewOffset: () => ({ value: 0 }),
+    useTimestamp: () => ({ value: 0 }),
+    useDerivedValue: (updater: () => number) => ({ value: updater(), get: () => updater() }),
+    useAnimatedKeyboard: () => ({ height: 0, state: 0 }),
+    useAnimatedSensor: () => ({ sensor: { value: { x: 0, y: 0, z: 0 } } }),
+    makeMutable: (value: number) => value,
     useSharedValue: (value: number) => ({ value, get: () => value }),
     default: { interpolate: NOOP, clamp: NOOP, ScrollView: () => null },
   };
@@ -31,7 +37,16 @@ function noOpMock() {
 
 /** The same names, as a mock that does what they say. */
 function workingMock() {
-  const value = { value: 0, get: () => 0, addListener: NOOP, removeListener: NOOP };
+  // Reanimated 4's shared value shape, whole.
+  const value = {
+    _isReanimatedSharedValue: true,
+    value: 0,
+    get: () => 0,
+    set: NOOP,
+    modify: NOOP,
+    addListener: NOOP,
+    removeListener: NOOP,
+  };
   return {
     interpolate: () => "theirs",
     clamp: () => "theirs",
@@ -46,6 +61,11 @@ function workingMock() {
       hs.forEach((h) => h(e)),
     useScrollOffset: () => value,
     useScrollViewOffset: () => value,
+    useTimestamp: () => value,
+    useDerivedValue: () => value,
+    useAnimatedKeyboard: () => ({ height: value, state: value }),
+    useAnimatedSensor: () => ({ sensor: value }),
+    makeMutable: () => value,
     useSharedValue: () => value,
     default: { interpolate: () => "theirs", clamp: () => "theirs", ScrollView: () => null },
   };
@@ -59,12 +79,17 @@ const NAMES = [
   "useComposedEventHandler",
   "useScrollOffset",
   "useScrollViewOffset",
+  "useTimestamp",
+  "useDerivedValue",
+  "useAnimatedKeyboard",
+  "useAnimatedSensor",
+  "makeMutable",
 ] as const;
 
 describe("reanimated mock corrections", () => {
   it("replace each name the mock answers with a no-op", () => {
     const mock = noOpMock();
-    const fixed = mockCorrections(mock, dir);
+    const fixed = mockCorrections(React, mock, dir);
     for (const name of NAMES) expect(fixed[name], name).not.toBe(mock[name]);
     expect(fixed.interpolate(5, [0, 10], [0, 100])).toBe(50);
     expect(fixed.clamp(5, 0, 3)).toBe(3);
@@ -80,11 +105,11 @@ describe("reanimated mock corrections", () => {
     shared.removeListener(7);
     shared.value = 3;
     expect(seen).toEqual([2]);
-    expect(shared.get()).toBe(1); // the mock's own get(), over its own state
+    expect(shared.get()).toBe(3); // a whole shared value: get() reads what was written
   });
 
-  // Every helper loaded, so each probe runs: in this worker interpolateColor.js does not
-  // load (it imports React Native), and a missing helper keeps the name unprobed.
+  // Every helper given, so each probe runs whatever this worker's reanimated loads: a
+  // missing helper keeps the name unprobed.
   const allHelpers = {
     interpolate: () => 50,
     clamp: () => 3,
@@ -93,7 +118,7 @@ describe("reanimated mock corrections", () => {
 
   it("keep each name the mock answers itself", () => {
     const mock = workingMock();
-    const fixed = mockCorrections(mock, dir, false, allHelpers);
+    const fixed = mockCorrections(React, mock, dir, false, allHelpers);
     for (const name of [...NAMES, "interpolateColor"] as const) {
       expect(fixed[name], name).toBe(mock[name]);
     }
@@ -102,7 +127,7 @@ describe("reanimated mock corrections", () => {
   });
 
   it("replace a no-op interpolateColor with reanimated's own", () => {
-    const fixed = mockCorrections(noOpMock(), dir, false, allHelpers);
+    const fixed = mockCorrections(React, noOpMock(), dir, false, allHelpers);
     expect(fixed.interpolateColor).toBe(allHelpers.interpolateColor);
   });
 
@@ -116,7 +141,7 @@ describe("reanimated mock corrections", () => {
       useComposedEventHandler: needsRender,
       useScrollOffset: needsRender,
     };
-    const fixed = mockCorrections(mock, dir);
+    const fixed = mockCorrections(React, mock, dir);
     expect(fixed.useAnimatedScrollHandler).toBe(needsRender);
     expect(fixed.useComposedEventHandler).toBe(needsRender);
     expect(fixed.useScrollOffset).toBe(needsRender);
@@ -132,6 +157,7 @@ describe("reanimated mock corrections", () => {
     console.error = spy;
     try {
       mockCorrections(
+        React,
         {
           ...noOpMock(),
           useAnimatedScrollHandler: needsRender,
@@ -146,5 +172,41 @@ describe("reanimated mock corrections", () => {
     } finally {
       console.error = error;
     }
+  });
+});
+
+// Reanimated keeps a derived value current with a mapper over the shared values its
+// updater reads, run on every change of one (at once under Jest). Its mock computes the
+// updater at render only, so a read after set() was stale (#351). Outside a render here,
+// as the mock's hooks allow; tests-native/reanimated-shapes/derived-values.test.tsx renders.
+describe("derived values", () => {
+  it("the corrected useDerivedValue follows the shared values its updater reads", () => {
+    const fixed = mockCorrections(React, noOpMock(), dir);
+    const progress = fixed.useSharedValue(0);
+    const sweep = fixed.useDerivedValue(() => progress.get() * 360);
+    expect(sweep.get()).toBe(0);
+    progress.set(0.5);
+    expect(sweep.get()).toBe(180);
+    progress.value = 1;
+    expect(sweep.value).toBe(360);
+  });
+
+  it("a chain follows, listeners hear a changed result once, and reads are re-taken each run", () => {
+    const flag = sharedValue(true);
+    const a = sharedValue(1);
+    const b = sharedValue(10);
+    const picked = derivedValue(React, () => (flag.get() ? a.get() : b.get()));
+    const doubled = derivedValue(React, () => picked.value * 2);
+    const heard = vi.fn();
+    doubled.addListener(1, heard);
+    a.set(2);
+    expect(doubled.get()).toBe(4);
+    expect(heard).toHaveBeenCalledTimes(1);
+    flag.set(false);
+    expect(doubled.get()).toBe(20);
+    a.set(3); // no longer read
+    expect(heard).toHaveBeenCalledTimes(2);
+    b.set(11);
+    expect(doubled.get()).toBe(22);
   });
 });

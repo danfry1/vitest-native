@@ -23,13 +23,10 @@
  * itself uses (tinyglobby, dot:true, ignore = exclude) run over a real directory.
  * The last test runs the generated config with Vitest.
  */
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
-import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { configDefaults } from "vitest/config";
 import { analyzeJestConfig, extractAllowlistPackages } from "../src/cli/migrate.js";
 import {
@@ -46,10 +43,9 @@ import {
   readBabelConfig,
 } from "../src/cli/babel-config.js";
 import { runDoctor } from "../src/cli/doctor.js";
-import { main } from "../src/cli/index.js";
+import { JEST_EXPO_IOS, blueskyLike, fixture, packageRoot } from "./support/migrate-fixtures.js";
 import { DEFAULT_ASSET_EXTS, PRESET_MODULES } from "../src/preset-map.js";
 
-const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // The glob library Vitest collects test files with, and the matcher Jest uses —
 // both resolved from Vitest itself, so this measures what a run actually does.
 const fromVitest = createRequire(createRequire(import.meta.url).resolve("vitest/package.json"));
@@ -58,22 +54,6 @@ const picomatch = fromVitest("picomatch") as (
   glob: string | string[],
   options?: { dot?: boolean },
 ) => (path: string) => boolean;
-
-const roots: string[] = [];
-afterAll(() => {
-  for (const r of roots) fs.rmSync(r, { recursive: true, force: true });
-});
-
-function fixture(files: Record<string, string | object>): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "vn-migrate-"));
-  roots.push(root);
-  for (const [rel, content] of Object.entries(files)) {
-    const p = path.join(root, rel);
-    fs.mkdirSync(path.dirname(p), { recursive: true });
-    fs.writeFileSync(p, typeof content === "string" ? content : JSON.stringify(content, null, 2));
-  }
-  return root;
-}
 
 /** Paths a test-discovery differential runs over, shaped after the reporting app. */
 const TREE = [
@@ -129,26 +109,6 @@ function vitestCollects(root: string, include: string[], exclude: string[]): str
 function tree(paths: string[]): string {
   return fixture(Object.fromEntries(paths.map((p) => [p, ""])));
 }
-
-// jest-expo 57.0.5's getPlatformPreset for ['ios', 'native'] (config/getPlatformPreset.js
-// and config/extensions.js), the discovery keys only.
-const JEST_EXPO_IOS = {
-  testMatch: ["", "ios", "native"].flatMap((platform) => {
-    const p = platform ? `.${platform}` : "";
-    return [
-      `**/__tests__/**/*spec${p}.[jt]s?(x)`,
-      `**/__tests__/**/*test${p}.[jt]s?(x)`,
-      `**/?(*.)+(spec|test)${p}.[jt]s?(x)`,
-    ];
-  }),
-  testPathIgnorePatterns: ["/node_modules/", "/__rsc_tests__/"],
-  moduleFileExtensions: [
-    ...["ios", "native", ""].flatMap((platform) =>
-      ["ts", "tsx", "js", "jsx"].map((ext) => (platform ? `${platform}.${ext}` : ext)),
-    ),
-    "json",
-  ],
-};
 
 describe("ignore-pattern regexes become exclude globs", () => {
   it("converts the shapes it can translate exactly", () => {
@@ -322,15 +282,16 @@ describe("transformIgnorePatterns allowlists with nested groups", () => {
       "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|react-navigation|@react-navigation/.*|await-lock)",
     );
     expect(unparseable).toEqual([]);
+    // A name the pattern only produces, never writes, is marked `expanded`.
     expect(entries).toEqual([
       { name: "react-native", kind: "prefix" },
-      { name: "jest-react-native", kind: "prefix" },
+      { name: "jest-react-native", kind: "prefix", expanded: true },
       { name: "@react-native", kind: "prefix" },
-      { name: "@react-native-community", kind: "prefix" },
+      { name: "@react-native-community", kind: "prefix", expanded: true },
       { name: "expo", kind: "prefix" },
-      { name: "exponent", kind: "prefix" },
+      { name: "exponent", kind: "prefix", expanded: true },
       { name: "@expo", kind: "scope" },
-      { name: "@exponent", kind: "scope" },
+      { name: "@exponent", kind: "scope", expanded: true },
       { name: "@expo-google-fonts", kind: "scope" },
       { name: "react-navigation", kind: "prefix" },
       { name: "@react-navigation", kind: "scope" },
@@ -347,99 +308,6 @@ describe("transformIgnorePatterns allowlists with nested groups", () => {
     expect(entries.map((e) => e.name)).not.toContain(".pnpm");
   });
 });
-
-/** A project shaped like the jest-expo app the gaps were measured on. */
-function blueskyLike(extra: Record<string, string | object> = {}): string {
-  const root = fixture({
-    "package.json": {
-      name: "social-app",
-      scripts: { test: "NODE_ENV=test jest --forceExit --testTimeout=20000 --bail" },
-      dependencies: {
-        expo: "57.0.0",
-        "react-native": "0.86.0",
-        "expo-image": "1.0.0",
-        multiformats: "13.0.0",
-        "await-lock": "2.2.2",
-        "legacy-cjs": "1.0.0",
-        "jsx-lib": "1.0.0",
-        lodash: "4.0.0",
-      },
-      jest: {
-        preset: "jest-expo/ios",
-        transformIgnorePatterns: [
-          "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|await-lock|legacy-cjs|jsx-lib|multiformats)",
-        ],
-        modulePathIgnorePatterns: ["bskylink/.*", "__e2e__/.*", "__tests__/.*/__mocks__"],
-        moduleNameMapper: {
-          "^multiformats/cid$": "<rootDir>/node_modules/multiformats/dist/src/cid.js",
-          // A redirect to ANOTHER package, though lodash itself serves "lodash".
-          "^lodash$": "<rootDir>/node_modules/lodash-es/lodash.js",
-          "^config$": "<rootDir>/src/config.ts",
-          "\\.(png|jpg|db)$": "<rootDir>/__mocks__/file.js",
-        },
-      },
-    },
-    "babel.config.js": `module.exports = function (api) {
-  api.cache(true)
-  return {
-    presets: ['babel-preset-expo'],
-    plugins: [
-      '@lingui/babel-plugin-lingui-macro',
-      ['babel-plugin-react-compiler', { target: '19' }],
-      ['module-resolver', { alias: { '#': './src' } }],
-      'react-native-worklets/plugin',
-      'some-inline-env-plugin',
-    ],
-  }
-}
-`,
-    "node_modules/jest-expo/ios/jest-preset.js": `module.exports = ${JSON.stringify(JEST_EXPO_IOS)};`,
-    "node_modules/jest-expo/package.json": { name: "jest-expo", version: "57.0.5" },
-    "node_modules/expo-image/package.json": {
-      name: "expo-image",
-      version: "1.0.0",
-      peerDependencies: { "react-native": "*" },
-    },
-    "node_modules/multiformats/package.json": {
-      name: "multiformats",
-      version: "13.0.0",
-      type: "module",
-      exports: { ".": { import: "./dist/index.js" }, "./cid": { import: "./dist/src/cid.js" } },
-    },
-    "node_modules/await-lock/package.json": {
-      name: "await-lock",
-      version: "2.2.2",
-      type: "module",
-      exports: "./index.js",
-    },
-    "node_modules/legacy-cjs/package.json": {
-      name: "legacy-cjs",
-      version: "1.0.0",
-      main: "index.js",
-    },
-    "node_modules/legacy-cjs/index.js": "module.exports = { ok: true };",
-    // Untranspiled JSX in a published .js, one directory below its entry.
-    "node_modules/jsx-lib/package.json": {
-      name: "jsx-lib",
-      version: "1.0.0",
-      main: "lib/index.js",
-    },
-    "node_modules/jsx-lib/lib/index.js": "module.exports = require('./view/Box');",
-    "node_modules/jsx-lib/lib/view/Box.js": "module.exports = () => <Box />;",
-    "node_modules/lodash/package.json": { name: "lodash", version: "4.0.0", main: "lodash.js" },
-    ...extra,
-  });
-  withBabelParser(root);
-  return root;
-}
-
-/** Link the real @babel/parser in, as an installed RN project has it. */
-function withBabelParser(root: string): void {
-  const fromCore = createRequire(createRequire(import.meta.url).resolve("@babel/core"));
-  const parserDir = path.dirname(fromCore.resolve("@babel/parser/package.json"));
-  fs.mkdirSync(path.join(root, "node_modules", "@babel"), { recursive: true });
-  fs.symlinkSync(parserDir, path.join(root, "node_modules", "@babel", "parser"));
-}
 
 describe("a jest-expo app's package.json#jest", () => {
   it("takes the preset's testMatch, the ignore patterns and the extension set", () => {
@@ -539,15 +407,27 @@ describe("a jest-expo app's package.json#jest", () => {
     expect(report.automatic.join("\n")).not.toContain("are covered by");
   });
 
+  // projectBabel runs where @babel/core resolves from the project.
+  const babelCore = {
+    "node_modules/@babel/core/package.json": {
+      name: "@babel/core",
+      version: "7.29.0",
+      main: "index.js",
+    },
+    "node_modules/@babel/core/index.js": "module.exports = {};",
+  };
+
   it("classifies the project's Babel plugins", () => {
-    const root = blueskyLike();
+    const root = blueskyLike(babelCore);
     const report = analyzeJestConfig(root);
     const all = [...report.automatic, ...report.attention, ...report.dropped].join("\n");
-    // Required, and not emitted: no Vite 8 + @rolldown/plugin-babel installed here.
-    expect(report.attention.join("\n")).toContain(
-      "@lingui/babel-plugin-lingui-macro compiles macro imports away",
+    // The engine applies the macro plugin to the project source that needs it (projectBabel
+    // 'auto'), so nothing is wired and nothing is asked of the user.
+    expect(report.automatic.join("\n")).toContain(
+      "plugin @lingui/babel-plugin-lingui-macro → applied by the engine to the project source that needs it",
     );
-    expect(all).toContain(`babel({ plugins: ["@lingui/babel-plugin-lingui-macro"] })`);
+    expect(report.attention.join("\n")).not.toContain("lingui");
+    expect(all).not.toContain("babel({");
     expect(report.suggestedConfig).not.toContain("plugin-babel");
     // module-resolver alias carried over.
     expect(report.suggestedConfig).toContain(
@@ -555,7 +435,11 @@ describe("a jest-expo app's package.json#jest", () => {
     );
     expect(report.dropped.join("\n")).toContain("react-native-worklets/plugin");
     expect(report.dropped.join("\n")).toContain("babel-plugin-react-compiler");
-    expect(report.attention.join("\n")).toContain("some-inline-env-plugin ran on every file");
+    // An unknown plugin: the engine compiles every project file with it (Oxc as the fallback).
+    expect(report.automatic.join("\n")).toContain(
+      "plugin babel-plugin-some-inline-env-plugin → applied by the engine",
+    );
+    expect(report.attention.join("\n")).not.toContain("some-inline-env-plugin ran on every file");
 
     const classified = classifyBabelPlugins(readBabelConfig(root), root, []);
     expect(classified.map((p) => [p.name, p.verdict])).toEqual([
@@ -565,13 +449,95 @@ describe("a jest-expo app's package.json#jest", () => {
       ["react-native-worklets/plugin", "unneeded"],
       ["babel-plugin-some-inline-env-plugin", "unknown"],
     ]);
+    // React Compiler is not needed to run, but where projectBabel compiles a file it applies,
+    // and memoized children keep values React does not track (#755).
+    const compiler = classified.find((p) => p.name === "babel-plugin-react-compiler")!.reason;
+    expect(compiler).not.toMatch(/render the same/);
+    expect(compiler).toMatch(/^tests run without it\. /);
+    for (const claim of [
+      "'auto'",
+      "'always'",
+      "memoized child",
+      "keep its earlier value",
+      "counts renders",
+    ]) {
+      expect(compiler).toContain(claim);
+    }
+    expect(report.dropped.join("\n")).toContain(`babel-plugin-react-compiler — ${compiler}`);
+    // The migration guide's table says the same.
+    const guide = fs.readFileSync(
+      path.join(import.meta.dirname, "../../../website/migration/from-jest.md"),
+      "utf8",
+    );
+    const row = guide
+      .split("\n")
+      .find((line) => line.startsWith("| `babel-plugin-react-compiler`"));
+    for (const claim of [
+      "`'auto'`",
+      "`'always'`",
+      "memoized child",
+      "keep its earlier value",
+      "counts renders",
+    ]) {
+      expect(row).toContain(claim);
+    }
+    expect(row).not.toMatch(/render the same/);
 
     const doctor = runDoctor(root).lines.join("\n");
     expect(doctor).toContain("Babel");
-    expect(doctor).toContain("⚠ @lingui/babel-plugin-lingui-macro compiles macro imports away");
+    expect(doctor).toContain(
+      "· @lingui/babel-plugin-lingui-macro: applied by the engine where needed",
+    );
+    expect(doctor).not.toContain("⚠ @lingui/babel-plugin-lingui-macro");
+    expect(doctor).toContain(`· babel-plugin-react-compiler: ${compiler}`);
   });
 
-  it("emits the Babel plugin when Vite 8 and @rolldown/plugin-babel are installed", () => {
+  it("says @babel/core is needed when the engine would apply plugins but cannot", () => {
+    const root = blueskyLike();
+    const report = analyzeJestConfig(root);
+    expect(report.attention.join("\n")).toContain(
+      "which needs @babel/core installed in the project",
+    );
+    expect(report.automatic.join("\n")).not.toContain("applied by the engine");
+    const doctor = runDoctor(root).lines.join("\n");
+    // The engine's own notice, once, then each entry it leaves unapplied.
+    expect(doctor).toContain(
+      "projectBabel: babel.config.js is not applied, because @babel/core is not installed",
+    );
+    expect(doctor.match(/is not applied, because @babel\/core/g)).toHaveLength(1);
+    expect(doctor).toContain(
+      "· @lingui/babel-plugin-lingui-macro: not applied without @babel/core",
+    );
+    expect(doctor).not.toContain("applied by the engine where needed");
+  });
+
+  it("doctor calls a babel() entry that repeats an engine-applied plugin redundant", () => {
+    const root = blueskyLike({
+      ...babelCore,
+      "vitest.config.mts": `import { defineConfig } from 'vitest/config'
+import babel from '@rolldown/plugin-babel'
+import { reactNative } from 'vitest-native'
+export default defineConfig({ plugins: [reactNative(), babel({ plugins: ['@lingui/babel-plugin-lingui-macro'] })] })
+`,
+    });
+    const doctor = runDoctor(root).lines.join("\n");
+    expect(doctor).toContain(
+      "babel() lists @lingui/babel-plugin-lingui-macro, which the engine already applies",
+    );
+    // A mention in a comment is not an entry.
+    const commented = blueskyLike({
+      ...babelCore,
+      "vitest.config.mts": `import { defineConfig } from 'vitest/config'
+import babel from '@rolldown/plugin-babel'
+import { reactNative } from 'vitest-native'
+// we used to list '@lingui/babel-plugin-lingui-macro' here
+export default defineConfig({ plugins: [reactNative(), babel({ plugins: [] })] })
+`,
+    });
+    expect(runDoctor(commented).lines.join("\n")).not.toContain("which the engine already applies");
+  });
+
+  it("does not emit babel() for a plugin the engine applies, even with @rolldown/plugin-babel installed", () => {
     const report = analyzeJestConfig(
       blueskyLike({
         "node_modules/vite/package.json": { name: "vite", version: "8.0.0" },
@@ -586,10 +552,8 @@ describe("a jest-expo app's package.json#jest", () => {
         "node_modules/@babel/core/package.json": { name: "@babel/core", version: "7.29.0" },
       }),
     );
-    expect(report.suggestedConfig).toContain(`import babel from '@rolldown/plugin-babel'`);
-    expect(report.suggestedConfig).toContain(
-      `babel({ plugins: ["@lingui/babel-plugin-lingui-macro"] }), jestMockTransform()`,
-    );
+    expect(report.suggestedConfig).not.toContain("plugin-babel");
+    expect(report.suggestedConfig).not.toContain("babel({");
   });
 
   describe("the worklets plugin, where Reanimated runs as its own mock", () => {
@@ -635,20 +599,19 @@ describe("a jest-expo app's package.json#jest", () => {
       "node_modules/@rolldown/plugin-babel/dist/index.mjs": "export default () => ({});",
     };
 
-    it("is required and wired, last as the config lists it", () => {
+    it("is required, and applied by the engine rather than wired into babel()", () => {
       const root = blueskyLike({ ...nativeReanimated(), ...pluginBabel });
       const classified = classifyBabelPlugins(readBabelConfig(root), root, ["reanimated"]);
       expect(classified.find((p) => p.name === "react-native-worklets/plugin")?.verdict).toBe(
         "required",
       );
       const report = analyzeJestConfig(root);
-      expect(report.suggestedConfig).toContain(
-        `babel({ plugins: ["@lingui/babel-plugin-lingui-macro", "react-native-worklets/plugin"] })`,
-      );
+      expect(report.suggestedConfig).not.toContain("babel({");
       expect(report.automatic.join("\n")).toContain(
-        "react-native-worklets/plugin gives Reanimated's hooks their dependencies",
+        "plugin react-native-worklets/plugin → applied by the engine to the project source that needs it",
       );
       expect(report.dropped.join("\n")).not.toContain("react-native-worklets/plugin");
+      expect(report.attention.join("\n")).not.toContain("react-native-worklets/plugin");
     });
 
     it("covers react-native-reanimated/plugin and keeps a plugin's options", () => {
@@ -664,25 +627,37 @@ describe("a jest-expo app's package.json#jest", () => {
       expect(classified.map((p) => [p.name, p.verdict])).toEqual([
         ["react-native-reanimated/plugin", "required"],
       ]);
-      expect(analyzeJestConfig(root).suggestedConfig).toContain(
-        `babel({ plugins: [["react-native-reanimated/plugin", {"relativeSourceLocation":true}]] })`,
+      const report = analyzeJestConfig(root);
+      expect(report.suggestedConfig).not.toContain("babel({");
+      expect(report.automatic.join("\n")).toContain(
+        "plugin react-native-reanimated/plugin → applied by the engine",
       );
     });
 
-    it("is listed with the install recipe when @rolldown/plugin-babel is missing", () => {
+    it("needs no @rolldown/plugin-babel install, since the engine applies it", () => {
       const report = analyzeJestConfig(blueskyLike(nativeReanimated()));
       expect(report.suggestedConfig).not.toContain("plugin-babel");
-      expect(report.attention.join("\n")).toContain(
-        "react-native-worklets/plugin gives Reanimated's hooks their dependencies",
+      expect(report.attention.join("\n")).not.toContain("install @rolldown/plugin-babel");
+      expect(report.automatic.join("\n")).toContain(
+        "plugin react-native-worklets/plugin → applied by the engine",
       );
       expect(report.dropped.join("\n")).not.toContain("react-native-worklets/plugin");
     });
 
-    it("stays unneeded where the preset's own module serves Reanimated", () => {
-      // Reanimated 4.6 ships no Jest resolver, so the preset's module replaces it.
-      const report = analyzeJestConfig(blueskyLike({ ...nativeReanimated(false), ...pluginBabel }));
-      expect(report.dropped.join("\n")).toContain("react-native-worklets/plugin");
-      expect(report.suggestedConfig).not.toContain("react-native-worklets/plugin");
+    it("is kept where the preset's own module serves Reanimated (#738)", () => {
+      // Reanimated 4.6 ships no Jest resolver, so the preset's module replaces it; a mock
+      // that spreads jest.requireActual('react-native-reanimated') still runs the real hooks
+      // in the project's components, which need the plugin.
+      const root = blueskyLike({ ...nativeReanimated(false), ...pluginBabel });
+      const classified = classifyBabelPlugins(readBabelConfig(root), root, ["reanimated"]);
+      expect(
+        classified.filter((p) => p.name.endsWith("/plugin")).map((p) => [p.name, p.verdict]),
+      ).toEqual([["react-native-worklets/plugin", "required"]]);
+      const report = analyzeJestConfig(root);
+      expect(report.dropped.join("\n")).not.toContain("react-native-worklets/plugin");
+      expect(report.automatic.join("\n")).toContain(
+        "plugin react-native-worklets/plugin → applied by the engine",
+      );
     });
   });
 });
@@ -953,8 +928,13 @@ describe("packages that test themselves (react-native-mmkv 3+)", () => {
     const report = analyzeJestConfig(mmkvApp("3.1.0"));
     const all = [...report.presetCovered, ...report.automatic, ...report.attention].join("\n");
     expect(all).not.toContain("mmkv preset");
-    expect(report.attention.join("\n")).toContain(
-      "__mocks__/react-native-mmkv — react-native-mmkv 3 runs its own test mode under Vitest",
+    // Jest applied the root mock; jestMockTransform() does too, and says the library's
+    // own test mode could replace it.
+    expect(report.automatic.join("\n")).toContain(
+      "__mocks__/react-native-mmkv → applied to react-native-mmkv in every test by jestMockTransform()",
+    );
+    expect(report.automatic.join("\n")).toContain(
+      "react-native-mmkv 3 also runs its own test mode under Vitest",
     );
     // With the preset inactive, the engine detects it like any RN package.
     expect(report.automatic.join("\n")).toContain(
@@ -996,240 +976,4 @@ describe("packages that test themselves (react-native-mmkv 3+)", () => {
     expect(baseline("3.1.0")).toContain("react-native-mmkv");
     expect(baseline("2.12.0")).not.toContain("react-native-mmkv");
   });
-});
-
-/**
- * The generated config, run. The unit assertions above check its text; this checks
- * that Vitest, loading it, collects the files Jest ran and applies the script's
- * timeout. Needs the built package (CI builds before tests).
- */
-describe("the generated config, executed", () => {
-  const distExists = fs.existsSync(path.join(packageRoot, "dist", "index.mjs"));
-
-  it("needs dist", () => {
-    expect(distExists, "run `bun run build` before this suite — CI builds first").toBe(true);
-  });
-
-  it.runIf(distExists)(
-    "collects Jest's test set and runs with the script's --testTimeout",
-    () => {
-      const tests = {
-        "src/state/session/__tests__/session-core-test.ts": "",
-        "src/components/Button.test.tsx": "",
-        "src/__tests__/lib/__mocks__/mocked.test.ts": "",
-        "src/__e2e__/flow.test.ts": "",
-        "bskylink/src/link.test.ts": "",
-        ".github/scripts/release.test.mjs": "",
-        "scripts/icons/lib.test.mts": "",
-        "src/__rsc_tests__/server.test.tsx": "",
-      };
-      const root = blueskyLike(tests);
-      // The Babel config is classified above; no Babel plugin package exists here.
-      fs.rmSync(path.join(root, "babel.config.js"));
-      // The project resolves vitest-native (this package) and its dependencies.
-      const modules = path.join(root, "node_modules");
-      for (const name of fs.readdirSync(path.join(packageRoot, "node_modules"))) {
-        if (fs.existsSync(path.join(modules, name))) continue;
-        fs.symlinkSync(path.join(packageRoot, "node_modules", name), path.join(modules, name));
-      }
-      fs.symlinkSync(packageRoot, path.join(modules, "vitest-native"));
-
-      const report = analyzeJestConfig(root);
-      fs.writeFileSync(
-        path.join(root, "vitest.config.mjs"),
-        // Pinned to the mock engine: this project has no React Native installed, and
-        // collection is what is under test.
-        report.suggestedConfig.replace("reactNative({", "reactNative({ engine: 'mock', "),
-      );
-      const vitestBin = path.join(
-        path.dirname(createRequire(import.meta.url).resolve("vitest/package.json")),
-        "vitest.mjs",
-      );
-      const listed = spawnSync(process.execPath, [vitestBin, "list", "--filesOnly", "--json"], {
-        cwd: root,
-        encoding: "utf8",
-        env: { ...process.env, CI: "1" },
-      });
-      expect(listed.status, listed.stderr).toBe(0);
-      // The native realpath: Windows spells the temp directory both `RUNNER~1` and
-      // `runneradmin`, and Vitest may report either.
-      const real = fs.realpathSync.native;
-      const files = (JSON.parse(listed.stdout) as { file: string }[])
-        .map((f) => path.relative(real(root), real(f.file)).split(path.sep).join("/"))
-        .sort();
-      expect(files).toEqual([
-        "src/components/Button.test.tsx",
-        "src/state/session/__tests__/session-core-test.ts",
-      ]);
-
-      // The timeout: one test that reads its own resolved timeout.
-      fs.writeFileSync(
-        path.join(root, "src/components/Button.test.tsx"),
-        `import { test, expect, vi } from 'vitest'
-// A call made while the module loads, as a mocked dependency's import-time call is.
-const loaded = vi.fn()
-loaded('at import')
-test('timeout', ({ task }) => { expect(task.timeout).toBe(20000) })
-// Jest keeps it (clearMocks defaults to false); Vitest 5 clears it unless told not to.
-test('import-time mock calls survive', () => { expect(loaded).toHaveBeenCalledTimes(1) })
-`,
-      );
-      fs.writeFileSync(
-        path.join(root, "src/state/session/__tests__/session-core-test.ts"),
-        `import { test } from 'vitest'\ntest('runs', () => {})\n`,
-      );
-      const run = spawnSync(process.execPath, [vitestBin, "run"], {
-        cwd: root,
-        encoding: "utf8",
-        env: { ...process.env, CI: "1" },
-      });
-      expect(run.status, run.stdout + run.stderr).toBe(0);
-    },
-    120_000,
-  );
-
-  it.runIf(distExists)(
-    "resolves a literal prefix mapper and skips a $-anchored ignore, as Jest did",
-    () => {
-      const root = fixture({
-        "package.json": { name: "app", type: "module" },
-        "jest.config.json": {
-          moduleNameMapper: { "^~e2e/(.*)$": "<rootDir>/e2e/$1" },
-          testPathIgnorePatterns: ["/node_modules/", "/__tests__/testHelpers\\.test\\.ts$"],
-        },
-        "e2e/helpers/data.ts": "export const value = 42\n",
-        "src/__tests__/uses-alias.test.ts":
-          "import { test, expect } from 'vitest'\nimport { value } from '~e2e/helpers/data'\n" +
-          "test('alias', () => { expect(value).toBe(42) })\n",
-        "src/__tests__/testHelpers.test.ts": "throw new Error('Jest never ran this file')\n",
-        // A bare `~e2e` is not under the mapper's pattern; Jest resolved it as a package.
-        "node_modules/~e2e/package.json": { name: "~e2e", main: "index.js" },
-        "node_modules/~e2e/index.js": "module.exports = { bare: true }\n",
-        "src/__tests__/bare.test.ts":
-          "import { test, expect } from 'vitest'\nimport pkg from '~e2e'\n" +
-          "test('bare', () => { expect(pkg.bare).toBe(true) })\n",
-      });
-      const modules = path.join(root, "node_modules");
-      fs.mkdirSync(modules, { recursive: true });
-      for (const name of fs.readdirSync(path.join(packageRoot, "node_modules"))) {
-        if (fs.existsSync(path.join(modules, name))) continue;
-        fs.symlinkSync(path.join(packageRoot, "node_modules", name), path.join(modules, name));
-      }
-      fs.symlinkSync(packageRoot, path.join(modules, "vitest-native"));
-      const report = analyzeJestConfig(root);
-      expect(report.automatic.join("\n")).toContain(
-        `'/__tests__/testHelpers\\.test\\.ts$' → test.exclude ["**/__tests__/testHelpers.test.ts"]`,
-      );
-      fs.writeFileSync(
-        path.join(root, "vitest.config.mjs"),
-        report.suggestedConfig.replace("reactNative({", "reactNative({ engine: 'mock', "),
-      );
-      const vitestBin = path.join(
-        path.dirname(createRequire(import.meta.url).resolve("vitest/package.json")),
-        "vitest.mjs",
-      );
-      const run = spawnSync(process.execPath, [vitestBin, "run"], {
-        cwd: root,
-        encoding: "utf8",
-        env: { ...process.env, CI: "1" },
-      });
-      expect(run.status, run.stdout + run.stderr).toBe(0);
-      expect(run.stdout).toContain("2 passed");
-    },
-    120_000,
-  );
-
-  it.runIf(distExists)(
-    "--write --force replaces the config Vitest's own lookup loads",
-    () => {
-      const root = fixture({
-        "package.json": { name: "x" },
-        "tsconfig.json": {},
-        "jest.config.json": { testTimeout: 9123 },
-        // Vitest looks up vitest.config.ts before vitest.config.mts.
-        "vitest.config.ts": "export default { test: { testTimeout: 1 } }",
-      });
-      const modules = path.join(root, "node_modules");
-      fs.mkdirSync(modules);
-      for (const name of fs.readdirSync(path.join(packageRoot, "node_modules"))) {
-        fs.symlinkSync(path.join(packageRoot, "node_modules", name), path.join(modules, name));
-      }
-      fs.symlinkSync(packageRoot, path.join(modules, "vitest-native"));
-
-      const lines: string[] = [];
-      expect(main(["migrate", "--write", "--force", "--root", root], (l) => lines.push(l))).toBe(0);
-      expect(lines.join("\n")).toContain("replaced the existing vitest.config.ts");
-      // Vitest's own lookup and load (vitest/node's resolveConfig), in a child process so
-      // the plugin the config loads starts outside this worker.
-      const probe = spawnSync(
-        process.execPath,
-        [
-          "--input-type=module",
-          "-e",
-          `import { resolveConfig } from 'vitest/node'
-const c = await resolveConfig({ root: process.cwd(), watch: false })
-console.log('RESOLVED ' + JSON.stringify({ file: c.configFile, timeout: c.test.testTimeout }))
-process.exit(0)`,
-        ],
-        { cwd: root, encoding: "utf8", env: { ...process.env, CI: "1" } },
-      );
-      const line = probe.stdout.split("\n").find((l) => l.startsWith("RESOLVED "));
-      expect(line, probe.stdout + probe.stderr).toBeDefined();
-      const resolved = JSON.parse((line as string).slice("RESOLVED ".length));
-      expect(fs.realpathSync(resolved.file)).toBe(
-        fs.realpathSync(path.join(root, "vitest.config.ts")),
-      );
-      // The loaded config is migrate's: the Jest config's timeout, not the old file's.
-      expect(resolved.timeout, lines.join("\n")).toBe(9123);
-      expect(fs.existsSync(path.join(root, "vitest.config.mts"))).toBe(false);
-    },
-    60_000,
-  );
-
-  it.runIf(distExists)(
-    "--write over a vite.config writes the config Vitest's own lookup loads, and says so",
-    () => {
-      const root = fixture({
-        "package.json": { name: "x" },
-        "tsconfig.json": {},
-        "jest.config.json": { testTimeout: 9123 },
-        "vite.config.ts": "export default { test: { testTimeout: 1 } }",
-      });
-      const modules = path.join(root, "node_modules");
-      fs.mkdirSync(modules);
-      for (const name of fs.readdirSync(path.join(packageRoot, "node_modules"))) {
-        fs.symlinkSync(path.join(packageRoot, "node_modules", name), path.join(modules, name));
-      }
-      fs.symlinkSync(packageRoot, path.join(modules, "vitest-native"));
-
-      const lines: string[] = [];
-      expect(main(["migrate", "--write", "--root", root], (l) => lines.push(l))).toBe(0);
-      const output = lines.join("\n");
-      expect(output).toContain("✓ wrote vitest.config.mts from the analysis above.");
-      expect(output).toContain(
-        "! Vitest now loads vitest.config.mts instead of vite.config.ts: it reads a vite.config.* only when",
-      );
-      const probe = spawnSync(
-        process.execPath,
-        [
-          "--input-type=module",
-          "-e",
-          `import { resolveConfig } from 'vitest/node'
-const c = await resolveConfig({ root: process.cwd(), watch: false })
-console.log('RESOLVED ' + JSON.stringify({ file: c.configFile, timeout: c.test.testTimeout }))
-process.exit(0)`,
-        ],
-        { cwd: root, encoding: "utf8", env: { ...process.env, CI: "1" } },
-      );
-      const line = probe.stdout.split("\n").find((l) => l.startsWith("RESOLVED "));
-      expect(line, probe.stdout + probe.stderr).toBeDefined();
-      const resolved = JSON.parse((line as string).slice("RESOLVED ".length));
-      // The file the CLI named is the one Vitest loads, and the vite.config's settings are gone.
-      expect(fs.realpathSync(resolved.file)).toBe(
-        fs.realpathSync(path.join(root, "vitest.config.mts")),
-      );
-      expect(resolved.timeout, output).toBe(9123);
-    },
-    60_000,
-  );
 });

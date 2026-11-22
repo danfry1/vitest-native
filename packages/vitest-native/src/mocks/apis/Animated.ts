@@ -1,4 +1,5 @@
 import React from "react";
+import { hostComponent } from "../host.js";
 import { vi } from "vitest";
 import { mockFn } from "../mock-fn.js";
 
@@ -918,9 +919,13 @@ function createAnimatedWrapper(displayName: string) {
     useAnimatedStyleSubscription(props?.style);
     if (props && props.style !== undefined) {
       const { style, ...rest } = props;
-      return React.createElement(hostName, { ...rest, style: resolveAnimatedStyle(style), ref });
+      return React.createElement(hostComponent(hostName), {
+        ...rest,
+        style: resolveAnimatedStyle(style),
+        ref,
+      });
     }
-    return React.createElement(hostName, { ...props, ref });
+    return React.createElement(hostComponent(hostName), { ...props, ref });
   });
   Component.displayName = displayName;
   return Component;
@@ -1244,7 +1249,9 @@ export function createAnimatedMock() {
       };
     }),
     unforkEvent: mockFn(),
-    createAnimatedComponent: vi.fn((component: any) => {
+    createAnimatedComponent: vi.fn((given: any) => {
+      // A host name (createAnimatedComponent("View")) renders through its host class.
+      const component = typeof given === "string" ? hostComponent(given) : given;
       const Wrapper = React.forwardRef((props: any, ref: any) => {
         useAnimatedStyleSubscription(props?.style);
         if (props && props.style !== undefined) {

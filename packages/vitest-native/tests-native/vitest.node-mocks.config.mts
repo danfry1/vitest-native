@@ -4,6 +4,7 @@
 // run after the files that mock what they leave unmocked); jest-compat (with
 // jest-compat's setup and transform, whose jest.mock is matched before a vi.mock).
 // Rooted at node-mocks/, so the suite's own files are its project.
+import "./support/fresh-dist.mts";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
@@ -30,7 +31,10 @@ export default defineConfig(({ mode }) => ({
       hotRuntime: mode === "hot" ? { allowUnboundedMemory: true } : false,
       experimental: { nodeMocks: true },
     }),
-    ...(mode === "jest-compat" ? [jestMockTransform()] : []),
+    // rootMocks off: this suite's __mocks__/dispatch-redirect-lib.js exercises Vitest's own
+    // factory-less redirect (redirect.test.ts, zz-automock-unimported.test.ts), not
+    // jest-compat's automatic manual mocks, which test:native:root-mocks covers.
+    ...(mode === "jest-compat" ? [jestMockTransform({ rootMocks: false })] : []),
   ],
   test: {
     environment: "node",

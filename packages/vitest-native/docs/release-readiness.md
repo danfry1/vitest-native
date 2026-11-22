@@ -80,8 +80,9 @@ change.
   drop to about 6, and every cell still runs before a release.
 - **Pushes to `main` run everything**, even though branch protection requires a pull request to be up
   to date first. A pull request's caches are scoped to its merge ref and only its re-runs can restore
-  them; the caches every pull request starts from are the ones `main` saves. `pages.yml` also
-  publishes the fidelity matrix from the latest successful `main` run of the RN matrix.
+  them; the caches every pull request starts from are the ones `main` saves. Each successful
+  `main` run of the RN matrix also publishes the fidelity matrix page to the `site-data` branch,
+  which the docs site's build fetches.
 
 The ATTW gate ignores legacy Node 10 resolution because the package requires Node 22.22.3+, 24.12+ or 26+.
 

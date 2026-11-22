@@ -24,12 +24,94 @@ bun run test
 1. Create a branch from `main`
 2. Make your changes in `packages/vitest-native/`
 3. Run `bun run lint` and `bun run format` before committing
-4. Add a changeset: `bunx changeset` (see [Writing a changeset](#writing-a-changeset)). CI
+4. Add a changeset: `bun run changeset` (see [Writing a changeset](#writing-a-changeset)). CI
    requires one when the change ships: anything under `packages/vitest-native/src/`, the build
    files, or a consumer-facing `package.json` field (`exports`, `engines`, `bin`, `files`,
    `dependencies`, peers and the like). A production dependency bump, a Dependabot one included,
-   takes a patch changeset naming the bump. An internal refactor takes `bunx changeset --empty`.
+   takes a patch changeset naming the bump. An internal refactor takes `bun run changeset --empty`.
 5. Open a pull request
+
+**The docs site.** Vercel deploys only `main` and branches named `docs/…`, and only when their
+changes touch the site (`website/` and the other inputs listed in
+`website/scripts/skip-unless-site-changed.sh`). A pull request that changes the site and wants a
+preview uses a `docs/` branch. On any other branch, site changes go live when the pull request
+merges.
+
+## Practices
+
+Each rule below comes from a bug or a lost CI round. The workflows that repeat are written up
+as skills in `.claude/skills/`, which Claude Code loads by name and which read as checklists for
+anyone:
+
+| Skill | When |
+|---|---|
+| `fix-a-bug` | Reproducing and fixing a bug so it cannot ship again |
+| `land-a-stack` | Merging a PR or a stack of PRs into main |
+| `perf-measurement` | Measuring speed or resource use |
+| `docs-claims` | Changing user-facing docs or site copy |
+| `changeset-style` | Writing or reviewing changesets |
+| `release-rc` | Cutting a release candidate or a release |
+
+**Evidence**
+- A test is evidence only if it fails without the fix. Revert the fix and watch each new test
+  go red before calling it covered.
+- A test that loops over cases counts the cases it actually checked and asserts a floor on
+  that count; a test that renders 300 trees can assert nothing about 294 of them.
+- Run the gates as the package's scripts from `packages/vitest-native`. Run from the
+  repository root, a formatter can match no files and pass.
+- Never act on one timing sample (see `perf-measurement`).
+
+**Installs and tools**
+- In a new worktree, run `bun install --frozen-lockfile` right after `git worktree add`.
+- Never run a tool with `bunx` or `npx`. Use `bun run <script>` or `./node_modules/.bin/<tool>`.
+  Where a tool is missing from `node_modules`, `bunx` and `npx` fetch its latest release from
+  the registry and run it, unpinned. A tool that is not in the lockfile is a new dependency,
+  which needs the maintainer's approval. `tests/no-bunx-npx.test.ts` (package.json scripts,
+  workflows and repository scripts) and `tests/practices.test.ts` (the docs' instructions)
+  fail on either.
+- After moving fixtures around, check `bun.lock` for temporary `file:` paths before committing.
+- Install a throwaway fixture outside the repository (a reproduction, an older library) with
+  `node packages/vitest-native/scripts/scratch-install.mjs <dir>`, never a plain `bun install`.
+  bun reads `bunfig.toml` from the project it installs, so a scratch directory gets neither the
+  week-long release cooldown nor the repository's resolutions. The script applies both, refuses
+  young packages, installs with scripts off, and lists the packages new to the machine.
+- Don't use `git stash`. Every worktree of a repository shares one stash, so `git stash pop` can
+  apply someone else's changes. Commit work in progress to your own branch, or make a scratch
+  copy with `git worktree add`.
+
+**Code**
+- Compare paths in one spelling. `fs.realpathSync` keeps the spelling a path was given in (a
+  Windows short name such as `RUNNER~1`, the case it was typed in); `fs.realpathSync.native`
+  returns the long name and the on-disk case. Say in a comment which one a call needs. A
+  differently cased root on a case-insensitive disk reproduces the mismatch on macOS.
+- Do not reassign members of objects this package does not own (`vi`, `expect`, React
+  Native's exports). Add the member to our own object instead, and read state from its owner
+  rather than mirroring it in a flag. Where an override cannot be avoided, install it once per
+  object and test it under a reused worker and through `vi.resetAllMocks()`.
+- Read a child process's stdout and stderr separately, each with its own `StringDecoder` and
+  line buffer. A shared buffer, or `chunk.toString()`, splits lines and multi-byte characters.
+- Compute state that is fixed for a run once, in the plugin, and pass it to workers. A cache
+  created inside per-file setup is rebuilt for every file.
+
+**Files**
+- A CommonJS file inside a `"type": "module"` package uses `.cjs`.
+- Never commit reporter or coverage output, such as the file `--reporter=json` writes or a
+  coverage report. Check `git status` after a debugging run.
+- Guard every `rm -rf` in a script: `rm -rf "${dir:?}"`, and refuse a target outside the
+  scratch directory.
+
+**Commits and pull requests**
+- Use a closing keyword (`fixes`, `closes`, `resolves` and their forms) only for the issue the
+  change fixes. GitHub acts on it when the commit reaches main, and a squash-merge copies the
+  pull request's text into the commit, so "fix #566" written about another pull request closed
+  it. Refer to anything else as "see #566" or "(#566)". CI fails a pull request whose title or
+  body aims a closing keyword at another pull request.
+
+**Long runs**
+- Run one heavy suite at a time. To check for another, match the process, not text that your
+  own shell also contains: `pgrep -fl 'node .*vitest(\.mjs)? run'`. To queue behind a run,
+  wait on its PID.
+- Keep the machine awake for long runs. A sleeping laptop stalls a run and looks like a hang.
 
 ## Writing a changeset
 
@@ -94,10 +176,20 @@ toward the length or the vocabulary check. Empty changesets are exempt. Run it l
 | `bun run format` | Format with oxfmt |
 | `bun run format:check` | Check formatting (CI) |
 | `bun run typecheck` | Type-check with tsc |
+| `bun run test:consumers` | Build, pack, and run the consumer fixtures against the packed package (`VN_CONSUMERS` picks one leg) |
+
+### The npm the consumer runs need
+
+The consumer runs install their fixtures with npm, and need npm 11. The npm 10 that Node 22
+bundles crashes on these fixtures' dependency graphs. The Expo runs
+(`VN_CONSUMERS=expo-latest` and `VN_CONSUMERS=expo-next`) need npm 11.20.0 or later, the
+version CI pins. With an older npm, Expo SDK 57's install stops with `ERESOLVE` on `react`,
+so these runs check the version first and stop with a message naming the minimum. The check
+is a floor only: it cannot tell whether a later npm rejects the same install.
 
 ### Why the build runs tsdown under bun
 
-`build` invokes `bunx --bun tsdown` rather than `tsdown`. tsdown's bin declares a Node
+`build` invokes `bun --bun tsdown` rather than `tsdown`. tsdown's bin declares a Node
 shebang, and from 0.22 it calls `Promise.withResolvers`, which Node did not ship until
 21 — so building on Node 20 fails with `TypeError: Promise.withResolvers is not a
 function`. Bun's runtime has it.
@@ -119,10 +211,10 @@ tokens). A staged version is not installable until a maintainer approves it with
 
 ```bash
 # 1. Every pull request that changes shipped code carries a changeset (CI checks this).
-bunx changeset
+bun run changeset
 
 # 2. On a release branch, version the package: bumps package.json, writes CHANGELOG.md.
-bunx changeset version
+bun run changeset version
 #    Add the "Thank you" paragraph at the end of the version's CHANGELOG section (see below).
 #    Open it as "chore(release): <version>" and merge it once CI is green (main is protected).
 

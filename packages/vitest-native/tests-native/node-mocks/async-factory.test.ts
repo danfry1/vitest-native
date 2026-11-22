@@ -1,7 +1,8 @@
 /**
  * An async factory fails by name until it settles (R9), and is called once: the first
  * require starts it, and the test's import and later requires share its result. The
- * failure is also printed once, for a package that swallows require errors.
+ * failure is also printed once, for a package that swallows require errors, and gives its
+ * advice once.
  */
 import { expect, it, vi } from "vitest";
 import { requireFrom } from "dispatch-consumer-lib";
@@ -15,9 +16,17 @@ vi.mock("dispatch-target-lib", async () => {
 it("names an async factory that has not settled, and says so once", () => {
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   try {
-    expect(() => requireFrom("dispatch-target-lib")).toThrow(
-      expect.objectContaining({ code: "MOCK_NOT_SEEN_BY_NODE" }),
-    );
+    let error: unknown;
+    try {
+      requireFrom("dispatch-target-lib");
+    } catch (thrown) {
+      error = thrown;
+    }
+    expect(error).toMatchObject({ code: "MOCK_NOT_SEEN_BY_NODE" });
+    // The reason, then the advice, given once (#896).
+    const message = String((error as Error).message);
+    expect(message).toContain("its factory is async and has not settled");
+    expect(message.match(/import the (?:mocked )?module in the test/gi)).toHaveLength(1);
     expect(() => requireFrom("dispatch-target-lib")).toThrow();
     expect(
       warn.mock.calls.filter(
