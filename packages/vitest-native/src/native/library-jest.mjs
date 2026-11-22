@@ -108,9 +108,10 @@ export function isSupportFile(file) {
 }
 
 /**
- * The package `file` is a test-support entry of (its `jestSetup`, `mock`, or a file
- * under its `jest/`), or null: a support file loaded by `import` or a `setupFiles` entry
- * reaches the CommonJS loader without the request `Module._load` sees.
+ * The package `file` is a test-support entry of (its `jestSetup`, `mock`, a file under
+ * its `jest/`, or an Expo module's `mocks/<NativeModule>`), or null: a support file
+ * loaded by `import` or a `setupFiles` entry reaches the CommonJS loader without the
+ * request `Module._load` sees.
  */
 function supportPackageOfFile(file) {
   const root = packageRootOf(file);
