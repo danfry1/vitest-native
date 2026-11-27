@@ -26,6 +26,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { VitestNativeError } from "../errors.mjs";
+import { listDirectory } from "./resolve.mjs";
 import { relativeToRoot } from "./root-spelling.mjs";
 
 // metro-config/src/defaults/defaults.js `assetExts` (0.87): the extensions Metro
@@ -146,19 +147,16 @@ export function parseAssetPath(filePath, platform) {
 }
 
 /**
- * metro/src/Assets.js `buildAssetMap` + `getAbsoluteAssetRecord`: every scale
- * variant of the asset in its directory, sorted by scale. A platform-specific
- * group (`icon.ios.png`, `icon@2x.ios.png`) wins over the generic one.
+ * metro/src/Assets.js `buildAssetMap`: every scale variant of every asset in `dir`,
+ * grouped by asset (and platform, for a variant of the platform being built) and
+ * sorted by scale.
  */
-function assetRecord(file, platform) {
-  const dir = path.dirname(file);
-  const key = (assetName, filePlatform) =>
-    filePlatform != null ? `${assetName} : ${filePlatform}` : assetName;
+function buildAssetGroups(dir, names, platform) {
   const groups = new Map();
-  for (const entry of fs.readdirSync(dir)) {
+  for (const entry of names) {
     const asset = parseAssetPath(entry, platform);
     if (asset === null) continue;
-    const groupKey = key(asset.assetName, asset.platform);
+    const groupKey = assetGroupKey(asset.assetName, asset.platform);
     let group = groups.get(groupKey);
     if (!group) groups.set(groupKey, (group = { scales: [], files: [] }));
     let at = 0;
@@ -166,9 +164,42 @@ function assetRecord(file, platform) {
     group.scales.splice(at, 0, asset.resolution);
     group.files.splice(at, 0, path.join(dir, entry));
   }
+  return groups;
+}
+
+const assetGroupKey = (assetName, filePlatform) =>
+  filePlatform != null ? `${assetName} : ${filePlatform}` : assetName;
+
+// Folder listing → platform → its asset groups. The listing is the resolver's
+// (resolve.mjs `listDirectory`), kept while the folder's stat is unchanged and replaced
+// by a new map when it changes, so a folder of N icons is listed and parsed once per
+// change rather than once per icon (#930). Groups are read, never mutated.
+const groupsByListing = new WeakMap();
+
+function assetGroups(dir, platform) {
+  const names = listDirectory(dir);
+  // Unreadable, missing or not a directory: read it here, which throws what reading it
+  // throws, as before the listing was shared.
+  if (names === null || names.size === 0) {
+    return buildAssetGroups(dir, fs.readdirSync(dir), platform);
+  }
+  let byPlatform = groupsByListing.get(names);
+  if (!byPlatform) groupsByListing.set(names, (byPlatform = new Map()));
+  let groups = byPlatform.get(platform);
+  if (!groups) byPlatform.set(platform, (groups = buildAssetGroups(dir, names.keys(), platform)));
+  return groups;
+}
+
+/**
+ * metro/src/Assets.js `getAbsoluteAssetRecord`: the requested asset's scale variants.
+ * A platform-specific group (`icon.ios.png`, `icon@2x.ios.png`) wins over the generic
+ * one.
+ */
+function assetRecord(file, platform) {
+  const groups = assetGroups(path.dirname(file), platform);
   const requested = parseAssetPath(path.basename(file), platform);
   const record =
-    (requested && groups.get(key(requested.assetName, platform))) ||
+    (requested && groups.get(assetGroupKey(requested.assetName, platform))) ||
     (requested && groups.get(requested.assetName));
   return record ? { requested, ...record } : null;
 }
