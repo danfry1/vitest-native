@@ -4,11 +4,12 @@
  * difference (#911). Projects given the same `maxWorkers` in their config files end up
  * different on a machine with less memory: config() lowers only the hot project's count.
  */
+import childProcess from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, onTestFinished, vi } from "vitest";
 import { reactNative } from "../src/index.js";
 import { runPluginConfig } from "./plugin-config.js";
 
@@ -35,7 +36,16 @@ afterAll(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-const host = (bytes: number, cpus: number) => {
+// `performanceCores` is what sysctl reports on a Mac with core classes; without it the
+// host reports none and the automatic count falls back to four (#906).
+const host = (bytes: number, cpus: number, performanceCores?: number) => {
+  const restorePlatform = Object.getOwnPropertyDescriptor(process, "platform")!;
+  Object.defineProperty(process, "platform", { ...restorePlatform, value: "darwin" });
+  onTestFinished(() => Object.defineProperty(process, "platform", restorePlatform));
+  vi.spyOn(childProcess, "spawnSync").mockReturnValue({
+    status: performanceCores === undefined ? 1 : 0,
+    stdout: performanceCores === undefined ? "" : `2\n${performanceCores}\n`,
+  } as never);
   vi.spyOn(os, "totalmem").mockReturnValue(bytes);
   vi.spyOn(process, "constrainedMemory").mockReturnValue(0);
   vi.spyOn(os, "availableParallelism").mockReturnValue(cpus);
@@ -92,6 +102,14 @@ describe("hot runtime off for a group conflict the memory plan made", () => {
     expect(logged).toMatch(
       /the project 'node'.*3 workers to this project's 2.*the memory plan admits 2 of the 3 workers requested on this machine; give every project in the group the same test\.maxWorkers/,
     );
+  });
+
+  it("runs the host's performance cores when nobody set a count", async () => {
+    host(64 * GIB, 12, 6);
+    const { hotWorkers, logged } = await clash("auto", {}, {});
+    expect(hotWorkers).toBe(6);
+    expect(logged).toMatch(/the project 'node'.*11 workers to this project's 6/);
+    expect(logged).not.toMatch(/memory plan/);
   });
 
   it("leaves the plan unnamed when the automatic cap of four chose the count", async () => {

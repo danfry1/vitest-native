@@ -1,10 +1,13 @@
+import childProcess from "node:child_process";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createHotMemoryPlan,
   effectiveMemoryLimit,
   formatHotMemoryPlan,
   formatHotWorkerDecision,
+  hostAutoWorkers,
+  hostPerformanceCores,
   resolveRequestedWorkers,
   type HotMemoryPlan,
 } from "../src/native/memory.mjs";
@@ -13,7 +16,141 @@ import { nativePool } from "../src/native/pool.js";
 const MIB = 1024 * 1024;
 const GIB = 1024 * MIB;
 
+// The host the plans below read when they are not handed an automatic count: sysctl
+// answers as `answer` says (null: it fails, as on an Intel Mac).
+function sysctlAnswers(answer: string | null) {
+  return vi.spyOn(childProcess, "spawnSync").mockReturnValue({
+    status: answer === null ? 1 : 0,
+    stdout: answer ?? "",
+  } as never);
+}
+function onPlatform(platform: string) {
+  const original = Object.getOwnPropertyDescriptor(process, "platform")!;
+  Object.defineProperty(process, "platform", { ...original, value: platform });
+  return () => Object.defineProperty(process, "platform", original);
+}
+
+describe("the automatic worker count (#906)", () => {
+  afterEach(() => vi.restoreAllMocks());
+  const reader = (values: string[] | null) => vi.fn(() => values);
+
+  it("reads the performance cores from macOS's core classes", () => {
+    const sysctl = reader(["2", "6"]);
+    expect(hostPerformanceCores({ platform: "darwin", sysctl })).toBe(6);
+    expect(sysctl).toHaveBeenCalledWith(["hw.nperflevels", "hw.perflevel0.physicalcpu"]);
+    expect(hostAutoWorkers({ platform: "darwin", sysctl })).toEqual({
+      count: 6,
+      source: "performance-cores",
+    });
+  });
+
+  it("falls back to four where the OS reports no core classes", () => {
+    const fallback = { count: 4, source: "default" };
+    // A Linux container: core classes are not read at all.
+    const linux = reader(["2", "6"]);
+    expect(hostAutoWorkers({ platform: "linux", sysctl: linux })).toEqual(fallback);
+    expect(linux).not.toHaveBeenCalled();
+    // An Intel Mac has no hw.perflevel*, and a single level is no split.
+    expect(hostAutoWorkers({ platform: "darwin", sysctl: reader(null) })).toEqual(fallback);
+    expect(hostAutoWorkers({ platform: "darwin", sysctl: reader(["1", "8"]) })).toEqual(fallback);
+    expect(hostAutoWorkers({ platform: "darwin", sysctl: reader(["2", "x"]) })).toEqual(fallback);
+  });
+
+  it("never chooses fewer than the two workers recycling needs", () => {
+    expect(hostAutoWorkers({ platform: "darwin", sysctl: reader(["2", "1"]) })).toEqual({
+      count: 2,
+      source: "performance-cores",
+    });
+  });
+
+  it("asks sysctl itself, and falls back when it fails", () => {
+    const restore = onPlatform("darwin");
+    try {
+      const spawn = sysctlAnswers("2\n6\n");
+      expect(hostAutoWorkers()).toEqual({ count: 6, source: "performance-cores" });
+      expect(spawn).toHaveBeenCalledWith(
+        "/usr/sbin/sysctl",
+        ["-n", "hw.nperflevels", "hw.perflevel0.physicalcpu"],
+        expect.objectContaining({ encoding: "utf8" }),
+      );
+      sysctlAnswers(null);
+      expect(hostAutoWorkers()).toEqual({ count: 4, source: "default" });
+      // One answer for two names is not a reading.
+      sysctlAnswers("6\n");
+      expect(hostAutoWorkers()).toEqual({ count: 4, source: "default" });
+    } finally {
+      restore();
+    }
+  });
+
+  it("plans the automatic count from the host, bounded by memory", () => {
+    const sixP = { count: 6, source: "performance-cores" } as const;
+    const plan = (totalMemory: number, autoWorkers = sixP as never) =>
+      createHotMemoryPlan({ totalMemory, constrainedMemory: 0, requestedWorkers: 11, autoWorkers });
+    expect(plan(64 * GIB)).toMatchObject({ maxWorkers: 6, autoWorkers: 6 });
+    // 2 GiB admits four 256 MiB envelopes: memory still decides below the cores.
+    expect(plan(2 * GIB)).toMatchObject({ maxWorkers: 4, admittedWorkers: 4 });
+    // No known memory limit: the automatic count is the bound.
+    expect(plan(0)).toMatchObject({ source: "unknown", maxWorkers: 6 });
+    // Fewer CPUs to spare than performance cores: the request bounds it.
+    expect(
+      createHotMemoryPlan({
+        totalMemory: 64 * GIB,
+        constrainedMemory: 0,
+        requestedWorkers: 3,
+        autoWorkers: sixP,
+      }),
+    ).toMatchObject({ maxWorkers: 3 });
+  });
+
+  it("reads the host when no automatic count is handed in", () => {
+    const restore = onPlatform("darwin");
+    try {
+      sysctlAnswers("2\n6\n");
+      const host = { totalMemory: 64 * GIB, constrainedMemory: 0, requestedWorkers: 11 };
+      expect(createHotMemoryPlan(host)).toMatchObject({
+        maxWorkers: 6,
+        autoWorkersSource: "performance-cores",
+      });
+      // A count the user set with a known memory limit leaves the host unread.
+      const spawn = sysctlAnswers("2\n6\n");
+      spawn.mockClear();
+      expect(createHotMemoryPlan({ ...host, explicitWorkers: true })).toMatchObject({
+        maxWorkers: 11,
+        autoWorkersSource: "not-used",
+      });
+      expect(spawn).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it("names how the count was chosen on the workers line", () => {
+    const line = (autoWorkers: { count: number; source: "performance-cores" | "default" }) =>
+      formatHotWorkerDecision(
+        createHotMemoryPlan({
+          totalMemory: 64 * GIB,
+          constrainedMemory: 0,
+          requestedWorkers: 11,
+          autoWorkers,
+        }),
+      );
+    expect(line({ count: 6, source: "performance-cores" })).toBe(
+      "workers: 6 (automatic: 6, the host's performance cores; 11 available, set maxWorkers to run more; 65536 MiB host memory)",
+    );
+    expect(line({ count: 4, source: "default" })).toBe(
+      "workers: 4 (automatic: 4, the default where the OS reports no performance cores; 11 available, set maxWorkers to run more; 65536 MiB host memory)",
+    );
+  });
+});
+
 describe("hot memory planning", () => {
+  // Off a Mac with core classes: these plans take the fallback of four.
+  beforeEach(() => {
+    sysctlAnswers(null);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
   it("prefers the cgroup ceiling over host total memory", () => {
     expect(effectiveMemoryLimit({ totalMemory: 16 * GIB, constrainedMemory: 512 * MIB })).toEqual({
       bytes: 512 * MIB,
@@ -45,7 +182,7 @@ describe("hot memory planning", () => {
     expect(plan(2 * GIB).hardRssLimit).toBeLessThan(2 * GIB);
   });
 
-  it("caps only the automatic worker count at four; memory bounds an explicit one", () => {
+  it("caps only the automatic worker count (four, with no core classes); memory bounds an explicit one", () => {
     const host = (requestedWorkers: number, explicitWorkers?: boolean) =>
       createHotMemoryPlan({
         totalMemory: 4 * GIB,
@@ -107,7 +244,7 @@ describe("hot memory planning", () => {
     });
     expect(auto.maxWorkers).toBe(4);
     expect(formatHotWorkerDecision(auto)).toBe(
-      "workers: 4 (automatic cap of 4; 9 available, set maxWorkers to run more; 65536 MiB host memory)",
+      "workers: 4 (automatic: 4, the default where the OS reports no performance cores; 9 available, set maxWorkers to run more; 65536 MiB host memory)",
     );
     // The same machine with the count set: memory alone bounds it.
     const set = createHotMemoryPlan({
@@ -150,6 +287,7 @@ describe("hot memory planning", () => {
       expect.arrayContaining([
         expect.stringContaining("effective limit"),
         expect.stringContaining("requested/admitted/selected"),
+        "automatic worker count: 4, the default where the OS reports no performance cores",
         expect.stringContaining("worker heap"),
         expect.stringContaining("reserves"),
       ]),
@@ -177,6 +315,8 @@ const plan: HotMemoryPlan = {
   softRssLimit: 100 * MIB,
   hardRssLimit: 180 * MIB,
   requestedWorkers: 2,
+  autoWorkers: 4,
+  autoWorkersSource: "default",
   admittedWorkers: 2,
   maxWorkers: 2,
   workerHeapLimit: 96 * MIB,

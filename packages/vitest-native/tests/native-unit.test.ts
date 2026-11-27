@@ -936,10 +936,12 @@ describe("plugin engine routing", () => {
     expect((worker as any).entrypoint).toMatch(/native[\\/]worker\.mjs$/);
     // Plain `hotRuntime: true` (no explicit recycling) applies the default
     // cgroup-aware heap bound, which turns on heap reporting, and caps automatic
-    // concurrency at the measured four-worker ceiling.
+    // concurrency at the host's automatic count (performance cores, else four).
     expect(worker.reportMemory).toBe(true);
     expect(cfg.test.maxWorkers).toBeGreaterThanOrEqual(2);
-    expect(cfg.test.maxWorkers).toBeLessThanOrEqual(4);
+    expect(cfg.test.maxWorkers).toBeLessThanOrEqual(
+      JSON.parse(cfg.test.env.VITEST_NATIVE_MEMORY_PLAN).autoWorkers,
+    );
     expect(JSON.parse(cfg.test.env.VITEST_NATIVE_MEMORY_PLAN)).toMatchObject({
       version: 1,
       enforced: true,

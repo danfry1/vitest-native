@@ -1588,8 +1588,8 @@ type GroupedProject = {
  * Vitest schedules projects that share a `sequence.groupOrder` (0 unless set) as one
  * group, and throws when they resolve to different `maxWorkers` ("Projects … have
  * different 'maxWorkers' but same 'sequence.groupOrder'", groupSpecs in Vitest
- * 5). The hot runtime's memory plan caps workers (at most four unless the user set the
- * count), while a project beside it gets Vitest's default of one fewer than the CPUs,
+ * 5). The hot runtime's memory plan caps workers (at most the host's performance cores,
+ * else four, unless the user set the count), while a project beside it gets Vitest's default of one fewer than the CPUs,
  * so a native project next to a mock or non-React-Native project failed on any machine
  * with more than five cores. Mirrors Vitest's resolveMaxWorkers and its grouping,
  * including the exemption for a single-worker isolated project in the default group.
@@ -3055,8 +3055,9 @@ export function reactNative(options?: VitestNativeOptions): Plugin {
           const requestedWorkers = resolveRequestedWorkers(userTest?.maxWorkers, {
             fileParallelism: userTest?.fileParallelism,
           });
-          // A worker count the user set is bounded by memory alone; the four-worker
-          // cap applies to the automatic choice (see createHotMemoryPlan).
+          // A worker count the user set is bounded by memory alone; the automatic
+          // count (performance cores, else four) bounds only the automatic choice
+          // (see createHotMemoryPlan).
           const plan = createHotMemoryPlan({
             requestedWorkers,
             explicitWorkers: userTest?.maxWorkers != null,

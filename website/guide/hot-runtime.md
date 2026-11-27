@@ -19,7 +19,7 @@ reactNative({ hotRuntime: false })   // the default: a fresh worker per file
 The [`hotRuntime` option](/guide/plugin-options#hotruntime) lists every value and the object form's keys. The engine banner at the start of a run says `hot runtime` when it is on (unless a following `hot runtime off: …` line names why it was turned off), and the startup log names the worker count it chose, for example:
 
 ```
-[vitest-native] workers: 4 (automatic cap of 4; 9 available, set maxWorkers to run more; 24576 MiB host memory)
+[vitest-native] workers: 4 (automatic: 4, the host's performance cores; 9 available, set maxWorkers to run more; 24576 MiB host memory)
 ```
 
 ## When `'auto'` falls back
@@ -67,7 +67,7 @@ vitest-native's presets build their mocks with each file's React. A [preset of y
 
 The hot runtime plans its workers from the lower of the host's and the container's memory (it reads cgroup limits). It reserves headroom for the main process and for replacing workers, recycles a worker when its heap or the process's memory grows past its share, and stops before starting more work at a hard memory limit (`HOT_MEMORY_BUDGET_EXCEEDED`).
 
-- **Worker count.** The count it picks itself is capped at four: in the measurement behind that cap, eight workers were about 6% faster than four for about 512 MiB more peak memory. A count you set (`test.maxWorkers`, `--maxWorkers` or `VITEST_MAX_WORKERS`) is honoured up to what the memory plan admits, so set one to run more than four. Where no memory limit can be read, the cap of four applies to an explicit count too.
+- **Worker count.** The count it picks itself is the machine's performance cores where the operating system reports them (macOS on Apple silicon), and four where it does not, such as Linux containers and Intel Macs. On the suites measured, the fastest count equalled the performance cores: more workers ran on efficiency cores and used more CPU without finishing sooner. The memory plan can still lower it, and the startup line names which of the two chose. A count you set (`test.maxWorkers`, `--maxWorkers` or `VITEST_MAX_WORKERS`) is honoured up to what the memory plan admits, so set one to run more. Where no memory limit can be read, the automatic count applies to an explicit count too.
 - **The full plan** (limits, reserves and the heap threshold) is printed with `reactNative({ diagnostics: true })` or by `vitest-native doctor`.
 - **Your own threshold.** `hotRuntime: { mode: 'auto', memoryLimit }` (bytes) sets the heap at which a worker is recycled and keeps `'auto'`'s fallback; without `mode`, an object requires the hot runtime. The heap a worker reports is read when its file finishes, before garbage collection, so it can sit above what the worker really retains: leave headroom.
 - **One worker.** Recycling needs two or more workers, so use `maxWorkers` of 2 or more. If something outside the run already bounds its memory, `hotRuntime: { allowUnboundedMemory: true }` accepts a single-worker run; it also turns off the automatic worker cap, recycling on process memory and the memory hard stop, and warns when Vitest batches the files into one task.

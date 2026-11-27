@@ -5,6 +5,7 @@
 // on heap growth, and guard the whole process against its effective host/cgroup
 // limit. Keep this module side-effect free so config, pool, doctor and tests all
 // consume the same arithmetic.
+import childProcess from "node:child_process";
 import os from "node:os";
 
 const MIB = 1024 * 1024;
@@ -13,7 +14,8 @@ const MAX_WORKER_HEAP = 512 * MIB;
 const MAIN_PROCESS_RESERVE = 256 * MIB;
 const REPLACEMENT_OVERLAP_RESERVE = 192 * MIB;
 const WORKER_RSS_ADMISSION_COST = 256 * MIB;
-const MAX_AUTO_WORKERS = 4;
+// The automatic count where the OS reports no core classes (#906).
+const DEFAULT_AUTO_WORKERS = 4;
 
 function finitePositive(value) {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
@@ -26,6 +28,50 @@ export function effectiveMemoryLimit({ totalMemory, constrainedMemory }) {
   if (total === null) return { bytes: constrained, source: "constrained" };
   if (constrained === null || total <= constrained) return { bytes: total, source: "host" };
   return { bytes: constrained, source: "constrained" };
+}
+
+/**
+ * `sysctl -n` for each name, one value per line, or null when any name is unknown (an
+ * Intel Mac has no `hw.perflevel*`) or sysctl cannot run. Called through the
+ * child_process object so tests can stand in for the host.
+ */
+function readSysctl(names) {
+  const result = childProcess.spawnSync("/usr/sbin/sysctl", ["-n", ...names], {
+    encoding: "utf8",
+    timeout: 2000,
+  });
+  if (result.status !== 0 || typeof result.stdout !== "string") return null;
+  const lines = result.stdout.trim().split("\n");
+  return lines.length === names.length ? lines : null;
+}
+
+/**
+ * The host's performance cores, where the OS reports core classes, else null. macOS on
+ * Apple silicon reports them as `hw.perflevel0.physicalcpu` with `hw.nperflevels` of 2
+ * or more; a single level (a virtual machine, say) is no split. Linux reports no core
+ * classes inside the containers tests run in, so it takes the fallback.
+ */
+export function hostPerformanceCores({ platform = process.platform, sysctl = readSysctl } = {}) {
+  if (platform !== "darwin") return null;
+  const values = sysctl(["hw.nperflevels", "hw.perflevel0.physicalcpu"]);
+  if (values === null) return null;
+  const [levels, performance] = values.map((value) => Number(value));
+  if (!Number.isInteger(levels) || levels < 2) return null;
+  return Number.isInteger(performance) && performance > 0 ? performance : null;
+}
+
+/**
+ * The worker count the hot runtime chooses when nobody set one: the host's performance
+ * cores, where the OS reports them, else four. On the suites measured for #906 the
+ * fastest count equalled the performance cores (6 on 6P+6E, 4 on 4P+6E); more workers
+ * spill onto efficiency cores and cost CPU for no time. Never below two, the fewest the
+ * hot runtime can recycle with. The memory plan still bounds it.
+ */
+export function hostAutoWorkers(input) {
+  const cores = hostPerformanceCores(input);
+  return cores === null
+    ? { count: DEFAULT_AUTO_WORKERS, source: "default" }
+    : { count: Math.max(2, cores), source: "performance-cores" };
 }
 
 export function defaultRequestedWorkers(
@@ -55,27 +101,33 @@ export function resolveRequestedWorkers(value, { parallelism, fileParallelism = 
 /**
  * Compute the hot-runtime envelope.
  *
- * The reserves and four-worker cap were earned by the packed 406-file RNTL
- * experiment. They are conservative defaults, not portable benchmark claims.
+ * The reserves were earned by the packed 406-file RNTL experiment. They are
+ * conservative defaults, not portable benchmark claims.
  *
- * The four-worker cap bounds the AUTOMATIC choice only. On that experiment eight
- * workers bought about 6% over four for about 512 MiB more peak RSS, so four is
- * where a default stops paying for its memory; it is not a safety limit, and the
- * measurement left higher concurrency as "an explicit or measured choice"
- * (validation/module-isolation/README.md, "Worker-count curve"). A worker count the
- * user set (`maxWorkers` in config, `--maxWorkers`, `VITEST_MAX_WORKERS`) is
- * therefore admitted up to what the memory envelope holds, the bound that does
- * protect the process. With no known memory limit nothing can admit more than the
- * measured default, so the cap applies there either way.
+ * The automatic count (hostAutoWorkers: the performance cores, else four) bounds the
+ * AUTOMATIC choice only. It is where a default stops paying for its memory and CPU, not
+ * a safety limit (validation/module-isolation/README.md, "Worker-count curve"; #906).
+ * A worker count the user set (`maxWorkers` in config, `--maxWorkers`,
+ * `VITEST_MAX_WORKERS`) is therefore admitted up to what the memory envelope holds, the
+ * bound that does protect the process. With no known memory limit nothing can admit
+ * more than the automatic count, so it applies there either way.
  */
 export function createHotMemoryPlan({
   totalMemory = os.totalmem(),
   constrainedMemory = process.constrainedMemory?.() ?? 0,
   requestedWorkers = defaultRequestedWorkers(),
   explicitWorkers = false,
+  autoWorkers,
 } = {}) {
   const effective = effectiveMemoryLimit({ totalMemory, constrainedMemory });
   const requested = Math.max(1, Math.floor(requestedWorkers));
+  // Read the host only when the automatic count can decide: a count the user set with
+  // a known memory limit is bounded by memory alone.
+  const auto =
+    autoWorkers ??
+    (explicitWorkers && effective.bytes !== null
+      ? { count: null, source: "not-used" }
+      : hostAutoWorkers());
   if (effective.bytes === null) {
     return Object.freeze({
       version: 1,
@@ -84,8 +136,10 @@ export function createHotMemoryPlan({
       softRssLimit: null,
       hardRssLimit: null,
       requestedWorkers: requested,
-      admittedWorkers: Math.min(MAX_AUTO_WORKERS, requested),
-      maxWorkers: Math.min(MAX_AUTO_WORKERS, requested),
+      autoWorkers: auto.count,
+      autoWorkersSource: auto.source,
+      admittedWorkers: Math.min(auto.count, requested),
+      maxWorkers: Math.min(auto.count, requested),
       workerHeapLimit: 256 * MIB,
       mainProcessReserve: MAIN_PROCESS_RESERVE,
       replacementOverlapReserve: REPLACEMENT_OVERLAP_RESERVE,
@@ -101,7 +155,7 @@ export function createHotMemoryPlan({
   const memoryAdmits = Math.floor(workerEnvelope / WORKER_RSS_ADMISSION_COST);
   const admittedWorkers = Math.max(
     1,
-    explicitWorkers ? memoryAdmits : Math.min(MAX_AUTO_WORKERS, memoryAdmits),
+    explicitWorkers ? memoryAdmits : Math.min(auto.count, memoryAdmits),
   );
   const maxWorkers = Math.min(requested, admittedWorkers);
   const perWorkerEnvelope = workerEnvelope / maxWorkers;
@@ -117,6 +171,8 @@ export function createHotMemoryPlan({
     softRssLimit,
     hardRssLimit,
     requestedWorkers: requested,
+    autoWorkers: auto.count,
+    autoWorkersSource: auto.source,
     admittedWorkers,
     maxWorkers,
     workerHeapLimit,
@@ -132,8 +188,8 @@ export function formatBytes(bytes) {
 
 /**
  * The count the plan runs when memory is what held it below the count requested, else
- * null: the plan runs what was requested, or the automatic cap of four chose, which a
- * count the user sets lifts and which is not about memory. What memory alone admits
+ * null: the plan runs what was requested, or the automatic count chose, which a count
+ * the user sets lifts and which is not about memory. What memory alone admits
  * comes from the plan's own figures (createHotMemoryPlan).
  */
 export function memoryLoweredWorkers(plan) {
@@ -162,11 +218,22 @@ export function formatHotWorkerDecision(plan) {
     // Say which of memory and the automatic cap chose the number, since only one of
     // them is about memory.
     if (memoryLoweredWorkers(plan) === null) {
-      return `workers: ${plan.maxWorkers} (automatic cap of ${MAX_AUTO_WORKERS}; ${plan.requestedWorkers} available, set maxWorkers to run more; ${memory})`;
+      return `workers: ${plan.maxWorkers} (automatic: ${describeAutoWorkers(plan)}; ${plan.requestedWorkers} available, set maxWorkers to run more; ${memory})`;
     }
     return `workers: ${plan.maxWorkers} (memory plan admitted ${plan.admittedWorkers} of ${plan.requestedWorkers} requested, ${memory})`;
   }
   return `workers: ${plan.maxWorkers} (as requested; memory plan admits up to ${plan.admittedWorkers}, ${memory})`;
+}
+
+/** How the automatic count was chosen, for the startup line and the full plan. */
+function describeAutoWorkers(plan) {
+  if (plan.autoWorkersSource === "performance-cores") {
+    return `${plan.autoWorkers}, the host's performance cores`;
+  }
+  if (plan.autoWorkersSource === "default") {
+    return `${plan.autoWorkers}, the default where the OS reports no performance cores`;
+  }
+  return "not used, the worker count was set";
 }
 
 export function formatHotMemoryPlan(plan) {
@@ -174,6 +241,7 @@ export function formatHotMemoryPlan(plan) {
     `effective limit: ${formatBytes(plan.effectiveLimit)} (${plan.source})`,
     `RSS soft/hard: ${formatBytes(plan.softRssLimit)} / ${formatBytes(plan.hardRssLimit)}`,
     `workers requested/admitted/selected: ${plan.requestedWorkers} / ${plan.admittedWorkers} / ${plan.maxWorkers}`,
+    `automatic worker count: ${describeAutoWorkers(plan)}`,
     `worker heap recycle threshold: ${formatBytes(plan.workerHeapLimit)}`,
     `reserves main/replacement: ${formatBytes(plan.mainProcessReserve)} / ${formatBytes(plan.replacementOverlapReserve)}`,
   ];
@@ -186,5 +254,5 @@ export const hotMemoryConstants = Object.freeze({
   MAIN_PROCESS_RESERVE,
   REPLACEMENT_OVERLAP_RESERVE,
   WORKER_RSS_ADMISSION_COST,
-  MAX_AUTO_WORKERS,
+  DEFAULT_AUTO_WORKERS,
 });
