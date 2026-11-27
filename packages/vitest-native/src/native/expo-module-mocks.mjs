@@ -313,6 +313,9 @@ export function expoModuleMock(projectRoot, name, mockFn) {
   if (!file) return null;
   let exports;
   try {
+    // The file is a support entry of its package (library-jest.mjs): it is compiled
+    // with a `jest` of its own, so the `jest.fn` and `jest.requireActual` these mocks
+    // call work without the jest-compat layer, and `globalThis.jest` is never set.
     exports = createRequire(file)(file);
   } catch {
     return null;
