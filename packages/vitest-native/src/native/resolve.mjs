@@ -109,12 +109,16 @@ export function firstExact(prefix, suffixes) {
 //
 // Lifetime is the process: in the main process, the whole watch session. Memory is
 // bounded by the directories resolution touches, at about 156 bytes per listed entry.
+//
+// Asset descriptors read their folder through the same listing (assets.mjs), so a folder
+// the resolver has listed costs an asset nothing more, and the returned map's identity
+// says whether the folder changed since it was last read.
 const listings = new Map();
 const RACY_MS = 2000;
 const NO_ENTRIES = new Map();
 const realNow = Date.now;
 
-function listDirectory(dir) {
+export function listDirectory(dir) {
   let stat;
   try {
     stat = fs.statSync(dir);
