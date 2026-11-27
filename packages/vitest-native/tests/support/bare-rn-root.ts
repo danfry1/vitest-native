@@ -18,12 +18,17 @@ const FIXTURES = path.resolve(
  * Native project's descriptor is what Metro alone writes, and only a root from which
  * `expo` does not resolve has it. The copy keeps the asset paths relative to the root
  * as they are in this package, so descriptors carry the same server location.
+ *
+ * The copy is dated a minute back, so its folder listing is kept (resolve.mjs,
+ * RACY_MS) and descriptors are built from the stored listing, as in a real project.
  */
 export function bareReactNativeRoot(): { root: string; assets: string; remove(): void } {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "vn-bare-rn-"));
   fs.writeFileSync(path.join(root, "package.json"), '{"name":"bare-rn-app"}');
   const assets = path.join(root, "tests-native", "fixtures", "assets");
   fs.cpSync(FIXTURES, assets, { recursive: true });
+  const past = new Date(Date.now() - 60_000);
+  fs.utimesSync(assets, past, past);
   try {
     createRequire(path.join(root, "package.json")).resolve("expo/package.json");
   } catch {
